@@ -427,7 +427,6 @@ def print_zt_analysis(zt_data, dt_data, zb_data):
 
 def print_fund_flow(flow_data):
     if not flow_data or "_error" in flow_data:
-        print("## 资金流向\n数据获取失败\n")
         return
     print("## 资金流向（上证指数口径）\n")
     print(f"  主力净流入: {fmt_amount(flow_data.get('主力净流入'))}")
@@ -439,15 +438,10 @@ def print_fund_flow(flow_data):
 
 
 def print_boards(board_data, title):
-    if "_skipped" in board_data:
-        print(f"## {title}\n跳过: {board_data['_skipped']}\n")
-        return
-    if "_error" in board_data:
-        print(f"## {title}\n错误: {board_data['_error']}\n")
+    if "_skipped" in board_data or "_error" in board_data:
         return
     rows = board_data.get("rows", [])
     if not rows:
-        print(f"## {title}\n未抓取到数据\n")
         return
     print(f"## {title}（前15）\n")
     print(f"{'排名':<4} {'板块':<12} {'涨跌幅':>8}")
@@ -511,7 +505,6 @@ def print_global_indices(indices_data, market_name: str):
 
 def print_global_stock(quote_data):
     if "_error" in quote_data:
-        print(f"## 个股行情\n错误: {quote_data['_error']}\n")
         return
     symbol = quote_data.get("symbol", "")
     name = quote_data.get("name", symbol)
@@ -539,11 +532,9 @@ def print_global_stock(quote_data):
 
 def print_futu_news(news_data, keyword: str):
     if "_error" in news_data:
-        print(f"## {keyword} 新闻\n错误: {news_data['_error']}\n")
         return
     data = news_data.get("data", [])
     if not data:
-        print(f"## {keyword} 新闻\n暂无相关数据\n")
         return
     print(f"## {keyword} 新闻（前5条）\n")
     for i, item in enumerate(data[:5], 1):
@@ -578,8 +569,6 @@ def print_global_sentiment(indices_data):
             print("⚠️ 偏弱：大盘指数跌多涨少，情绪偏谨慎")
         else:
             print("😐 中性：大盘指数分化，情绪平衡")
-    else:
-        print("⚠️ 无法判断：数据获取失败")
     print()
 
 
@@ -594,9 +583,7 @@ def run_a_share(date_str: str):
     print("=" * 60 + "\n")
 
     index_data = get_index(date_str)
-    if isinstance(index_data, dict) and "_error" in index_data:
-        print(f"指数获取失败: {index_data['_error']}\n")
-    else:
+    if not (isinstance(index_data, dict) and "_error" in index_data):
         print_index(index_data)
 
     zt = get_zt_pool(date_str)
@@ -632,8 +619,6 @@ def run_us_market():
     indices = yahoo_quotes_batch(indices_symbols)
     if "_error" not in indices:
         print_global_indices(indices, "美股")
-    else:
-        print(f"大盘指数获取失败: {indices['_error']}\n")
 
     # 热门个股
     hot_stocks = ["AAPL", "TSLA", "NVDA", "MSFT", "AMZN", "GOOGL", "META", "BABA", "PDD", "JD"]
@@ -672,8 +657,6 @@ def run_hk_market():
     indices = yahoo_quotes_batch(indices_symbols)
     if "_error" not in indices:
         print_global_indices(indices, "港股")
-    else:
-        print(f"大盘指数获取失败: {indices['_error']}\n")
 
     # 热门个股
     hot_stocks = ["0700.HK", "9988.HK", "3690.HK", "9618.HK", "1299.HK", "2318.HK", "0005.HK", "0388.HK"]
