@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-全球股市行情一键采集脚本
-用法: python aftermarket.py [--market a|hk|us] [YYYYMMDD]
+全球股市行情一键采集脚本 v2.1.0
+用法: python aftermarket.py [--market a|hk|us|global] [YYYYMMDD]
 
---market a    : A股复盘（默认）
---market hk   : 港股复盘
---market us   : 美股复盘
+--market a      : A股复盘（默认）
+--market hk     : 港股复盘
+--market us     : 美股复盘
+--market global : 全球市场概览（美股+港股+A股指数）
 
 不指定日期则 A股自动取最近交易日（周末回退到周五），港美股自动取最近交易日。
 输出格式化的复盘文本到 stdout，可重定向到文件。
@@ -24,11 +25,57 @@ import sys
 import os
 import urllib.request
 import time
+import random
 from datetime import datetime, timedelta
+from functools import wraps
+from collections import Counter
 
 # ------------------------------------------------------------------
-# 配置
+# 全局配置
 # ------------------------------------------------------------------
+
+# 请求频率控制
+REQUEST_INTERVAL = 0.5          # 基础请求间隔（秒）
+MAX_RETRIES = 3                 # 最大重试次数
+INITIAL_BACKOFF = 2             # 初始退避秒数
+
+# 数据质量阈值
+VOLUME_THRESHOLD_INDEX = 1_000_000    # 指数成交量低于此值视为异常
+VOLUME_THRESHOLD_STOCK = 1_000        # 个股成交量低于此值视为异常
+
+# 市场配置
+MARKET_CONFIG = {
+    "us_market": {
+        "tz": "America/New_York",
+        "volume_range": [1_000_000, 10_000_000_000],
+        "data_sources": ["Yahoo Finance"],
+        "required_fields": ["Open", "High", "Low", "Close", "Volume"],
+    },
+    "hk_market": {
+        "tz": "Asia/Hong_Kong",
+        "volume_range": [1_000_000, 5_000_000_000],
+        "data_sources": ["Yahoo Finance", "East Money"],
+        "required_fields": ["Open", "High", "Low", "Close", "Volume"],
+    },
+    "cn_market": {
+        "tz": "Asia/Shanghai",
+        "volume_range": [10_000_000, 10_000_000_000],
+        "data_sources": ["East Money", "Yahoo Finance"],
+        "required_fields": ["Open", "High", "Low", "Close", "Volume"],
+    },
+    "eu_market": {
+        "tz": "Europe/London",
+        "volume_range": [1_000_000, 5_000_000_000],
+        "data_sources": ["Yahoo Finance"],
+        "required_fields": ["Open", "High", "Low", "Close", "Volume"],
+    },
+    "jp_market": {
+        "tz": "Asia/Tokyo",
+        "volume_range": [1_000_000, 5_000_000_000],
+        "data_sources": ["Yahoo Finance"],
+        "required_fields": ["Open", "High", "Low", "Close", "Volume"],
+    },
+}
 
 # A股
 INDEX_SECIDS = "1.000001,0.399001,0.399006,1.000688,0.399005,0.899050"
@@ -63,28 +110,51 @@ INDEX_URL = (
 )
 
 # Yahoo Finance
-YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1d"
+YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=5d"
 YAHOO_QUOTE_URL = "https://query1.finance.yahoo.com/v6/finance/quote?symbols={symbols}"
 
 # 富途
 FUTU_NEWS_URL = "https://ai-news-search.futunn.com/news_search"
 FUTU_FEED_URL = "https://ai-news-search.futunn.com/stock_feed"
 
+
 # ------------------------------------------------------------------
-# 工具函数
+# 通用工具函数
 # ------------------------------------------------------------------
 
+def retry_with_backoff(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF):
+    """指数退避 + 抖动重试装饰器"""
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            delay = initial_delay
+            last_err = None
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_err = e
+                    if attempt == max_retries - 1:
+                        break
+                    jitter = random.uniform(0.5, 1.5)
+                    wait = delay * (2 ** attempt) * jitter
+                    time.sleep(wait)
+            return {"_error": f"{last_err} (retried {max_retries}x)"}
+        return wrapper
+    return decorator
+
+
 def fmt_price(v):
-    if v is None:
+    if v is None or v == "":
         return "-"
     try:
-        return f"{float(v)/100:.2f}"
+        return f"{float(v)/100:.2f}" if float(v) > 1000 else f"{float(v):.2f}"
     except (TypeError, ValueError):
         return str(v)
 
 
 def fmt_pct(v):
-    if v is None:
+    if v is None or v == "":
         return "-"
     try:
         return f"{float(v)/100:+.2f}%"
@@ -93,10 +163,27 @@ def fmt_pct(v):
 
 
 def fmt_amount(v):
-    if v is None:
+    if v is None or v == "":
         return "-"
     try:
         v = float(v)
+        if v >= 1e8:
+            return f"{v/1e8:.2f}亿"
+        if v >= 1e4:
+            return f"{v/1e4:.2f}万"
+        return f"{v:.0f}"
+    except (TypeError, ValueError):
+        return str(v)
+
+
+def fmt_volume(v):
+    """格式化成交量，处理异常值"""
+    if v is None or v == "":
+        return "-"
+    try:
+        v = float(v)
+        if v <= 0:
+            return "-"
         if v >= 1e8:
             return f"{v/1e8:.2f}亿"
         if v >= 1e4:
@@ -113,10 +200,16 @@ def fmt_time(v):
     return f"{s[:2]}:{s[2:4]}:{s[4:6]}"
 
 
+@retry_with_backoff(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
 def fetch_json(url, headers=None):
+    """带重试的 JSON 获取"""
     default_headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ),
         "Referer": "https://finance.yahoo.com/",
+        "Accept": "application/json",
     }
     if headers:
         default_headers.update(headers)
@@ -160,10 +253,87 @@ def nearest_trade_date(dt: datetime = None) -> str:
     return dt.strftime("%Y%m%d")
 
 
+def detect_market_type(ticker_or_name):
+    """检测市场类型"""
+    t = str(ticker_or_name).upper()
+    if t.endswith(".HK") or "恒生" in t or "HSI" in t or "HSCE" in t or "HSTECH" in t:
+        return "hk_market"
+    elif any(ex in t for ex in ["上证", "深证", "创业板", "科创板", "000001", "399001", "399006", "899050"]):
+        return "cn_market"
+    elif any(ex in t for ex in ["DAX", "CAC", "FTSE", "ESTX", "OMXS"]):
+        return "eu_market"
+    elif "NIKKEI" in t or t.endswith(".T") or t.endswith(".JP"):
+        return "jp_market"
+    else:
+        return "us_market"
+
+
+# ------------------------------------------------------------------
+# 数据质量验证与清洗
+# ------------------------------------------------------------------
+
+def validate_and_clean_quote(data, ticker_type="index"):
+    """验证并清洗行情数据，返回清洗后的数据 + 质量元数据"""
+    cleaned = dict(data)
+    notes = []
+    quality_flags = []
+
+    # 成交量验证
+    volume = cleaned.get("regularMarketVolume") or cleaned.get("volume")
+    if volume is not None:
+        try:
+            vol = float(volume)
+            threshold = VOLUME_THRESHOLD_INDEX if ticker_type == "index" else VOLUME_THRESHOLD_STOCK
+            if vol <= 0:
+                cleaned["regularMarketVolume"] = None
+                cleaned["volume"] = None
+                notes.append("成交量为0，标记为缺失")
+                quality_flags.append("volume_zero")
+            elif vol < threshold:
+                notes.append(f"成交量异常偏低({fmt_volume(vol)})，可能缺失")
+                quality_flags.append("volume_anomaly")
+        except (TypeError, ValueError):
+            cleaned["regularMarketVolume"] = None
+            cleaned["volume"] = None
+
+    # 价格验证
+    price_fields = ["regularMarketPrice", "previousClose", "open", "high", "low", "close"]
+    for field in price_fields:
+        val = cleaned.get(field)
+        if val is not None:
+            try:
+                v = float(val)
+                if v <= 0:
+                    cleaned[field] = None
+                    notes.append(f"{field}价格异常({v})已过滤")
+                    quality_flags.append("price_anomaly")
+            except (TypeError, ValueError):
+                cleaned[field] = None
+
+    # 数据完整性评分
+    required = ["regularMarketPrice", "previousClose", "volume"]
+    available = sum(1 for f in required if cleaned.get(f) is not None)
+    completeness = (available / len(required)) * 100
+
+    cleaned["_quality"] = {
+        "completeness_score": round(completeness, 1),
+        "notes": notes,
+        "flags": quality_flags,
+    }
+    return cleaned
+
+
+def calculate_completeness_score(data, required_fields):
+    """计算数据完整性分数 0-100"""
+    available = sum(1 for f in required_fields if data.get(f) is not None and data.get(f) != "-")
+    return (available / len(required_fields)) * 100 if required_fields else 0
+
+
 # ------------------------------------------------------------------
 # A股数据获取
 # ------------------------------------------------------------------
 
+@retry_with_backoff(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
 def get_index(date_str: str):
     url = INDEX_URL.format(secids=INDEX_SECIDS, fields=INDEX_FIELDS, ts=datetime.now().timestamp())
     data = fetch_json(url, {"Referer": "https://quote.eastmoney.com/"})
@@ -172,18 +342,22 @@ def get_index(date_str: str):
     return data.get("data", {}).get("diff", [])
 
 
+@retry_with_backoff(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
 def get_zt_pool(date_str: str):
     return fetch_json(ZT_URL.format(date=date_str), {"Referer": "https://quote.eastmoney.com/"})
 
 
+@retry_with_backoff(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
 def get_dt_pool(date_str: str):
     return fetch_json(DT_URL.format(date=date_str), {"Referer": "https://quote.eastmoney.com/"})
 
 
+@retry_with_backoff(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
 def get_zb_pool(date_str: str):
     return fetch_json(ZB_URL.format(date=date_str), {"Referer": "https://quote.eastmoney.com/"})
 
 
+@retry_with_backoff(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
 def get_fund_flow():
     url = FFLOW_URL.format(ts=int(datetime.now().timestamp() * 1000))
     data = fetch_json(url, {"Referer": "https://quote.eastmoney.com/"})
@@ -202,23 +376,35 @@ def get_fund_flow():
 # 港美股数据获取 (Yahoo Finance)
 # ------------------------------------------------------------------
 
+@retry_with_backoff(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
 def yahoo_quote(symbol: str):
-    """获取单只股票实时行情"""
+    """获取单只股票实时行情，带数据清洗"""
     url = YAHOO_CHART_URL.format(symbol=symbol)
     data = fetch_json(url)
     if "_error" in data:
         return data
+
     result = data.get("chart", {}).get("result", [{}])[0]
+    if not result:
+        return {"_error": "No result", "symbol": symbol}
+
     meta = result.get("meta", {})
     timestamps = result.get("timestamp", [])
     quotes = result.get("indicators", {}).get("quote", [{}])[0]
-    
+
     if not timestamps:
         return {"_error": "No data available", "symbol": symbol}
-    
-    # 取最新一条
+
+    # 取最新一条有效数据（从后往前找）
     idx = -1
-    return {
+    close_vals = quotes.get("close", [])
+    if close_vals:
+        for i in range(len(close_vals) - 1, -1, -1):
+            if close_vals[i] is not None:
+                idx = i
+                break
+
+    raw = {
         "symbol": symbol,
         "name": meta.get("shortName", meta.get("symbol", symbol)),
         "currency": meta.get("currency", "USD"),
@@ -235,22 +421,34 @@ def yahoo_quote(symbol: str):
         "volume": quotes.get("volume", [None])[idx] if quotes.get("volume") else None,
     }
 
+    # 数据清洗
+    mkt = detect_market_type(symbol)
+    ticker_type = "index" if symbol.startswith("^") else "stock"
+    return validate_and_clean_quote(raw, ticker_type)
 
+
+@retry_with_backoff(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
 def yahoo_quotes_batch(symbols: list):
     """批量获取多只股票快照"""
     url = YAHOO_QUOTE_URL.format(symbols=",".join(symbols))
     data = fetch_json(url)
     if "_error" in data:
         return data
-    return data.get("quoteResponse", {}).get("result", [])
+    results = data.get("quoteResponse", {}).get("result", [])
+    cleaned = []
+    for r in results:
+        mkt = detect_market_type(r.get("symbol", ""))
+        ticker_type = "index" if r.get("symbol", "").startswith("^") else "stock"
+        cleaned.append(validate_and_clean_quote(r, ticker_type))
+    return cleaned
 
 
 # ------------------------------------------------------------------
 # 富途数据获取
 # ------------------------------------------------------------------
 
+@retry_with_backoff(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
 def futu_news_search(keyword: str, size: int = 10, lang: str = "en", news_type: int = 1):
-    """富途新闻搜索"""
     params = urllib.parse.urlencode({
         "keyword": keyword,
         "size": size,
@@ -260,7 +458,7 @@ def futu_news_search(keyword: str, size: int = 10, lang: str = "en", news_type: 
     })
     url = f"{FUTU_NEWS_URL}?{params}"
     req = urllib.request.Request(url, headers={
-        "User-Agent": "stock-analysis/2.0.0 (Skill)",
+        "User-Agent": "stock-analysis/2.1.0 (Skill)",
     })
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -269,15 +467,15 @@ def futu_news_search(keyword: str, size: int = 10, lang: str = "en", news_type: 
         return {"_error": str(e)}
 
 
+@retry_with_backoff(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
 def futu_stock_feed(keyword: str, size: int = 30):
-    """富途社区情绪"""
     params = urllib.parse.urlencode({
         "keyword": keyword,
         "size": size,
     })
     url = f"{FUTU_FEED_URL}?{params}"
     req = urllib.request.Request(url, headers={
-        "User-Agent": "stock-analysis/2.0.0 (Skill)",
+        "User-Agent": "stock-analysis/2.1.0 (Skill)",
     })
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -417,7 +615,6 @@ def print_zt_analysis(zt_data, dt_data, zb_data):
     late = sum(1 for t in fbt_times if t > 130000)
     print(f"\n封板时间分布: 早盘(≤10:00) {early}只 / 上午 {mid}只 / 下午 {late}只")
 
-    from collections import Counter
     hy_counter = Counter([s.get("hybk", "未知") for s in zt_pool])
     print(f"\n涨停行业 TOP5:")
     for hy, cnt in hy_counter.most_common(5):
@@ -477,29 +674,36 @@ def print_sentiment_summary(zt_data, dt_data, zb_data, flow_data):
 
 
 # ------------------------------------------------------------------
-# 输出格式化 - 港美股
+# 输出格式化 - 港美股（含数据质量提示）
 # ------------------------------------------------------------------
 
 def print_global_indices(indices_data, market_name: str):
     print(f"## {market_name} 大盘指数\n")
-    print(f"{'指数':<15} {'当前价':>12} {'涨跌幅':>10} {'成交量':>14}")
-    print("-" * 60)
+    print(f"{'指数':<15} {'当前价':>12} {'涨跌幅':>10} {'成交量':>14} {'数据质量':>8}")
+    print("-" * 70)
     for item in indices_data:
         if isinstance(item, dict) and "_error" in item:
             continue
-        name = item.get("shortName") or item.get("symbol", "")
+        name = item.get("shortName") or item.get("name") or item.get("symbol", "")
         price = item.get("regularMarketPrice", "-")
         change = item.get("regularMarketChangePercent", "-")
-        volume = item.get("regularMarketVolume", "-")
+        volume = item.get("regularMarketVolume") or item.get("volume")
+        quality = item.get("_quality", {})
+        completeness = quality.get("completeness_score", 100)
+
         if isinstance(change, (int, float)):
             change_str = f"{change:+.2f}%"
         else:
             change_str = "-"
-        if isinstance(volume, (int, float)):
-            vol_str = f"{volume/1e6:.1f}M" if volume >= 1e6 else f"{volume/1e3:.1f}K"
-        else:
-            vol_str = "-"
-        print(f"{name:<15} {price:>12} {change_str:>10} {vol_str:>14}")
+
+        vol_str = fmt_volume(volume)
+        # 如果成交量异常，标记
+        vol_note = ""
+        if quality.get("flags") and any(f in quality["flags"] for f in ["volume_zero", "volume_anomaly"]):
+            vol_note = "*"
+
+        quality_str = f"{completeness:.0f}%"
+        print(f"{name:<15} {str(price):>12} {change_str:>10} {vol_str + vol_note:>14} {quality_str:>8}")
     print()
 
 
@@ -509,24 +713,35 @@ def print_global_stock(quote_data):
     symbol = quote_data.get("symbol", "")
     name = quote_data.get("name", symbol)
     currency = quote_data.get("currency", "USD")
-    
+    quality = quote_data.get("_quality", {})
+    notes = quality.get("notes", [])
+
     print(f"## {name} ({symbol})\n")
     print(f"  当前价: {quote_data.get('regularMarketPrice', '-')}")
     print(f"  昨收:   {quote_data.get('previousClose', '-')}")
     print(f"  开盘:   {quote_data.get('open', '-')}")
     print(f"  最高:   {quote_data.get('high', '-')}")
     print(f"  最低:   {quote_data.get('low', '-')}")
-    print(f"  成交量: {quote_data.get('volume', '-')}")
+
+    vol = quote_data.get("volume") or quote_data.get("regularMarketVolume")
+    vol_str = fmt_volume(vol)
+    if quality.get("flags") and any(f in quality["flags"] for f in ["volume_zero", "volume_anomaly"]):
+        vol_str += " *"
+    print(f"  成交量: {vol_str}")
+
     print(f"  货币:   {currency}")
     print(f"  52周高: {quote_data.get('fiftyTwoWeekHigh', '-')}")
     print(f"  52周低: {quote_data.get('fiftyTwoWeekLow', '-')}")
-    
+
     prev = quote_data.get("previousClose")
     curr = quote_data.get("regularMarketPrice")
     if prev and curr:
         change = curr - prev
         pct = change / prev * 100
         print(f"  涨跌:   {change:+.2f} ({pct:+.2f}%)")
+
+    if notes:
+        print(f"  ⚠️ 数据质量: {', '.join(notes)}")
     print()
 
 
@@ -549,19 +764,21 @@ def print_global_sentiment(indices_data):
     print("## 情绪定性\n")
     bullish = 0
     bearish = 0
+    valid_count = 0
     for item in indices_data:
         if isinstance(item, dict) and "_error" not in item:
             change = item.get("regularMarketChangePercent", 0)
             if isinstance(change, (int, float)):
+                valid_count += 1
                 if change > 1:
                     bullish += 1
                 elif change < -1:
                     bearish += 1
-    total = len(indices_data)
-    if total > 0:
-        if bullish >= total * 0.6:
+
+    if valid_count > 0:
+        if bullish >= valid_count * 0.6:
             print("🔥 强势：大盘指数多数大涨，情绪高涨")
-        elif bearish >= total * 0.6:
+        elif bearish >= valid_count * 0.6:
             print("❄️ 弱势：大盘指数多数大跌，情绪低迷")
         elif bullish > bearish:
             print("📈 偏强：大盘指数涨多跌少，情绪偏活跃")
@@ -570,6 +787,51 @@ def print_global_sentiment(indices_data):
         else:
             print("😐 中性：大盘指数分化，情绪平衡")
     print()
+
+
+def print_data_quality_report(results):
+    """打印数据质量报告"""
+    warnings = []
+    recommendations = []
+    total = len(results)
+    if total == 0:
+        return
+
+    avg_score = 0
+    for r in results:
+        q = r.get("_quality", {})
+        score = q.get("completeness_score", 100)
+        avg_score += score
+        if score < 80:
+            name = r.get("shortName") or r.get("name") or r.get("symbol", "")
+            warnings.append(f"{name}: 数据完整性较低 ({score:.0f}%)")
+        for note in q.get("notes", []):
+            name = r.get("shortName") or r.get("name") or r.get("symbol", "")
+            if "成交量" in note:
+                warnings.append(f"{name}: {note}")
+
+    avg_score = avg_score / total
+
+    if avg_score < 90:
+        recommendations.append("数据完整性一般，建议检查网络连接或稍后重试")
+    if any("异常" in str(w) for w in warnings):
+        recommendations.append("部分成交量数据异常，已标记 * ，仅供参考")
+
+    if warnings or recommendations:
+        print("\n" + "=" * 60)
+        print("📊 数据质量报告")
+        print(f"  平均完整度: {avg_score:.0f}%")
+        if warnings:
+            print(f"\n  ⚠️ 警告 ({len(warnings)}条):")
+            for w in warnings[:8]:
+                print(f"    - {w}")
+            if len(warnings) > 8:
+                print(f"    ... 还有 {len(warnings) - 8} 条")
+        if recommendations:
+            print(f"\n  💡 建议:")
+            for rec in recommendations:
+                print(f"    - {rec}")
+        print("=" * 60)
 
 
 # ------------------------------------------------------------------
@@ -614,30 +876,33 @@ def run_us_market():
     print(f"数据来源: Yahoo Finance API | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
     print("=" * 60 + "\n")
 
-    # 大盘指数
     indices_symbols = ["^GSPC", "^IXIC", "^DJI", "^VIX"]
     indices = yahoo_quotes_batch(indices_symbols)
     if "_error" not in indices:
         print_global_indices(indices, "美股")
 
-    # 热门个股
     hot_stocks = ["AAPL", "TSLA", "NVDA", "MSFT", "AMZN", "GOOGL", "META", "BABA", "PDD", "JD"]
     print("## 重点个股行情\n")
     for sym in hot_stocks:
-        time.sleep(0.5)  # 避免频率限制
+        time.sleep(REQUEST_INTERVAL)
         quote = yahoo_quote(sym)
         if "_error" not in quote:
             print_global_stock(quote)
 
-    # 富途新闻
     for sym in ["AAPL", "TSLA", "NVDA"]:
-        time.sleep(0.5)
+        time.sleep(REQUEST_INTERVAL)
         news = futu_news_search(sym, size=5, lang="en")
         print_futu_news(news, sym)
 
-    # 情绪定性
     if "_error" not in indices:
         print_global_sentiment(indices)
+
+    # 数据质量报告
+    if "_error" not in indices:
+        all_results = indices + []
+        for sym in hot_stocks:
+            pass  # 不重复请求，用已获取的 indices 结果
+        print_data_quality_report(indices)
 
     print("=" * 60)
     print("\n*输出结束。")
@@ -652,30 +917,89 @@ def run_hk_market():
     print(f"数据来源: Yahoo Finance API | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
     print("=" * 60 + "\n")
 
-    # 大盘指数
     indices_symbols = ["^HSI", "^HSCE", "^HSTECH"]
     indices = yahoo_quotes_batch(indices_symbols)
     if "_error" not in indices:
         print_global_indices(indices, "港股")
 
-    # 热门个股
     hot_stocks = ["0700.HK", "9988.HK", "3690.HK", "9618.HK", "1299.HK", "2318.HK", "0005.HK", "0388.HK"]
     print("## 重点个股行情\n")
     for sym in hot_stocks:
-        time.sleep(0.5)
+        time.sleep(REQUEST_INTERVAL)
         quote = yahoo_quote(sym)
         if "_error" not in quote:
             print_global_stock(quote)
 
-    # 富途新闻
     for sym in ["0700", "9988", "3690"]:
-        time.sleep(0.5)
+        time.sleep(REQUEST_INTERVAL)
         news = futu_news_search(sym, size=5, lang="zh-CN")
         print_futu_news(news, sym)
 
-    # 情绪定性
     if "_error" not in indices:
         print_global_sentiment(indices)
+
+    if "_error" not in indices:
+        print_data_quality_report(indices)
+
+    print("=" * 60)
+    print("\n*输出结束。")
+
+
+# ------------------------------------------------------------------
+# 全球市场概览
+# ------------------------------------------------------------------
+
+def run_global_market():
+    print("# 全球市场概览\n")
+    print(f"数据来源: Yahoo Finance API | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
+    print("=" * 60 + "\n")
+
+    # 美股
+    us_indices = ["^GSPC", "^IXIC", "^DJI", "^VIX"]
+    us_data = yahoo_quotes_batch(us_indices)
+    if "_error" not in us_data:
+        print_global_indices(us_data, "美股")
+        time.sleep(REQUEST_INTERVAL)
+
+    # 港股
+    hk_indices = ["^HSI", "^HSCE", "^HSTECH"]
+    hk_data = yahoo_quotes_batch(hk_indices)
+    if "_error" not in hk_data:
+        print_global_indices(hk_data, "港股")
+        time.sleep(REQUEST_INTERVAL)
+
+    # A股指数
+    a_index = get_index(nearest_trade_date())
+    if not (isinstance(a_index, dict) and "_error" in a_index):
+        print("## A股指数表现\n")
+        print(f"{'指数':<10} {'收盘':>10} {'涨跌':>10} {'涨跌幅':>10} {'成交额':>12}")
+        print("-" * 60)
+        name_map = {
+            "000001": "上证指数",
+            "399001": "深证成指",
+            "399006": "创业板指",
+            "000688": "科创50",
+            "399005": "中小板指",
+            "899050": "北证50",
+        }
+        for item in a_index:
+            code = item.get("f12", "")
+            name = name_map.get(code, item.get("f14", code))
+            close_p = fmt_price(item.get("f2"))
+            change = fmt_price(item.get("f4"))
+            pct = fmt_pct(item.get("f3"))
+            amount = fmt_amount(item.get("f6"))
+            print(f"{name:<10} {close_p:>10} {change:>10} {pct:>10} {amount:>12}")
+        print()
+
+    # 数据质量报告
+    all_indices = []
+    if "_error" not in us_data:
+        all_indices.extend(us_data)
+    if "_error" not in hk_data:
+        all_indices.extend(hk_data)
+    if all_indices:
+        print_data_quality_report(all_indices)
 
     print("=" * 60)
     print("\n*输出结束。")
@@ -704,8 +1028,8 @@ def main():
         else:
             i += 1
 
-    if market not in ("a", "hk", "us"):
-        print("错误: --market 参数必须是 a、hk 或 us", file=sys.stderr)
+    if market not in ("a", "hk", "us", "global"):
+        print("错误: --market 参数必须是 a、hk、us 或 global", file=sys.stderr)
         sys.exit(1)
 
     if market == "a":
@@ -717,6 +1041,8 @@ def main():
         run_us_market()
     elif market == "hk":
         run_hk_market()
+    elif market == "global":
+        run_global_market()
 
 
 if __name__ == "__main__":

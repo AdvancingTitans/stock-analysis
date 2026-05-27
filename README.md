@@ -40,6 +40,9 @@ python scripts/aftermarket.py --market us
 # HK market review
 python scripts/aftermarket.py --market hk
 
+# Global market overview (US + HK + A-share indices)
+python scripts/aftermarket.py --market global
+
 # Specific date (A-shares only)
 python scripts/aftermarket.py --market a 20260526
 ```
@@ -94,9 +97,24 @@ stock-analysis/
 ## Notes
 
 - **A-shares**: Eastmoney APIs are unofficial; field names may change. Limit-up/down pool `date` param only returns **today's** data.
-- **Yahoo Finance**: Has rate limits (429 Too Many Requests). Add 4-5s delay between requests. Use browser automation if API fails.
+- **Yahoo Finance**: Has rate limits (429 Too Many Requests). The script now includes **exponential backoff retry** (max 3 retries with jitter) to mitigate this. Still, avoid extremely rapid requests.
+- **Data Quality**: All quotes are automatically validated — zero/negative prices are filtered, suspiciously low volume is flagged with `*`, and a data quality report is appended to the output.
 - **Futunn search**: HK/US-centric. Use **Chinese company names** (not codes) for A-share queries; use **codes** for HK/US queries.
 - **Time zones**: US market reviews should be done after US market close (ET 16:00). HK market reviews after HK close (HKT 16:00).
+
+## Changelog
+
+### v2.1.0
+- Added `--market global` for cross-market overview
+- Added exponential backoff retry for all API requests
+- Added automatic data validation and cleaning (volume anomaly detection, price filtering)
+- Added data completeness scoring and quality report
+- Added market type auto-detection
+- Improved error handling — missing data is silently skipped without cluttering output
+
+### v2.0.0
+- Added global market support (US/HK/JP via Yahoo Finance + Futunn)
+- Removed hardcoded proxy settings for broader compatibility
 
 ## License
 
