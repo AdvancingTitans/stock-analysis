@@ -62,17 +62,25 @@ Example prompts:
 
 ```
 stock-analysis/
-├── SKILL.md                          # Main skill instructions for Hermes Agent
+├── skills/
+│   └── stock-analysis/
+│       ├── SKILL.md                  # Main skill instructions for Hermes Agent
+│       ├── scripts/
+│       │   └── aftermarket.py        # Standalone Python script for data collection
+│       └── references/
+│           ├── eastmoney-api.md      # Eastmoney free API reference (A-shares)
+│           ├── yahoo-finance-api.md  # Yahoo Finance free API reference (global)
+│           ├── futu-api.md           # Futunn free search API reference
+│           └── analysis-template.md  # Structured review templates (A-shares + global)
 ├── README.md                         # This file
 ├── LICENSE                           # MIT
-├── .gitignore
-├── scripts/
-│   └── aftermarket.py                # Standalone Python script for data collection
-└── references/
-    ├── eastmoney-api.md              # Eastmoney free API reference (A-shares)
-    ├── yahoo-finance-api.md          # Yahoo Finance free API reference (global)
-    ├── futu-api.md                   # Futunn free search API reference
-    └── analysis-template.md          # Structured review templates (A-shares + global)
+└── .gitignore
+```
+
+### Install via Hermes CLI
+
+```bash
+hermes skills install --repo AdvancingTitans/stock-analysis --path skills/stock-analysis
 ```
 
 ## Data Sources
@@ -97,12 +105,26 @@ stock-analysis/
 ## Notes
 
 - **A-shares**: Eastmoney APIs are unofficial; field names may change. Limit-up/down pool `date` param only returns **today's** data.
-- **Yahoo Finance**: Has rate limits (429 Too Many Requests). The script now includes **exponential backoff retry** (max 3 retries with jitter) to mitigate this. Still, avoid extremely rapid requests.
-- **Data Quality**: All quotes are automatically validated — zero/negative prices are filtered, suspiciously low volume is flagged with `*`, and a data quality report is appended to the output.
+- **Yahoo Finance v8 chart**: Has rate limits (429 Too Many Requests). The script uses **3-second request interval + local cache + exponential backoff retry** (max 2 retries, only for 429/5xx/timeout) to mitigate this.
+- **Data Quality**: All quotes return a unified `QuoteData` structure. Zero/negative prices are filtered, index volume=0 is downgraded to warning, suspiciously low volume is flagged with `*`, and a diagnostic summary + quality report is appended to the output.
 - **Futunn search**: HK/US-centric. Use **Chinese company names** (not codes) for A-share queries; use **codes** for HK/US queries.
 - **Time zones**: US market reviews should be done after US market close (ET 16:00). HK market reviews after HK close (HKT 16:00).
 
 ## Changelog
+
+### v3.0.0
+- **Breaking**: Renamed skill from `a-stock-market` to `stock-analysis`
+- **Breaking**: Repository restructured to `skills/stock-analysis/` subdir for proper Hermes CLI install
+- **Breaking**: Yahoo v6/finance/quote batch API removed; all quotes now use v8 chart per-symbol with caching
+- Added three-tier fetch strategy: cache → stable API → browser fallback (camofox)
+- Added local cache layer at `~/.cache/stock-analysis/` to avoid duplicate requests
+- Fixed A-share index price formatting — Eastmoney `fltt=2` returns normal prices, no longer divide by 100
+- Fixed Futunn `publish_time` string crash (now casts to int before datetime)
+- Fixed `^HSTECH` 404 — now uses `HSTECH.HK`
+- Changed default request interval from 0.5s to 3s; only retry on 429/5xx/timeout (not 404)
+- Added diagnostic summary output when APIs fail (no more silent missing blocks)
+- Unified all data sources to `QuoteData` structure with completeness scoring
+- Added automated data quality validation with quality report at end of output
 
 ### v2.1.0
 - Added `--market global` for cross-market overview
