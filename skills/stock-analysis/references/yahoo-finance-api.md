@@ -1,5 +1,10 @@
 # Yahoo Finance 免登录 API 速查
 
+> **已废弃 / Deprecated in v3.1**
+> 从 v3.1.0 开始，`stock-analysis` 已全面切换到东方财富 clist 接口获取美股/港股行情。
+> Yahoo Finance v8 chart 因频繁的 429 限流问题已不再作为主数据源。
+> 此文档仅作为备用参考保留。
+
 支持全球股市实时行情、K线、财务指标。免登录、免 API Key、免 Cookie，直接 `curl` 即可。
 
 > **频率限制警告**：Yahoo 对请求频率有限制，过快会被封 IP。建议每次请求间隔 **4-5 秒**，并添加 `User-Agent` 和 `Referer`。

@@ -2,6 +2,8 @@
 
 所有接口均无需登录、无需 Cookie，直接 `curl` 即可。返回 JSONP 格式，需去掉前缀取 JSON。
 
+> **v3.1 重大更新**：`api/qt/clist/get` 现在同时支持美股、港股、美股指数、港股指数，免登录、不限流，一次请求可拉取多条。已全面替代 Yahoo Finance v8 chart。
+
 ---
 
 ## 1. 指数行情（`ulist.np`）
@@ -48,7 +50,51 @@ curl -s "https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=1.000001,
 
 ---
 
-## 2. 涨跌停池（`push2ex.eastmoney.com`）
+## 2. 美股/港股/指数批量行情（`clist/get` 新）
+
+```bash
+# 美股个股
+curl -s "https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=20&fid=f3&fs=m:105,m:106,m:107&fields=f12,f14,f2,f3,f4,f5,f6,f15,f16,f17,f18&fltt=2&_=$(date +%s)000"
+
+# 美股指数（标普 500、纳斯达克）
+curl -s "https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=10&fid=f3&fs=i:100.SPX,i:100.NDX&fields=f12,f14,f2,f3,f4,f5,f6,f15,f16,f17,f18&fltt=2&_=$(date +%s)000"
+
+# 港股个股
+curl -s "https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=20&fid=f3&fs=m:128&fields=f12,f14,f2,f3,f4,f5,f6,f15,f16,f17,f18&fltt=2&_=$(date +%s)000"
+
+# 港股指数（恒指、国企、科指）
+curl -s "https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=10&fid=f3&fs=i:100.HSI,i:100.HSCE,i:100.HSTECH&fields=f12,f14,f2,f3,f4,f5,f6,f15,f16,f17,f18&fltt=2&_=$(date +%s)000"
+```
+
+**市场筛选器（fs）**
+| 市场 | fs 值 | 说明 |
+|---|---|---|
+| 美股个股 | `m:105,m:106,m:107` | 纽交所、纳斯达克、美股 OTC |
+| 美股指数 | `i:100.SPX,i:100.NDX` | 标普 500、纳斯达克 |
+| 港股个股 | `m:128` | 港股全市场 |
+| 港股指数 | `i:100.HSI,i:100.HSCE,i:100.HSTECH` | 恒指、国企、科指 |
+
+**返回格式**
+```json
+{
+  "rc": 0,
+  "data": {
+    "total": 200,
+    "diff": {
+      "0": {"f12": "AAPL", "f14": "苹果", "f2": 31082, "f3": 105, ...},
+      "1": {"f12": "TSLA", "f14": "特斯拉", "f2": 42550, "f3": -230, ...}
+    }
+  }
+}
+```
+
+> 注意：`diff` 在 clist 中通常是 **对象**（键为 "0", "1"...），而非数组。解析时需兼容两种格式。
+
+> 美股道指 DJI 和 VIX 东财暂不支持，需其他方案补充。
+
+---
+
+## 3. 涨跌停池（`push2ex.eastmoney.com`）
 
 ### 涨停池
 ```bash
@@ -118,7 +164,7 @@ curl -s "https://push2ex.eastmoney.com/getTopicZBPool?ut=7eea3edcaed734bea9cbfc2
 
 ---
 
-## 3. 资金流向（`fflow/kline`）
+## 4. 资金流向（`fflow/kline`）
 
 ```bash
 curl -s "https://push2.eastmoney.com/api/qt/stock/fflow/kline/get?secid=1.000001&fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65&klt=101&lmt=1&_=$(date +%s)000"
@@ -151,7 +197,7 @@ f65 未知（冗余）
 
 ---
 
-## 4. 个股实时行情（`qt/stock/get`）
+## 5. 个股实时行情（`qt/stock/get`）
 
 ```bash
 curl -s "https://push2.eastmoney.com/api/qt/stock/get?secid=0.000001&fields=f43,f44,f45,f46,f47,f48,f57,f58,f60,f170,f169,f168,f167,f162&_=$(date +%s)000"
@@ -179,7 +225,7 @@ curl -s "https://push2.eastmoney.com/api/qt/stock/get?secid=0.000001&fields=f43,
 
 ---
 
-## 5. 板块榜（`clist/get`）⚠️ 经常返空
+## 6. 板块榜（`clist/get`）⚠️ 经常返空
 
 ```bash
 # 行业板块（慎用，经常空）
@@ -193,7 +239,7 @@ curl -s "...&fs=m:90+t:3&..."
 
 ---
 
-## 6. 全市场涨跌家数统计
+## 7. 全市场涨跌家数统计
 
 东财没有单独的"涨跌家数"接口，但可以通过 `clist` 按条件过滤估算，或从页面抓。更简单的方式：
 
@@ -209,7 +255,7 @@ curl -s "https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=1&fid=f3&fs=m:0+t:
 
 ---
 
-## 7. 日期参数生成
+## 8. 日期参数生成
 
 所有接口需要当日交易日日期（YYYYMMDD）。
 

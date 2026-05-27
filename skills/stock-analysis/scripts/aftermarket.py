@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-全球股市行情一键采集脚本 v3.0.0
+全球股市行情一键采集脚本 v3.1.0
 用法: python aftermarket.py [--market a|hk|us|global] [YYYYMMDD]
 
 --market a      : A股复盘（默认）
@@ -33,7 +33,7 @@ from typing import Optional, List, Dict, Any, Callable
 # 配置
 # ------------------------------------------------------------------
 
-REQUEST_INTERVAL = 3.0            # 请求间隔（秒），降低 429
+REQUEST_INTERVAL = 1.0            # 东财免登录不限流，1 秒间隔足够
 MAX_RETRIES = 2                   # 最大重试次数
 INITIAL_BACKOFF = 2.0             # 初始退避秒数
 
@@ -74,29 +74,42 @@ INDEX_URL = (
     "?fltt=2&secids={secids}&fields={fields}&_={ts}"
 )
 
-# Yahoo Finance — 统一用 v8 chart
-YAHOO_CHART_URL = (
-    "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-    "?interval=1d&range=5d&includePrePost=false"
+# 东财 clist — 美股/港股/指数统一接口（免登录、不限流）
+EM_CLIST_URL = (
+    "https://push2.eastmoney.com/api/qt/clist/get"
+    "?pn=1&pz={pz}&fid=f3&fs={fs}&fields={fields}&fltt=2&_={ts}"
 )
+EM_CLIST_FIELDS = "f12,f14,f2,f3,f4,f5,f6,f15,f16,f17,f18"
+
+# 东财市场筛选器
+EM_FS = {
+    "us_index":   "i:100.SPX,i:100.NDX",
+    "us_stock":   "m:105,m:106,m:107",
+    "hk_index":   "i:100.HSI,i:100.HSCE,i:100.HSTECH",
+    "hk_stock":   "m:128",
+}
+
+# 东财代码映射（Yahoo symbol → 东财 f12）
+EM_CODE_MAP = {
+    "^GSPC": "SPX",
+    "^IXIC": "NDX",
+    "^HSI":  "HSI",
+    "^HSCE": "HSCE",
+    "HSTECH.HK": "HSTECH",
+}
+
+# 指数中文名
+INDEX_NAME_MAP = {
+    "^GSPC": "标普 500",
+    "^IXIC": "纳斯达克",
+    "^HSI":  "恒生指数",
+    "^HSCE": "国企指数",
+    "HSTECH.HK": "恒生科技指数",
+}
 
 # 富途
 FUTU_NEWS_URL = "https://ai-news-search.futunn.com/news_search"
 FUTU_FEED_URL = "https://ai-news-search.futunn.com/stock_feed"
-
-# 港股指数 symbol 配置
-HK_INDEX_SYMBOLS = {
-    "^HSI":     "恒生指数",
-    "^HSCE":    "国企指数",
-    "HSTECH.HK": "恒生科技指数",
-}
-
-US_INDEX_SYMBOLS = {
-    "^GSPC": "标普 500",
-    "^IXIC": "纳斯达克",
-    "^DJI":  "道琼斯",
-    "^VIX":  "VIX",
-}
 
 # 诊断记录
 DIAGNOSTICS: List[str] = []
@@ -322,89 +335,152 @@ def fetch_json(url: str, headers: Optional[Dict[str, str]] = None) -> Dict[str, 
 
 
 # ------------------------------------------------------------------
-# Yahoo Finance v8 chart 获取（逐个 symbol）
+# 东财数据解析工具
 # ------------------------------------------------------------------
 
-@retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
-def yahoo_chart(symbol: str, date_str: str) -> QuoteData:
-    """通过 Yahoo v8 chart API 获取单个 symbol 数据，带缓存"""
-    cached = cache_load(symbol, date_str, "yahoo_chart")
-    if cached:
-        return QuoteData(**cached)
+def _normalize_diff(data_diff: Any) -> List[Dict[str, Any]]:
+    """东财 diff 有时是数组，有时是对象（clist 返回 {\"0\":{}, \"1\":{}}）"""
+    if data_diff is None:
+        return []
+    if isinstance(data_diff, list):
+        return data_diff
+    if isinstance(data_diff, dict):
+        return [data_diff[k] for k in sorted(data_diff.keys(), key=lambda x: int(x) if str(x).isdigit() else x)]
+    return []
 
-    url = YAHOO_CHART_URL.format(symbol=symbol)
-    data = fetch_json(url)
-    if "_error" in data:
-        diag(f"Yahoo chart {symbol}: {data['_error']}")
-        return QuoteData(symbol=symbol, name=symbol, source="yahoo_chart", quality_flags=["fetch_error"], notes=[str(data['_error'])])
 
-    result = data.get("chart", {}).get("result", [None])[0]
-    if not result:
-        diag(f"Yahoo chart {symbol}: no result")
-        return QuoteData(symbol=symbol, name=symbol, source="yahoo_chart", quality_flags=["no_result"])
+def _safe_float(v: Any) -> Optional[float]:
+    if v is None or v == "" or v == "-":
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
 
-    meta = result.get("meta", {})
-    timestamps = result.get("timestamp", [])
-    quotes = result.get("indicators", {}).get("quote", [{}])[0]
-    adjclose = result.get("indicators", {}).get("adjclose", [{}])[0].get("adjclose", [])
 
-    if not timestamps:
-        diag(f"Yahoo chart {symbol}: no timestamps")
-        return QuoteData(symbol=symbol, name=symbol, source="yahoo_chart", quality_flags=["no_data"])
+def _safe_int(v: Any) -> Optional[int]:
+    if v is None or v == "" or v == "-":
+        return None
+    try:
+        return int(float(v))
+    except (TypeError, ValueError):
+        return None
 
-    # 找最后一条有效 K 线（从后往前找）
-    idx = -1
-    closes = quotes.get("close", [])
-    for i in range(len(closes) - 1, -1, -1):
-        if closes[i] is not None:
-            idx = i
-            break
 
-    if idx < 0:
-        diag(f"Yahoo chart {symbol}: no valid close")
-        return QuoteData(symbol=symbol, name=symbol, source="yahoo_chart", quality_flags=["no_valid_close"])
+def _em_clist_price(v: Any) -> Optional[float]:
+    """clist/get fltt=2 返回价格类字段 ×100 的整数，需除以 100"""
+    val = _safe_float(v)
+    if val is None:
+        return None
+    return val / 100
 
-    # 从 K 线计算涨跌：取前一个有效 close 作为昨收
-    prev_idx = idx - 1
-    while prev_idx >= 0 and (closes[prev_idx] is None or closes[prev_idx] == 0):
-        prev_idx -= 1
 
-    close_val = closes[idx]
-    prev_close_val = closes[prev_idx] if prev_idx >= 0 else meta.get("previousClose")
+def _em_item_to_quote(item: Dict[str, Any], symbol: str, market_type: str, date_str: str) -> QuoteData:
+    """将东财 diff 项转为 QuoteData"""
+    price = _em_clist_price(item.get("f2"))
+    prev_close = _em_clist_price(item.get("f18"))
+    change = _em_clist_price(item.get("f4"))
+    change_pct = _em_clist_price(item.get("f3"))
 
-    # 如果昨收仍然没有，用 meta 中的 chartPreviousClose
-    if prev_close_val is None or prev_close_val == 0:
-        prev_close_val = meta.get("chartPreviousClose")
+    # 若涨跌幅缺失但价格/昨收可用，自行计算
+    if change_pct is None and price is not None and prev_close is not None and prev_close != 0:
+        change_pct = (price - prev_close) / prev_close * 100
 
-    change = None
-    change_pct = None
-    if prev_close_val and close_val:
-        change = close_val - prev_close_val
-        change_pct = (change / prev_close_val) * 100
+    if change is None and price is not None and prev_close is not None:
+        change = price - prev_close
 
-    volume = quotes.get("volume", [None])[idx] if quotes.get("volume") else None
+    currency = "USD"
+    if market_type == "hk_market":
+        currency = "HKD"
+    elif market_type == "cn_market":
+        currency = "CNY"
 
     qd = QuoteData(
         symbol=symbol,
-        name=meta.get("shortName", meta.get("symbol", symbol)),
-        market=detect_market_type(symbol),
-        date=datetime.fromtimestamp(timestamps[idx]).strftime("%Y%m%d") if timestamps else date_str,
-        price=close_val,
-        prev_close=prev_close_val,
+        name=item.get("f14", symbol),
+        market=market_type,
+        date=date_str,
+        price=price,
+        prev_close=prev_close,
         change=change,
         change_pct=change_pct,
-        open_price=quotes.get("open", [None])[idx] if quotes.get("open") else None,
-        high=quotes.get("high", [None])[idx] if quotes.get("high") else None,
-        low=quotes.get("low", [None])[idx] if quotes.get("low") else None,
-        volume=volume,
-        currency=meta.get("currency", "USD"),
-        source="yahoo_chart",
+        open_price=_em_clist_price(item.get("f17")),
+        high=_em_clist_price(item.get("f15")),
+        low=_em_clist_price(item.get("f16")),
+        volume=_safe_int(item.get("f5")),
+        currency=currency,
+        source="eastmoney_clist",
     )
+    return validate_quote(qd)
 
-    # 数据验证
-    qd = validate_quote(qd)
-    cache_save(symbol, date_str, "yahoo_chart", qd.to_dict())
-    return qd
+
+# ------------------------------------------------------------------
+# 东财 clist 批量获取（美股/港股/指数）
+# ------------------------------------------------------------------
+
+@retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
+def eastmoney_clist(fs_filter: str, fields: str = EM_CLIST_FIELDS, pz: int = 200, date_str: str = "") -> List[Dict[str, Any]]:
+    """东财 clist 批量接口：免登录、不限流、一次可拉多条"""
+    cached = cache_load(fs_filter, date_str, "eastmoney_clist")
+    if cached:
+        return cached.get("data", [])
+
+    ts = int(datetime.now().timestamp() * 1000)
+    url = EM_CLIST_URL.format(fs=fs_filter, fields=fields, pz=pz, ts=ts)
+    data = fetch_json(url, {"Referer": "https://quote.eastmoney.com/"})
+    if "_error" in data:
+        diag(f"Eastmoney clist {fs_filter}: {data['_error']}")
+        return []
+
+    diff = _normalize_diff(data.get("data", {}).get("diff"))
+    cache_save(fs_filter, date_str, "eastmoney_clist", {"data": diff})
+    return diff
+
+
+def fetch_em_indices(symbols_map: Dict[str, str], date_str: str, market_fs: str) -> List[QuoteData]:
+    """通过东财 clist 获取指数，按 symbol 过滤"""
+    all_data = eastmoney_clist(market_fs, date_str=date_str)
+    results = []
+    lookup = {item.get("f12", "").upper(): item for item in all_data}
+
+    for sym, name in symbols_map.items():
+        em_code = EM_CODE_MAP.get(sym, sym.lstrip("^").upper())
+        item = lookup.get(em_code)
+        if not item:
+            diag(f"Eastmoney clist missing index: {sym} (lookup {em_code})")
+            continue
+        market = "us_market" if market_fs.startswith("i:100.SPX") else "hk_market"
+        qd = _em_item_to_quote(item, sym, market, date_str)
+        qd.name = name
+        results.append(qd)
+
+    return results
+
+
+def fetch_em_stocks(codes: List[str], date_str: str, market_fs: str) -> List[QuoteData]:
+    """通过东财 clist 获取个股，批量查询后本地过滤"""
+    all_data = eastmoney_clist(market_fs, pz=500, date_str=date_str)
+    results = []
+
+    # 构建查找表（支持 0700 / 00700 等变体）
+    lookup: Dict[str, Dict[str, Any]] = {}
+    for item in all_data:
+        c = str(item.get("f12", "")).upper().replace(".HK", "")
+        lookup[c] = item
+        lookup[c.lstrip("0") or "0"] = item
+        lookup[c.zfill(5)] = item
+
+    for code in codes:
+        raw = code.upper().replace(".HK", "")
+        item = lookup.get(raw) or lookup.get(raw.lstrip("0") or "0") or lookup.get(raw.zfill(5))
+        if not item:
+            diag(f"Eastmoney clist missing stock: {code}")
+            continue
+        market = "us_market" if market_fs == EM_FS["us_stock"] else "hk_market"
+        qd = _em_item_to_quote(item, code, market, date_str)
+        results.append(qd)
+
+    return results
 
 
 # ------------------------------------------------------------------
@@ -427,7 +503,7 @@ def validate_quote(qd: QuoteData) -> QuoteData:
         if qd.volume <= 0:
             if qd.symbol.startswith("^") or qd.market in ("hk_market", "eu_market", "jp_market"):
                 # 指数成交量为0是正常情况，降级为 warning
-                notes.append("指数成交量缺失（Yahoo 未提供）")
+                notes.append("指数成交量缺失（数据源未提供）")
                 flags.append("volume_missing_index")
             else:
                 notes.append("成交量为0，异常")
@@ -568,7 +644,7 @@ def futu_news_search(keyword: str, size: int = 10, lang: str = "en", news_type: 
     })
     url = f"{FUTU_NEWS_URL}?{params}"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "stock-analysis/3.0.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "stock-analysis/3.1.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read().decode())
     except Exception as e:
@@ -581,7 +657,7 @@ def futu_stock_feed(keyword: str, size: int = 30) -> Dict[str, Any]:
     params = urllib.parse.urlencode({"keyword": keyword, "size": size})
     url = f"{FUTU_FEED_URL}?{params}"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "stock-analysis/3.0.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "stock-analysis/3.1.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read().decode())
     except Exception as e:
@@ -609,7 +685,7 @@ def camofox_board_list(board_type: str = "industry") -> Dict[str, Any]:
                                      headers={"Content-Type": "application/json"}, method="POST")
         with urllib.request.urlopen(req, timeout=10) as resp:
             tab_info = json.loads(resp.read().decode())
-        tab_id = tab_info.get("id")
+        tab_id = tab_info.get("tabId") or tab_info.get("id")
         if not tab_id:
             return {"_error": "no tab id"}
 
@@ -914,30 +990,6 @@ def nearest_trade_date(dt: Optional[datetime] = None) -> str:
     return dt.strftime("%Y%m%d")
 
 
-def fetch_yahoo_indices(symbols: Dict[str, str], date_str: str) -> List[QuoteData]:
-    results = []
-    for sym, name in symbols.items():
-        qd = yahoo_chart(sym, date_str)
-        if qd.quality_flags and "fetch_error" not in qd.quality_flags:
-            qd.name = name  # 覆盖为中文名
-            results.append(qd)
-        elif "fetch_error" not in qd.quality_flags:
-            qd.name = name
-            results.append(qd)
-        time.sleep(REQUEST_INTERVAL)
-    return results
-
-
-def fetch_yahoo_stocks(symbols: List[str], date_str: str) -> List[QuoteData]:
-    results = []
-    for sym in symbols:
-        qd = yahoo_chart(sym, date_str)
-        if qd.price is not None:
-            results.append(qd)
-        time.sleep(REQUEST_INTERVAL)
-    return results
-
-
 def run_a_share(date_str: str) -> None:
     display_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
     print(f"# A 股盘后复盘（{display_date}）\n")
@@ -972,16 +1024,20 @@ def run_a_share(date_str: str) -> None:
 
 def run_us_market(date_str: str) -> None:
     print("# 美股市场复盘\n")
-    print(f"数据来源: Yahoo Finance API | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
+    print(f"数据来源: 东方财富免登录 API (clist) | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
     print("=" * 60 + "\n")
 
-    indices = fetch_yahoo_indices(US_INDEX_SYMBOLS, date_str)
+    us_indices_map = {
+        "^GSPC": "标普 500",
+        "^IXIC": "纳斯达克",
+    }
+    indices = fetch_em_indices(us_indices_map, date_str, EM_FS["us_index"])
     if indices:
         print_global_indices(indices, "美股")
 
     hot_stocks = ["AAPL", "TSLA", "NVDA", "MSFT", "AMZN", "GOOGL", "META", "BABA", "PDD", "JD"]
     print("## 重点个股行情\n")
-    stocks = fetch_yahoo_stocks(hot_stocks, date_str)
+    stocks = fetch_em_stocks(hot_stocks, date_str, EM_FS["us_stock"])
     for qd in stocks:
         print_global_stock(qd)
 
@@ -1004,16 +1060,21 @@ def run_us_market(date_str: str) -> None:
 
 def run_hk_market(date_str: str) -> None:
     print("# 港股市场复盘\n")
-    print(f"数据来源: Yahoo Finance API | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
+    print(f"数据来源: 东方财富免登录 API (clist) | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
     print("=" * 60 + "\n")
 
-    indices = fetch_yahoo_indices(HK_INDEX_SYMBOLS, date_str)
+    hk_indices_map = {
+        "^HSI": "恒生指数",
+        "^HSCE": "国企指数",
+        "HSTECH.HK": "恒生科技指数",
+    }
+    indices = fetch_em_indices(hk_indices_map, date_str, EM_FS["hk_index"])
     if indices:
         print_global_indices(indices, "港股")
 
     hot_stocks = ["0700.HK", "9988.HK", "3690.HK", "9618.HK", "1299.HK", "2318.HK", "0005.HK", "0388.HK"]
     print("## 重点个股行情\n")
-    stocks = fetch_yahoo_stocks(hot_stocks, date_str)
+    stocks = fetch_em_stocks(hot_stocks, date_str, EM_FS["hk_stock"])
     for qd in stocks:
         print_global_stock(qd)
 
@@ -1036,16 +1097,25 @@ def run_hk_market(date_str: str) -> None:
 
 def run_global_market(date_str: str) -> None:
     print("# 全球市场概览\n")
-    print(f"数据来源: Yahoo Finance + 东财 API | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
+    print(f"数据来源: 东方财富免登录 API | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
     print("=" * 60 + "\n")
 
     # 美股
-    us_indices = fetch_yahoo_indices(US_INDEX_SYMBOLS, date_str)
+    us_indices_map = {
+        "^GSPC": "标普 500",
+        "^IXIC": "纳斯达克",
+    }
+    us_indices = fetch_em_indices(us_indices_map, date_str, EM_FS["us_index"])
     if us_indices:
         print_global_indices(us_indices, "美股")
 
     # 港股
-    hk_indices = fetch_yahoo_indices(HK_INDEX_SYMBOLS, date_str)
+    hk_indices_map = {
+        "^HSI": "恒生指数",
+        "^HSCE": "国企指数",
+        "HSTECH.HK": "恒生科技指数",
+    }
+    hk_indices = fetch_em_indices(hk_indices_map, date_str, EM_FS["hk_index"])
     if hk_indices:
         print_global_indices(hk_indices, "港股")
 
