@@ -1,218 +1,208 @@
 ---
-name: stock-analysis
-description: "A-share market post-market & intraday analysis: Eastmoney free API, Futu free news/sentiment, browser-based board ranking capture, cross-validation."
-version: 1.2.0
-author: yjw
-tags: [a-shares, stock-market, eastmoney, futu, sentiment, china-finance]
+name: a-stock-market
+description: "全球股市行情+情绪分析：A股（东财免登录API）、港美股（Yahoo Finance免登录API + 富途免登录资讯）、板块榜浏览器抓取、舆情交叉验证。"
+version: 2.0.0
+author: Hermes Agent + yjw
+tags: [stock-market, a-shares, hk-shares, us-shares, eastmoney, futu, yahoo-finance, sentiment, global-finance]
 platforms: [linux, macos, windows]
 ---
 
-# A-Stock Market Analysis
+# 全球股市行情与情绪分析
 
-A share (Shanghai/Shenzhen/Beijing) market data acquisition and sentiment analysis workflow, bypassing common anti-bot traps. Integrates Futunn free news search capabilities for A-share tickers.
+支持 A股（沪深京）、港股、美股、日股等主要市场的行情获取与情绪分析流程。A股使用东财免登录 API绕开反爬陷阱；港美股使用 Yahoo Finance 免登录 API 获取实时行情，结合富途免登录资讯搜索能力进行新闻/公告/研报/社区情绪快照。
 
-Detailed API quick reference in `references/eastmoney-api.md`, analysis template in `references/analysis-template.md`, ready-to-use script in `scripts/aftermarket.py`.
+详细 API 端点速查见 `references/` 目录，分析框架模板见 `references/analysis-template.md`，开箱即用脚本见 `scripts/aftermarket.py`。
 
 ## When to Use
 
-- User asks "how's the A-share market today", "post-market review", "market sentiment"
-- User asks "morning session outlook", "intraday status", "current market mood"
-- Need limit-up / limit-down counts, consecutive-board ladders, sector leaders, north-bound flows
-- Need sentiment temperature for a sector / concept
-- Need latest news, announcements, research reports for an A-share ticker
-- Need community / forum sentiment for an A-share ticker
-- Any real-time or post-market query about SSE/SZSE/ChiNext/STAR Market/BSE
+- 用户问"今天 A 股怎么样"、"复盘下今日行情"、"分析下大盘情绪"
+- 用户问"早盘怎么看"、"盘中什么情况"、"现在市场情绪如何"
+- 用户问"美股今天怎么样"、"拿拿 AAPL/TSLA 行情"、"纳斯达克怎么样"
+- 用户问"港股怎么样"、"腾讯/9633 怎么样"、"恒指怎么样"
+- 需要拿涨跌停数、连板梯队、板块涨跌（A股）
+- 需要查某只标的最新新闻、公告、研报（A股/港股/美股均可）
+- 需要看某只标的社区/论坛情绪（富途覆盖港美股更全面）
+- 任何涉及上证/深证/创业板/科创板/北证/恒指/国指/科指/纳指/标普 500 的实时或盘后查询
 
-## Data Source Priority
+## 市场分类与数据源对应
 
-1. **Eastmoney Free API** (`push2.eastmoney.com` + `push2ex.eastmoney.com`) — indices, limit-up/down pools, ticker quotes. **Primary for A-share base data**.
-   - `push2ex.eastmoney.com` (ZT/DTPool) is stable via `curl`.
-   - `push2.eastmoney.com` (indices, fund flow, up/down stats) often returns empty via bare `curl` during market hours; use **browser `fetch`** (Hermes built-in browser or Playwright).
-2. **Browser page capture** (`quote.eastmoney.com/center/gridlist.html`) — sector/concept board rankings. **Primary for boards** when API returns empty.
-3. **Futunn Free Search Skills** (`ai-news-search.futunn.com`) — news/announcement/research search, ticker digest, community sentiment. **Primary for news cross-check**, no OpenD required.
-4. **Exa search for daily review articles** (**must** include `startPublishedDate:"YYYY-MM-DD"`) — cross-check media sentiment (Sina/NetEase/Securities Times). Without date filter hits historical same-date articles.
-5. **Weibo hot search** — check if A-shares are trending. **No finance hot search itself is a "calm sentiment" signal**.
+| 市场 | 行情数据 | 新闻/情绪 | 板块/概念 | 复盘文章 |
+|---|---|---|---|---|
+| **A股** | 东财 API | 富途 news_search + stock_feed | 东财页面抓取 | Exa 搜"当日复盘" |
+| **港股** | Yahoo Finance API | 富途 news_search + stock_feed | 富途/东财港股页面 | Exa 搜"港股 行情" |
+| **美股** | Yahoo Finance API | 富途 news_search + stock_feed | Yahoo/富途美股页面 | Exa 搜"美股市场" |
+| **日股** | Yahoo Finance API | Exa 搜日文资讯 | 东财国际页面 | Exa 搜"日股" |
 
-## Mandatory Data Pull Rules
+## 核心数据源优先级
 
-**Any analysis (morning/noon/intraday/post-market) must pull data first. Blind qualitative judgment is prohibited.** If an endpoint fails due to anti-bot / time restrictions, explicitly mark "data missing" in output instead of skipping.
+### 通用（全市场）
+1. **Yahoo Finance 免登录 API** (`query1.finance.yahoo.com`) — 实时行情、K线、财务指标。**港美日股基础数据首选**。支持代码格式：AAPL（美股）、0700.HK（港股）、9988.T（日股）。3900.HK（港股期权）等。
+2. **富途免登录 Search Skills** (`ai-news-search.futunn.com`) — 新闻/公告/研报搜索、个股解读、社区情绪。**资讯侧证首选**，对港美股代码支持极好，无需 OpenD。
+3. **Exa 搜索**（**必须** 带 `startPublishedDate` 参数）— 交叉验证舆情倾向。英文索引对港美股覆盖更好。
+4. **浏览器抓取**（camofox / Hermes browser / Playwright）— 富途、Yahoo、东财国际等页面数据，绕开反爬。
 
-**Default mandatory data checklist (minimum dataset):**
+### A股专有（补充）
+5. **东方财富免登录 API** (`push2.eastmoney.com` + `push2ex.eastmoney.com`) — 指数、涨跌停池、个股行情。**A股基础数据首选**。
 
-| Mandatory | Endpoint/Method | Scenario | Note |
-|---|---|---|---|
-| 6 major indices real-time/close | `push2.eastmoney.com` ulist | All | Browser fetch during market; curl may work post-market |
-| Limit-up pool | `push2ex.eastmoney.com` ZTPool | All | curl stable; date must be today |
-| Limit-down pool | `push2ex.eastmoney.com` DTPool | All | Same |
-| Broken-board pool | `push2ex.eastmoney.com` ZBPool | All | Same |
-| Main fund flow | `push2.eastmoney.com` fflow | All | Browser fetch during market |
-| Industry board ranking | Browser capture `gridlist.html#industry_board` | All | Bare curl blocked |
-| Concept board ranking | Browser capture `gridlist.html#concept_board` | Post-market review | Check consecutive-board concept relay |
-| Market-wide up/down counts | `push2.eastmoney.com` clist | Morning/Intraday | Browser fetch during market |
-| Daily news | Futunn `news_search` | Optional | Mandatory when user mentions ticker/sector |
-| Daily review articles | Exa `web_search_exa` | Post-market review | Must include `startPublishedDate` |
+## 富途搜索市场区分对照
 
-**Morning session special handling:**
-- No "closing price" or "daily turnover"; use current price + cumulative volume.
-- Consecutive-board ladder still forming; prefix conclusion with "Morning Session Snapshot".
-- Broken-board rate calculated as current broken / (current limit-up + current broken), not final.
+| 市场 | 代码格式示例 | 建议 keyword |
+|---|---|---|
+| **A股** | 000001、603017 | 中文公司全称（如"比亚迪"），因代码可能命中港股/美股同名标的 |
+| **港股** | 00700、99988 | 代码（如"00700"）或中文名（如"腾讯控股"），富途对港股支持极好 |
+| **美股** | AAPL、TSLA、NVDA | 代码（如"AAPL"），富途对美股支持极好 |
+| **中概股** | BABA、PDD、JD | 代码（如"BABA"），富途搜索覆盖好 |
 
-## Key API Quick Reference (see `references/eastmoney-api.md` for full details)
+**港股代码特殊说明**：富途的 `news_search` 和 `stock_feed` 搜索港股时，可以用 `0700`（去掉前导 0）或 `00700`。Yahoo Finance 必须使用 `0700.HK` 格式。
+
+## 数据拉取规范（强制）
+
+**任何分析必须先拉数据，禁止裸眼定性。**如某个接口因反爬/时段限制无法获取，必须在输出中明确标注"该项数据缺失"。
+
+**市场分类必拉清单：**
+
+### A股最小数据集
+
+| 必拉项 | 接口/方式 | 备注 |
+|---|---|---|
+| 6 大指数 | `push2.eastmoney.com` ulist | 盘中走浏览器 fetch，盘后可尝试 curl |
+| 涨跌停池 | `push2ex.eastmoney.com` ZT/DTPool | curl 稳定，date 只能传当日 |
+| 炸板池 | `push2ex.eastmoney.com` ZBPool | 同上 |
+| 主力资金流向 | `push2.eastmoney.com` fflow | 盘中走浏览器 fetch |
+| 行业/概念板块榜 | 浏览器抓取 | API 裸 curl 被拦 |
+| 当日复盘文章 | Exa `web_search_exa` | 必带 `startPublishedDate` |
+
+### 港美股最小数据集
+
+| 必拉项 | 接口/方式 | 备注 |
+|---|---|---|
+| 实时行情 | Yahoo Finance `/v8/finance/chart/` | 稳定，支持全球市场 |
+| 基本面/财务指标 | Yahoo Finance `/v10/finance/quoteSummary/` | 收益、PE、市值等 |
+| 当日新闻/公告 | 富途 `news_search` | 代码搜索精准度高 |
+| 社区情绪 | 富途 `stock_feed` | 代码搜索精准度高 |
+| 市场舆情 | Exa 搜索 + Jina Reader | 英文覆盖更好 |
+| 榜单/市值排名 | 富途/东财页面抓取 | 用浏览器抓取排行榜 |
+
+**港美股分析特殊处理**：
+- 港美股无涨跌停制度，不适用"连板梯队"、"炸板率"等 A股专属指标。重点看：大盘指数涨跌、成交量变化、板块轮动、个股新闻/财报影响。
+- 美股盘后复盘重点：纳斯达克/标普 500 涨跌、成交量、板块轮动、重要个股动态、聘储/大众交易所交易情况（使用 browser 抓取）。
+- 港股盘后复盘重点：恒指/国指/科指涨跌、南向资金流向、个股板块动态。
+
+## Yahoo Finance API 速查（详见 references/yahoo-finance-api.md）
 
 ```bash
-# Indices (SSE/SZSE/ChiNext/STAR/SME/BSE)
-curl -s "https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=1.000001,0.399001,0.399006,1.000688,0.399005,0.899050&fields=f2,f3,f4,f5,f6,f12,f14,f15,f16,f17,f18"
+# 实时行情（支持美股、港股、日股、A股外资）
+curl -s "https://query1.finance.yahoo.com/v8/finance/chart/AAPL?interval=1d&range=1d"
+curl -s "https://query1.finance.yahoo.com/v8/finance/chart/0700.HK?interval=1d&range=1d"
 
-# Limit-up pool (includes consecutive days, first board time, broken count, sector)
-curl -s "https://push2ex.eastmoney.com/getTopicZTPool?ut=7eea3edcaed734bea9cbfc24409ed989&dpt=wz.ztzt&Pageindex=0&pagesize=200&sort=fbt:asc&date=YYYYMMDD"
-
-# Limit-down / broken-board pools
-curl -s "https://push2ex.eastmoney.com/getTopicDTPool?...&date=YYYYMMDD"
-curl -s "https://push2ex.eastmoney.com/getTopicZBPool?...&date=YYYYMMDD"
-
-# Fund flow
-curl -s "https://push2.eastmoney.com/api/qt/stock/fflow/kline/get?secid=1.000001&fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65&klt=101&lmt=1"
+# 财务摘要（收益、PE、市值等）
+curl -s "https://query2.finance.yahoo.com/v10/finance/quoteSummary/AAPL?modules=summaryDetail,defaultKeyStatistics,financialData"
 ```
 
-## Futunn Free Search Skills
+## 富途免登录 Search Skills（详见 references/futu-api.md）
 
-Three free info capabilities from Futunn, no OpenD, no API Key, direct `curl`.
+```bash
+# 美股新闻搜索
+curl -sG 'https://ai-news-search.futunn.com/news_search' \
+  --data-urlencode 'keyword=AAPL' \
+  --data-urlencode 'size=10' \
+  --data-urlencode 'news_type=1' \
+  --data-urlencode 'lang=en' \
+  --data-urlencode 'sort_type=2'
 
-**Recommend using Chinese company full name as `keyword`** (e.g. "比亚迪" not "002594"), because Futunn is HK/US-centric and codes may hit同名 tickers.
+# 港股新闻搜索
+curl -sG 'https://ai-news-search.futunn.com/news_search' \
+  --data-urlencode 'keyword=00700' \
+  --data-urlencode 'size=10' \
+  --data-urlencode 'news_type=1' \
+  --data-urlencode 'lang=zh-CN' \
+  --data-urlencode 'sort_type=2'
+```
 
-| Capability | Endpoint | Quick Test |
+## 标准工作流（按市场）
+
+### A股盘后复盘（8步）
+
+1. **`curl` 东财指数接口** → SSE/SZSE/ChiNext/STAR/BSE 收盘
+2. **`curl` ZTPool/DTPool/ZBPool** → 活跃度指标
+3. **浏览器抓行业/概念板块榜** → 看主线/接力
+4. **富途 `news_search` 搜索当日热点新闻** → 补充资讯定调
+5. **Exa 搜 `startPublishedDate`** → 主流媒体定调
+6. **套用 A股复盘模板** → 给出综合定性
+
+### 美股盘后复盘（6步）
+
+1. **Yahoo Finance 获取纳斯达克/标普 500 行情** → 大盘涨跌 + 成交量
+2. **Yahoo Finance 获取 VIX、十年期国债收益率** → 市场风险偏好
+3. **富途 `news_search` 搜索热门个股新闻** → 新闻定调
+4. **富途 `stock_feed` 社区情绪** → 情绪温度
+5. **Exa 搜索美股分析文章 + startPublishedDate** → 主流观点
+6. **套用港美股复盘模板** → 给出综合定性
+
+### 港股盘后复盘（6步）
+
+1. **Yahoo Finance 获取恒指/国指/科指行情** → 大盘涨跌 + 成交量
+2. **Yahoo Finance 获取个股行情**（0700.HK、99988.HK等） → 详细数据
+3. **富途 `news_search` 搜索港股新闻**→ 资讯定调
+4. **Exa 搜索港股市场 + startPublishedDate** → 主流观点
+5. **浏览器抓取富途/东财港股板块页面** → 板块轮动
+6. **套用港美股复盘模板** → 给出综合定性
+
+## 情绪指标（按市场）
+
+### A股（6 指标）
+
+| 指标 | 来源 | 解读 |
 |---|---|---|
-| News/Announcement/Research | `GET https://ai-news-search.futunn.com/news_search` | `keyword=比亚迪&size=10&news_type=1&lang=zh-CN&sort_type=2` |
-| Community sentiment | `GET https://ai-news-search.futunn.com/stock_feed` | `keyword=比亚迪&size=30` |
-| Ticker digest | Structured analysis after calling `news_search` | Output conclusion+signal+evidence |
+| 涨跌停数 | ZTPool / DTPool `tc` | 涨停 >70 强势，<40 偏弱 |
+| 炸板率 | 炸板 / (涨停+炸板) | >40% 赚钱效应差 |
+| 最高连板 | ZTPool.pool[].zttj.days | ≥10 板有"妖股锚" |
+| 封板时间分布 | ZTPool.pool[].fbt | 早盘扎堆=共振 |
+| 涨停板块集中度 | ZTPool.pool[].hybk 计数 | 集中=主线明确 |
+| 概念榜接力 | 概念板块 TOP10 | 进前 10 = 游资接力强 |
 
-Full params, return structure, sentiment classification rules in `references/futu-api.md`.
+### 港美股（4 指标）
 
-## Board Rankings: Browser Capture Required
-
-Eastmoney board API (`m:90+t:2` industry / `m:90+t:3` concept) often returns empty. **Use browser automation directly**:
-
-### Option A: Hermes Built-in Browser (Recommended)
-```python
-# browser_navigate to the URL, then browser_console fetch
-(async () => {
-  const url = 'https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=20&fid=f3&fs=m:90+t:2&fields=f12,f14,f2,f3,f4,f5,f6&_=' + Date.now();
-  const r = await fetch(url, { referrer: 'https://quote.eastmoney.com/' });
-  return await r.json();
-})()
-```
-
-### Option B: Playwright / Puppeteer / Camoufox
-```python
-# Navigate to quote.eastmoney.com/center/gridlist.html#industry_board
-# Wait for networkidle, then capture page content or execute fetch in page context
-```
-
-### Option C: camofox-browser REST API (if available)
-```python
-# POST /tabs {"userId":"x","sessionKey":"s","url":"https://quote.eastmoney.com/center/gridlist.html#industry_board"}
-# GET /tabs/<id>/snapshot?userId=x&format=markdown
-# Extract table rows from markdown
-```
-
-Switch to concept board: navigate to `#concept_board` anchor + wait networkidle + sleep 2s before snapshot.
-
-Full script: `scripts/aftermarket.py`.
-
-## Sentiment Thermometer (6 Indicators)
-
-| Indicator | Source | Interpretation |
+| 指标 | 来源 | 解读 |
 |---|---|---|
-| Limit-up / Limit-down count | ZTPool / DTPool `tc` | Limit-up >70 strong, <40 weak; Limit-down >15 caution |
-| Broken-board rate | Broken / (Limit-up + Broken) | >40% poor money effect |
-| Highest consecutive board | ZTPool.pool[].zttj.days | ≥10 boards = "demon stock anchor", sentiment alive |
-| Board time distribution | ZTPool.pool[].fbt (HHMMSS int) | Morning cluster = resonance; even = support |
-| Limit-up sector concentration | Count ZTPool.pool[].hybk | Concentrated = clear leader; scattered = pure speculation |
-| "Yesterday consecutive/limit-up/first-board" concept rank | Concept board | Top 10 = strong relay |
+| 大盘涨跌 + 成交量 | Yahoo Finance | 放量上涨=强势；缩量下跌=弱势 |
+| 板块轮动 | 页面抓取 / 富途榜单 | 科技、金融、能源等板块轮动节奏 |
+| 新闻/财报影响 | 富途 news_search | 利好密集度、政策影响 |
+| 社区情绪 | 富途 stock_feed | 极端情绪往往是反转信号 |
 
-**Futunn community sentiment as 7th auxiliary indicator**: Extreme community bull/bear ratio (>75%) often signals short-term reversal.
+## 关键坑位
 
-## Common Sentiment Combinations
+### 通用坑位（全市场）
 
-- Indices flat + limit-up 40-60 + high board exists → **Structural hot-spot market** (retail-driven)
-- Indices slightly down + limit-down >20 + no concept relay → **Pullback day**
-- Indices slightly up + limit-up >80 + sector concentrated → **Leader sector launching**
-- Indices big drop + limit-down >50 → **Panic selling**
-- Indices slightly down + limit-up 50-70 + balanced community sentiment → **Divergent adjustment** (leader switching)
+**Exa 搜索必带 `startPublishedDate`**
+不带此参数会命中历史同期文章。英文搜索也一样。强制加 `"startPublishedDate":"YYYY-MM-DD"`。
 
-## Critical Pitfalls
+**Jina Reader 国内财经站常超时**
+`r.jina.ai/...` 对东财、雪球、富途等经常 15s timeout。财经数据直接走 API 或浏览器抓取。
 
-### 🪥 Pitfall 1: Exa search hits historical same-date articles
-Without `startPublishedDate`, Exa returns prior-year same-month-day articles. A-share reviews on 5/26 look identical every year.
-**Fix**: Force `"startPublishedDate":"YYYY-MM-DD"`. Verify machine date with `curl -sI https://www.baidu.com | grep Date`.
+### A股专属坑位
 
-### 🪥 Pitfall 2: Jina Reader times out on China finance sites
-`r.jina.ai/https://finance.sina.com.cn/...` often 15s timeout. Eastmoney, 10jqka, Xueqiu have anti-bot.
-**Fix**: Use Eastmoney API or browser capture; don't rely on Jina.
+**东财板块 API 返空** → 用浏览器抓取 `gridlist.html`。
+**股叭反爬严重** → 改用富途社区情绪 + Exa 搜索。
+**涨跌停池 date 参数无效** → 只能当日使用。
+**指数资金接口盘中裹 curl 返空** → 走浏览器 fetch。
 
-### 🪥 Pitfall 3: Eastmoney board API returns empty
-`push2.eastmoney.com/api/qt/clist/get?fs=m:90+t:2` returns empty even with UA/Referer.
-**Fix**: Use browser capture on `gridlist.html` page.
+### 港美股专属坑位
 
-### 🪥 Pitfall 4: Guba anti-bot is strictest
-`guba.eastmoney.com` often returns 0 bytes even with browser automation.
-**Fix**: Use Futunn community sentiment + Exa daily review articles.
+**Yahoo Finance API 反爬**
+Yahoo 对频率有限制，过快请求会被封 IP。**4-5 秒间隔一次请求**。加 `User-Agent` 和 `Referer` 可降低封险概率。
 
-### 🪥 Pitfall 5: `push2.eastmoney.com` indices/fund-flow empty via bare curl during market hours
-Indices (`ulist.np/get`), fund flow (`fflow/kline/get`), market-wide stats (`clist/get`) often return empty via `curl` during morning/intraday. `push2ex.eastmoney.com` (ZT/DTPool) curl is stable.
-**Fix**: Use **browser `fetch`** (Hermes `browser_console`, Playwright page.evaluate, or camofox evaluate) during market hours.
+**富途搜索代码格式**
+A股用中文名，港股/美股用代码。富途以港美股为主，用 A股代码搜索可能命中港美同名标的。
 
-### 🪥 Pitfall 6: Futunn news search is code-format sensitive for A-shares
-Futunn is HK/US-centric. Using A-share code (e.g. 002594) may hit HK/US同名 tickers.
-**Fix**: Use Chinese company name; resolve name via Eastmoney API first if precise targeting needed.
-
-### 🪥 Pitfall 7: Futunn `stock_feed` community data unstable
-Small-cap A-shares may have minimal or empty community discussion.
-**Fix**: Use only as auxiliary reference; don't force sentiment output when empty.
-
-### 🪥 Pitfall 8: Eastmoney limit-up/down pool `date` param is non-functional for history
-`getTopicZTPool`/`DTPool`/`ZBPool` `date` param always returns **today's** data regardless of input. Tested: calling `date=20260526` on 2026-05-27 still returns 5/27 data.
-**Fix**: Only usable same-day post-market; historical ladders need manual logging or other sources.
-
-### 🪥 Pitfall 9: Board ranking API requires browser context
-`push2.eastmoney.com/api/qt/clist/get?fs=m:90+t:2` works in browser `fetch()` but fails via bare `curl` (even with UA/Referer) due to cookie/TLS fingerprint/render-chain validation.
-**Fix**: Always use browser automation for board rankings.
-
-### 🪥 Pitfall 10: Futunn `stock_feed` returns generalized content for A-share Chinese names
-Using Chinese name (e.g. "比亚迪") on `stock_feed` often returns HK/US同名 ticker or related content; A-share precision is low.
-**Fix**: Use `news_search` (news_type 1/2/3) for news cross-check, or resolve ticker code via Eastmoney first.
-
-### 🪥 Pitfall 11: Morning vs Post-market data needs differ
-Morning analysis has no "closing price" or "daily turnover"; focus on real-time index moves, early board time distribution (`fbt`), broken-board rate, sector concentration, real-time fund outflow. Consecutive-board ladder is still dynamic.
-**Fix**: Use simplified 5-step morning workflow below, not the full 8-step post-market template.
-
-## Intraday / Morning Snapshot Workflow (5 Steps)
-
-1. **Browser `fetch` indices** → SSE/SZSE/ChiNext/STAR/BSE real-time change + volume
-2. **`curl` ZTPool + DTPool + ZBPool** → Stats: limit-up/down/broken counts, ladder, early board times, sector concentration
-3. **Browser `fetch` fund flow + market-wide up/down** → Main outflow + up/down ratio
-4. **Futunn `news_search` hot news** → Quick news context (optional)
-5. **Apply 6 indicators for morning sentiment** (prefix "Morning Session Snapshot")
-
-## Standard Post-market Review Workflow (8 Steps)
-
-1. **`curl` Eastmoney indices** → SSE/SZSE/ChiNext/STAR/BSE close + fund flow
-2. **`curl` ZTPool/DTPool/ZBPool (date=today)** → Calculate limit-up/down/broken/highest board
-3. **Browser capture industry board ranking** → Identify leader sector
-4. **Browser capture concept board ranking** → Check if "yesterday consecutive/limit-up" in top 10 (relay strength)
-5. **Futunn `news_search` hot ticker news** → Quick news context (optional, when user mentions ticker)
-6. **Futunn `stock_feed` community sentiment** → Market temperature (optional)
-7. **Exa search `daily review capital main force` + startPublishedDate** → Mainstream media tone
-8. **Apply "6 indicators + 4 combinations" for comprehensive sentiment**
-
-Ready-to-run script: `scripts/aftermarket.py YYYYMMDD`
+**时区差异**
+美股盘后复盘应在美股交易日结束后（东部时间 16:00 后，北京时间第二天 05:00 后）。港股盘后复盘在港股交易日结束后（北京时间 16:00 后）。跨市场分析时注意交易时间匹配。
 
 ## Limitations
 
-- A-share data (Eastmoney) covers Shanghai/Shenzhen/Beijing only. HK/US/Japan stocks need Futunn OpenAPI (requires OpenD).
-- Futunn free Search Skills mainly cover HK/US ticker news; A-share coverage varies by ticker. Chinese name as keyword works best.
-- Eastmoney API is unofficial; field names (`f2/f3/...`) may change. Use `curl ... | jq` to inspect raw structure when fields missing.
-- `push2.eastmoney.com` endpoints (indices, fund flow, up/down) may return empty via bare `curl` during market hours; use browser `fetch`. `push2ex.eastmoney.com` limit pools are curl-stable.
-- Limit pool `date` param **only works for today**; historical queries return today's data. Post-market limit analysis must be done same day.
-- Real trading days only; weekends/holidays return previous trading day or empty.
-- Futunn community sentiment reflects platform users only, not entire market.
+- A股数据（东财）仅支持沪深京。港/美/日股不支持涨跌停池、连板梯队等 A股专属指标。
+- Yahoo Finance API 免登录但有频率限制，过快会被封 IP。建议在脚本中加 sleep(4-5)。
+- 富途免登录 Search Skills 主要覆盖港美股标的新闻，A股标的覆盖率因标的而异。
+- 东财 API 是非官方公开接口，字段名可能调整。
+- 真实交易日才有数据；周末/节假日返回前一交易日或空。
+- 富途社区情绪仅反映平台内讨论，不代表全市场。

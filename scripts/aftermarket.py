@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 """
-A-share post-market data collection script
-Usage: python aftermarket.py [YYYYMMDD]
+全球股市行情一键采集脚本
+用法: python aftermarket.py [--market a|hk|us] [YYYYMMDD]
 
-Without date arg, auto-detects nearest trading day (weekend rolls back to Friday).
-Outputs formatted post-market review text to stdout; redirect to file if needed.
+--market a    : A股复盘（默认）
+--market hk   : 港股复盘
+--market us   : 美股复盘
 
-Board ranking requires browser automation. Three options:
-  1. Hermes built-in browser (recommended): set HERMES_BROWSER_URL
-  2. camofox-browser REST API: set CAMOFOX_URL, CAMOFOX_USER_ID, CAMOFOX_SESSION_KEY
-  3. Skip: board ranking section omitted if no browser config found.
+不指定日期则 A股自动取最近交易日（周末回退到周五），港美股自动取最近交易日。
+输出格式化的复盘文本到 stdout，可重定向到文件。
+
+板块榜需要 camofox-browser 支持，通过环境变量传入：
+  CAMOFOX_URL=http://localhost:9377
+  CAMOFOX_USER_ID=xxx
+  CAMOFOX_SESSION_KEY=yyy
+
+如果不传，跳过板块榜部分。
 """
 
 import json
@@ -17,11 +23,14 @@ import re
 import sys
 import os
 import urllib.request
+import time
 from datetime import datetime, timedelta
 
 # ------------------------------------------------------------------
-# Config
+# 配置
 # ------------------------------------------------------------------
+
+# A股
 INDEX_SECIDS = "1.000001,0.399001,0.399006,1.000688,0.399005,0.899050"
 INDEX_FIELDS = "f2,f3,f4,f5,f6,f12,f14,f15,f16,f17,f18"
 
@@ -53,8 +62,16 @@ INDEX_URL = (
     "?fltt=2&secids={secids}&fields={fields}&_={ts}"
 )
 
+# Yahoo Finance
+YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1d"
+YAHOO_QUOTE_URL = "https://query1.finance.yahoo.com/v6/finance/quote?symbols={symbols}"
+
+# 富途
+FUTU_NEWS_URL = "https://ai-news-search.futunn.com/news_search"
+FUTU_FEED_URL = "https://ai-news-search.futunn.com/stock_feed"
+
 # ------------------------------------------------------------------
-# Utilities
+# 工具函数
 # ------------------------------------------------------------------
 
 def fmt_price(v):
@@ -96,14 +113,14 @@ def fmt_time(v):
     return f"{s[:2]}:{s[2:4]}:{s[4:6]}"
 
 
-def fetch_json(url):
-    req = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-            "Referer": "https://quote.eastmoney.com/",
-        },
-    )
+def fetch_json(url, headers=None):
+    default_headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Referer": "https://finance.yahoo.com/",
+    }
+    if headers:
+        default_headers.update(headers)
+    req = urllib.request.Request(url, headers=default_headers)
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             raw = resp.read().decode("utf-8", errors="ignore")
@@ -144,32 +161,32 @@ def nearest_trade_date(dt: datetime = None) -> str:
 
 
 # ------------------------------------------------------------------
-# Data Fetching
+# A股数据获取
 # ------------------------------------------------------------------
 
 def get_index(date_str: str):
     url = INDEX_URL.format(secids=INDEX_SECIDS, fields=INDEX_FIELDS, ts=datetime.now().timestamp())
-    data = fetch_json(url)
+    data = fetch_json(url, {"Referer": "https://quote.eastmoney.com/"})
     if "_error" in data:
         return data
     return data.get("data", {}).get("diff", [])
 
 
 def get_zt_pool(date_str: str):
-    return fetch_json(ZT_URL.format(date=date_str))
+    return fetch_json(ZT_URL.format(date=date_str), {"Referer": "https://quote.eastmoney.com/"})
 
 
 def get_dt_pool(date_str: str):
-    return fetch_json(DT_URL.format(date=date_str))
+    return fetch_json(DT_URL.format(date=date_str), {"Referer": "https://quote.eastmoney.com/"})
 
 
 def get_zb_pool(date_str: str):
-    return fetch_json(ZB_URL.format(date=date_str))
+    return fetch_json(ZB_URL.format(date=date_str), {"Referer": "https://quote.eastmoney.com/"})
 
 
 def get_fund_flow():
     url = FFLOW_URL.format(ts=int(datetime.now().timestamp() * 1000))
-    data = fetch_json(url)
+    data = fetch_json(url, {"Referer": "https://quote.eastmoney.com/"})
     if "_error" in data:
         return data
     d = data.get("data", {})
@@ -181,7 +198,99 @@ def get_fund_flow():
     return dict(zip(cols, vals))
 
 
-def _fetch_board_via_camofox(board_type: str):
+# ------------------------------------------------------------------
+# 港美股数据获取 (Yahoo Finance)
+# ------------------------------------------------------------------
+
+def yahoo_quote(symbol: str):
+    """获取单只股票实时行情"""
+    url = YAHOO_CHART_URL.format(symbol=symbol)
+    data = fetch_json(url)
+    if "_error" in data:
+        return data
+    result = data.get("chart", {}).get("result", [{}])[0]
+    meta = result.get("meta", {})
+    timestamps = result.get("timestamp", [])
+    quotes = result.get("indicators", {}).get("quote", [{}])[0]
+    
+    if not timestamps:
+        return {"_error": "No data available", "symbol": symbol}
+    
+    # 取最新一条
+    idx = -1
+    return {
+        "symbol": symbol,
+        "name": meta.get("shortName", meta.get("symbol", symbol)),
+        "currency": meta.get("currency", "USD"),
+        "exchange": meta.get("exchangeName", ""),
+        "regularMarketPrice": meta.get("regularMarketPrice"),
+        "previousClose": meta.get("previousClose"),
+        "regularMarketVolume": meta.get("regularMarketVolume"),
+        "fiftyTwoWeekHigh": meta.get("fiftyTwoWeekHigh"),
+        "fiftyTwoWeekLow": meta.get("fiftyTwoWeekLow"),
+        "open": quotes.get("open", [None])[idx] if quotes.get("open") else None,
+        "high": quotes.get("high", [None])[idx] if quotes.get("high") else None,
+        "low": quotes.get("low", [None])[idx] if quotes.get("low") else None,
+        "close": quotes.get("close", [None])[idx] if quotes.get("close") else None,
+        "volume": quotes.get("volume", [None])[idx] if quotes.get("volume") else None,
+    }
+
+
+def yahoo_quotes_batch(symbols: list):
+    """批量获取多只股票快照"""
+    url = YAHOO_QUOTE_URL.format(symbols=",".join(symbols))
+    data = fetch_json(url)
+    if "_error" in data:
+        return data
+    return data.get("quoteResponse", {}).get("result", [])
+
+
+# ------------------------------------------------------------------
+# 富途数据获取
+# ------------------------------------------------------------------
+
+def futu_news_search(keyword: str, size: int = 10, lang: str = "en", news_type: int = 1):
+    """富途新闻搜索"""
+    params = urllib.parse.urlencode({
+        "keyword": keyword,
+        "size": size,
+        "news_type": news_type,
+        "lang": lang,
+        "sort_type": 2,
+    })
+    url = f"{FUTU_NEWS_URL}?{params}"
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "stock-analysis/2.0.0 (Skill)",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read().decode())
+    except Exception as e:
+        return {"_error": str(e)}
+
+
+def futu_stock_feed(keyword: str, size: int = 30):
+    """富途社区情绪"""
+    params = urllib.parse.urlencode({
+        "keyword": keyword,
+        "size": size,
+    })
+    url = f"{FUTU_FEED_URL}?{params}"
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "stock-analysis/2.0.0 (Skill)",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read().decode())
+    except Exception as e:
+        return {"_error": str(e)}
+
+
+# ------------------------------------------------------------------
+# 板块榜（camofox）
+# ------------------------------------------------------------------
+
+def camofox_board_list(board_type: str = "industry"):
     base = os.environ.get("CAMOFOX_URL", "http://localhost:9377")
     user_id = os.environ.get("CAMOFOX_USER_ID", "")
     session_key = os.environ.get("CAMOFOX_SESSION_KEY", "")
@@ -243,31 +352,21 @@ def _fetch_board_via_camofox(board_type: str):
     return {"board_type": board_type, "rows": rows, "count": len(rows)}
 
 
-def capture_board_list(board_type: str = "industry"):
-    """
-    Capture board ranking via available browser automation.
-    Priority: camofox-browser REST > skip with message
-    """
-    if os.environ.get("CAMOFOX_URL") and os.environ.get("CAMOFOX_USER_ID"):
-        return _fetch_board_via_camofox(board_type)
-    return {"_skipped": "No browser automation configured. Set CAMOFOX_URL + CAMOFOX_USER_ID to enable board rankings."}
-
-
 # ------------------------------------------------------------------
-# Output Formatting
+# 输出格式化 - A股
 # ------------------------------------------------------------------
 
 def print_index(data):
-    print("## Index Performance\n")
-    print(f"{'Index':<12} {'Close':>10} {'Change':>10} {'Change%':>10} {'Turnover':>12}")
+    print("## 指数表现\n")
+    print(f"{'指数':<10} {'收盘':>10} {'涨跌':>10} {'涨跌幅':>10} {'成交额':>12}")
     print("-" * 60)
     name_map = {
-        "000001": "SSE Comp",
-        "399001": "SZSE Comp",
-        "399006": "ChiNext",
-        "000688": "STAR50",
-        "399005": "SME",
-        "899050": "BSE50",
+        "000001": "上证指数",
+        "399001": "深证成指",
+        "399006": "创业板指",
+        "000688": "科创50",
+        "399005": "中小板指",
+        "899050": "北证50",
     }
     for item in data:
         code = item.get("f12", "")
@@ -276,7 +375,7 @@ def print_index(data):
         change = fmt_price(item.get("f4"))
         pct = fmt_pct(item.get("f3"))
         amount = fmt_amount(item.get("f6"))
-        print(f"{name:<12} {close_p:>10} {change:>10} {pct:>10} {amount:>12}")
+        print(f"{name:<10} {close_p:>10} {change:>10} {pct:>10} {amount:>12}")
     print()
 
 
@@ -288,11 +387,11 @@ def print_zt_analysis(zt_data, dt_data, zb_data):
     dt_total = dt_data.get("data", {}).get("tc", len(dt_pool)) if "_error" not in dt_data else 0
     zb_total = zb_data.get("data", {}).get("tc", len(zb_pool)) if "_error" not in zb_data else 0
 
-    print("## Limit-up/down & Consecutive-board Ladder\n")
-    print(f"Limit-up: {zt_total} | Limit-down: {dt_total} | Broken-board: {zb_total}")
+    print("## 涨跌停与连板梯队\n")
+    print(f"涨停: {zt_total} 只 | 跌停: {dt_total} 只 | 炸板: {zb_total} 只")
     if zt_total + zb_total > 0:
         zb_rate = zb_total / (zt_total + zb_total) * 100
-        print(f"Broken-board rate: {zb_rate:.1f}% {'(High)' if zb_rate > 40 else ''}")
+        print(f"炸板率: {zb_rate:.1f}% {'(高)' if zb_rate > 40 else ''}")
     print()
 
     ladders = {}
@@ -302,56 +401,56 @@ def print_zt_analysis(zt_data, dt_data, zb_data):
             ladders.setdefault(days, []).append(s)
 
     if ladders:
-        print("Consecutive-board ladder:")
+        print("连板梯队:")
         for d in sorted(ladders.keys(), reverse=True):
             stocks = ladders[d]
             names = ", ".join([f"{s['n']}({s['c']})" for s in stocks[:5]])
-            print(f"  {d}-board ({len(stocks)}): {names}")
+            print(f"  {d}板 ({len(stocks)}只): {names}")
         max_days = max(ladders.keys())
-        print(f"Highest: {max_days}-board")
+        print(f"最高连板: {max_days}板")
     else:
-        print("Consecutive-board ladder: No >=2-board stocks")
+        print("连板梯队: 无 ≥2 板")
 
     fbt_times = [s.get("fbt", 0) for s in zt_pool if s.get("fbt")]
     early = sum(1 for t in fbt_times if t <= 100000)
     mid = sum(1 for t in fbt_times if 100000 < t <= 130000)
     late = sum(1 for t in fbt_times if t > 130000)
-    print(f"\nBoard time distribution: Early({early}) / Mid({mid}) / Late({late})")
+    print(f"\n封板时间分布: 早盘(≤10:00) {early}只 / 上午 {mid}只 / 下午 {late}只")
 
     from collections import Counter
-    hy_counter = Counter([s.get("hybk", "Unknown") for s in zt_pool])
-    print(f"\nLimit-up sectors TOP5:")
+    hy_counter = Counter([s.get("hybk", "未知") for s in zt_pool])
+    print(f"\n涨停行业 TOP5:")
     for hy, cnt in hy_counter.most_common(5):
-        print(f"  {hy}: {cnt}")
+        print(f"  {hy}: {cnt}只")
     print()
 
 
 def print_fund_flow(flow_data):
     if not flow_data or "_error" in flow_data:
-        print("## Fund Flow\nData unavailable\n")
+        print("## 资金流向\n数据获取失败\n")
         return
-    print("## Fund Flow (SSE Composite)\n")
-    print(f"  Main force: {fmt_amount(flow_data.get('主力净流入'))}")
-    print(f"  Super-large: {fmt_amount(flow_data.get('超大单净流入'))}")
-    print(f"  Large:       {fmt_amount(flow_data.get('大单净流入'))}")
-    print(f"  Medium:      {fmt_amount(flow_data.get('中单净流入'))}")
-    print(f"  Small:       {fmt_amount(flow_data.get('小单净流入'))}")
+    print("## 资金流向（上证指数口径）\n")
+    print(f"  主力净流入: {fmt_amount(flow_data.get('主力净流入'))}")
+    print(f"  超大单:     {fmt_amount(flow_data.get('超大单净流入'))}")
+    print(f"  大单:       {fmt_amount(flow_data.get('大单净流入'))}")
+    print(f"  中单:       {fmt_amount(flow_data.get('中单净流入'))}")
+    print(f"  小单:       {fmt_amount(flow_data.get('小单净流入'))}")
     print()
 
 
 def print_boards(board_data, title):
     if "_skipped" in board_data:
-        print(f"## {title}\nSkipped: {board_data['_skipped']}\n")
+        print(f"## {title}\n跳过: {board_data['_skipped']}\n")
         return
     if "_error" in board_data:
-        print(f"## {title}\nError: {board_data['_error']}\n")
+        print(f"## {title}\n错误: {board_data['_error']}\n")
         return
     rows = board_data.get("rows", [])
     if not rows:
-        print(f"## {title}\nNo data captured\n")
+        print(f"## {title}\n未抓取到数据\n")
         return
-    print(f"## {title} (Top 15)\n")
-    print(f"{'Rank':<4} {'Sector':<12} {'Change%':>8}")
+    print(f"## {title}（前15）\n")
+    print(f"{'排名':<4} {'板块':<12} {'涨跌幅':>8}")
     print("-" * 30)
     for i, r in enumerate(rows[:15], 1):
         pct_str = "-"
@@ -369,41 +468,134 @@ def print_sentiment_summary(zt_data, dt_data, zb_data, flow_data):
     dt_total = dt_data.get("data", {}).get("tc", 0) if "_error" not in dt_data else 0
     zb_total = zb_data.get("data", {}).get("tc", 0) if "_error" not in zb_data else 0
 
-    print("## Sentiment Summary\n")
+    print("## 情绪定性\n")
     if zt_total > 80 and dt_total < 10:
-        print("🔥 Strong: Limit-up>80, Limit-down<10, high sentiment")
+        print("🔥 强势：涨停>80，跌停<10，情绪高涨")
     elif zt_total > 70 and dt_total < 15:
-        print("📈 Bullish: Limit-up>70, structural hot-spot market")
+        print("📈 偏强：涨停>70，结构性热点行情")
     elif zt_total >= 40 and dt_total < 20:
-        print("😐 Neutral: Structural, mixed or divergent")
+        print("😐 中性：结构性行情，跌多涨少或分化")
     elif dt_total > 20 or (zt_total + zb_total > 0 and zb_total / (zt_total + zb_total) > 0.4):
-        print("❄️ Weak: Limit-down>20 or high broken-board rate, pullback")
+        print("❄️ 偏弱：跌停>20 或炸板率高，退潮/调整")
     else:
-        print("⚠️ Cold: Limit-up<40, low sentiment")
+        print("⚠️ 低迷：涨停<40，情绪冷淡")
     print()
 
 
 # ------------------------------------------------------------------
-# main
+# 输出格式化 - 港美股
 # ------------------------------------------------------------------
 
-def main():
-    if len(sys.argv) > 1:
-        date_str = sys.argv[1]
-        if not re.fullmatch(r"\d{8}", date_str):
-            print("Invalid date format, expected YYYYMMDD", file=sys.stderr)
-            sys.exit(1)
-    else:
-        date_str = nearest_trade_date()
+def print_global_indices(indices_data, market_name: str):
+    print(f"## {market_name} 大盘指数\n")
+    print(f"{'指数':<15} {'当前价':>12} {'涨跌幅':>10} {'成交量':>14}")
+    print("-" * 60)
+    for item in indices_data:
+        if isinstance(item, dict) and "_error" in item:
+            continue
+        name = item.get("shortName") or item.get("symbol", "")
+        price = item.get("regularMarketPrice", "-")
+        change = item.get("regularMarketChangePercent", "-")
+        volume = item.get("regularMarketVolume", "-")
+        if isinstance(change, (int, float)):
+            change_str = f"{change:+.2f}%"
+        else:
+            change_str = "-"
+        if isinstance(volume, (int, float)):
+            vol_str = f"{volume/1e6:.1f}M" if volume >= 1e6 else f"{volume/1e3:.1f}K"
+        else:
+            vol_str = "-"
+        print(f"{name:<15} {price:>12} {change_str:>10} {vol_str:>14}")
+    print()
 
+
+def print_global_stock(quote_data):
+    if "_error" in quote_data:
+        print(f"## 个股行情\n错误: {quote_data['_error']}\n")
+        return
+    symbol = quote_data.get("symbol", "")
+    name = quote_data.get("name", symbol)
+    currency = quote_data.get("currency", "USD")
+    
+    print(f"## {name} ({symbol})\n")
+    print(f"  当前价: {quote_data.get('regularMarketPrice', '-')}")
+    print(f"  昨收:   {quote_data.get('previousClose', '-')}")
+    print(f"  开盘:   {quote_data.get('open', '-')}")
+    print(f"  最高:   {quote_data.get('high', '-')}")
+    print(f"  最低:   {quote_data.get('low', '-')}")
+    print(f"  成交量: {quote_data.get('volume', '-')}")
+    print(f"  货币:   {currency}")
+    print(f"  52周高: {quote_data.get('fiftyTwoWeekHigh', '-')}")
+    print(f"  52周低: {quote_data.get('fiftyTwoWeekLow', '-')}")
+    
+    prev = quote_data.get("previousClose")
+    curr = quote_data.get("regularMarketPrice")
+    if prev and curr:
+        change = curr - prev
+        pct = change / prev * 100
+        print(f"  涨跌:   {change:+.2f} ({pct:+.2f}%)")
+    print()
+
+
+def print_futu_news(news_data, keyword: str):
+    if "_error" in news_data:
+        print(f"## {keyword} 新闻\n错误: {news_data['_error']}\n")
+        return
+    data = news_data.get("data", [])
+    if not data:
+        print(f"## {keyword} 新闻\n暂无相关数据\n")
+        return
+    print(f"## {keyword} 新闻（前5条）\n")
+    for i, item in enumerate(data[:5], 1):
+        ts = item.get("publish_time", 0)
+        dt_str = datetime.fromtimestamp(ts).strftime("%m-%d %H:%M") if ts else ""
+        print(f"{i}. [{dt_str}] {item.get('title', '')}")
+        print(f"   {item.get('url', '')}")
+    print()
+
+
+def print_global_sentiment(indices_data):
+    print("## 情绪定性\n")
+    bullish = 0
+    bearish = 0
+    for item in indices_data:
+        if isinstance(item, dict) and "_error" not in item:
+            change = item.get("regularMarketChangePercent", 0)
+            if isinstance(change, (int, float)):
+                if change > 1:
+                    bullish += 1
+                elif change < -1:
+                    bearish += 1
+    total = len(indices_data)
+    if total > 0:
+        if bullish >= total * 0.6:
+            print("🔥 强势：大盘指数多数大涨，情绪高涨")
+        elif bearish >= total * 0.6:
+            print("❄️ 弱势：大盘指数多数大跌，情绪低迷")
+        elif bullish > bearish:
+            print("📈 偏强：大盘指数涨多跌少，情绪偏活跃")
+        elif bearish > bullish:
+            print("⚠️ 偏弱：大盘指数跌多涨少，情绪偏谨慎")
+        else:
+            print("😐 中性：大盘指数分化，情绪平衡")
+    else:
+        print("⚠️ 无法判断：数据获取失败")
+    print()
+
+
+# ------------------------------------------------------------------
+# A股复盘
+# ------------------------------------------------------------------
+
+def run_a_share(date_str: str):
     display_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
-    print(f"# A-Stock Post-market Review ({display_date})\n")
-    print(f"Source: Eastmoney free API | Collected: {datetime.now().strftime('%H:%M:%S')}\n")
+    print(f"# A 股盘后复盘（{display_date}）\n")
+    print(f"数据来源: 东方财富免登录 API | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
     print("=" * 60 + "\n")
 
     index_data = get_index(date_str)
     if isinstance(index_data, dict) and "_error" in index_data:
-        print(f"Index fetch failed: {index_data['_error']}\n")
+        print(f"指数获取失败: {index_data['_error']}\n")
     else:
         print_index(index_data)
 
@@ -417,13 +609,131 @@ def main():
 
     print_sentiment_summary(zt, dt, zb, flow)
 
-    industry = capture_board_list("industry")
-    concept = capture_board_list("concept")
-    print_boards(industry, "Industry Board Leaders")
-    print_boards(concept, "Concept Board Leaders")
+    industry = camofox_board_list("industry")
+    concept = camofox_board_list("concept")
+    print_boards(industry, "行业板块涨幅")
+    print_boards(concept, "概念板块涨幅")
 
     print("=" * 60)
-    print("\n*Done. For board rankings, configure browser automation (see README).")
+    print("\n*输出结束。如需板块榜，请设置 CAMOFOX_USER_ID + CAMOFOX_SESSION_KEY 环境变量。")
+
+
+# ------------------------------------------------------------------
+# 美股复盘
+# ------------------------------------------------------------------
+
+def run_us_market():
+    print("# 美股市场复盘\n")
+    print(f"数据来源: Yahoo Finance API | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
+    print("=" * 60 + "\n")
+
+    # 大盘指数
+    indices_symbols = ["^GSPC", "^IXIC", "^DJI", "^VIX"]
+    indices = yahoo_quotes_batch(indices_symbols)
+    if "_error" not in indices:
+        print_global_indices(indices, "美股")
+    else:
+        print(f"大盘指数获取失败: {indices['_error']}\n")
+
+    # 热门个股
+    hot_stocks = ["AAPL", "TSLA", "NVDA", "MSFT", "AMZN", "GOOGL", "META", "BABA", "PDD", "JD"]
+    print("## 重点个股行情\n")
+    for sym in hot_stocks:
+        time.sleep(0.5)  # 避免频率限制
+        quote = yahoo_quote(sym)
+        if "_error" not in quote:
+            print_global_stock(quote)
+
+    # 富途新闻
+    for sym in ["AAPL", "TSLA", "NVDA"]:
+        time.sleep(0.5)
+        news = futu_news_search(sym, size=5, lang="en")
+        print_futu_news(news, sym)
+
+    # 情绪定性
+    if "_error" not in indices:
+        print_global_sentiment(indices)
+
+    print("=" * 60)
+    print("\n*输出结束。")
+
+
+# ------------------------------------------------------------------
+# 港股复盘
+# ------------------------------------------------------------------
+
+def run_hk_market():
+    print("# 港股市场复盘\n")
+    print(f"数据来源: Yahoo Finance API | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
+    print("=" * 60 + "\n")
+
+    # 大盘指数
+    indices_symbols = ["^HSI", "^HSCE", "^HSTECH"]
+    indices = yahoo_quotes_batch(indices_symbols)
+    if "_error" not in indices:
+        print_global_indices(indices, "港股")
+    else:
+        print(f"大盘指数获取失败: {indices['_error']}\n")
+
+    # 热门个股
+    hot_stocks = ["0700.HK", "9988.HK", "3690.HK", "9618.HK", "1299.HK", "2318.HK", "0005.HK", "0388.HK"]
+    print("## 重点个股行情\n")
+    for sym in hot_stocks:
+        time.sleep(0.5)
+        quote = yahoo_quote(sym)
+        if "_error" not in quote:
+            print_global_stock(quote)
+
+    # 富途新闻
+    for sym in ["0700", "9988", "3690"]:
+        time.sleep(0.5)
+        news = futu_news_search(sym, size=5, lang="zh-CN")
+        print_futu_news(news, sym)
+
+    # 情绪定性
+    if "_error" not in indices:
+        print_global_sentiment(indices)
+
+    print("=" * 60)
+    print("\n*输出结束。")
+
+
+# ------------------------------------------------------------------
+# main
+# ------------------------------------------------------------------
+
+def main():
+    market = "a"
+    date_str = None
+
+    args = sys.argv[1:]
+    i = 0
+    while i < len(args):
+        if args[i] == "--market" and i + 1 < len(args):
+            market = args[i + 1].lower()
+            i += 2
+        elif args[i].startswith("--market="):
+            market = args[i].split("=", 1)[1].lower()
+            i += 1
+        elif re.fullmatch(r"\d{8}", args[i]):
+            date_str = args[i]
+            i += 1
+        else:
+            i += 1
+
+    if market not in ("a", "hk", "us"):
+        print("错误: --market 参数必须是 a、hk 或 us", file=sys.stderr)
+        sys.exit(1)
+
+    if market == "a":
+        if date_str:
+            run_a_share(date_str)
+        else:
+            run_a_share(nearest_trade_date())
+    elif market == "us":
+        run_us_market()
+    elif market == "hk":
+        run_hk_market()
 
 
 if __name__ == "__main__":

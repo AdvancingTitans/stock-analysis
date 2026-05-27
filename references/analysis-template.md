@@ -1,136 +1,156 @@
-# A-Stock Post-market Review Template
+# 股市盘后复盘模板
 
-Copy this template, fill in data, output directly.
+复制本模板，填入数据后直接输出。
 
 ---
 
-## 📅 Date: YYYY-MM-DD (Weekday X)
+## A股复盘模板
 
-### I. Market Sentiment Overview
+### 📅 日期：YYYY-MM-DD（星期X）
 
-| Indicator | Value | Signal |
+#### 一、市场情绪总览
+
+| 指标 | 数值 | 信号 |
 |---|---|---|
-| SSE Composite | XXXX.XX (+X.XX%) | Slight up / Slight down / Flat |
-| SZSE Component | XXXXX.XX (+X.XX%) | |
-| ChiNext | XXXX.XX (+X.XX%) | |
-| STAR 50 | XXXX.XX (+X.XX%) | |
-| BSE 50 | XXXX.XX (+X.XX%) | |
-| Limit-up count | XX | >70 strong / 40-60 neutral / <40 weak |
-| Limit-down count | XX | >15 caution |
-| Broken-board count | XX | |
-| Broken-board rate | XX% | >40% poor money effect |
-| Highest consecutive board | X boards | ≥10 has demon stock anchor |
-| Market up/down ratio | Up XX / Down XX | |
-| Main force net inflow | XX bn | Inflow / Outflow |
+| 上证指数 | XXXX.XX (+X.XX%) | 微涨/微跌/平盘 |
+| 深证成指 | XXXXX.XX (+X.XX%) | |
+| 创业板指 | XXXX.XX (+X.XX%) | |
+| 科创50 | XXXX.XX (+X.XX%) | |
+| 北证50 | XXXX.XX (+X.XX%) | |
+| 涨停家数 | XX | >70 强势 / 40-60 中性 / <40 偏弱 |
+| 跌停家数 | XX | >15 警惕 |
+| 炸板家数 | XX | |
+| 炸板率 | XX% | >40% 赚钱效应差 |
+| 最高连板 | X 板 | ≥10 有妖股锚 |
+| 全市场涨跌比 | 涨XX / 跌XX | |
+| 主力净流入 | XX 亿 | 正流入/净流出 |
 
-**One-sentence sentiment**: _______ (e.g. structural hot-spot market / pullback day / leader launching / panic selling / low-volume adjustment)
+**一句话定性**：_______
 
----
+#### 二、指数表现
 
-### II. Index Performance
-
-| Index | Close | Change | Change % | Turnover | Note |
+| 指数 | 收盘 | 涨跌 | 涨跌幅 | 成交额 | 备注 |
 |---|---|---|---|---|---|
-| SSE Composite | | | | | |
-| SZSE Component | | | | | |
-| ChiNext | | | | | |
-| STAR 50 | | | | | |
-| BSE 50 | | | | | |
+| 上证指数 | | | | | |
+| 深证成指 | | | | | |
+| 创业板指 | | | | | |
+| 科创50 | | | | | |
+| 北证50 | | | | | |
 
-**Observation**: _______ (e.g. main board green while ChiNext drops, capital rotating out of small-cap high-valuation)
+**观察**：_______
 
----
+#### 三、涨跌停与连板梯队
 
-### III. Limit-up/down & Consecutive-board Ladder
+**涨停概况**：首板 XX 只 / 连板 XX 只 / 炸板 XX 只
 
-#### Limit-up Overview
-- First-board: XX
-- Consecutive-board: XX (2-board X / 3-board X / ... / Highest X-board)
-- Broken-board: XX
-- Board time distribution: Morning (09:30-10:00) XX / Morning session XX / Afternoon XX
-
-#### Consecutive-board Ladder
-| Boards | Code | Name | Sector | Board order amount | Note |
-|---|---|---|---|---|---|
-| X-board | | | | | |
-| X-board | | | | | |
-
----
-
-### IV. Sector Performance
-
-#### Industry Board Top 10 Gainers
-| Rank | Sector | Change % | Leader | Note |
-|---|---|---|---|---|
-| 1 | | | | |
-| ... | | | | |
-
-#### Industry Board Top 10 Losers
-| Rank | Sector | Change % | Laggard | Note |
-|---|---|---|---|---|
-| 1 | | | | |
-| ... | | | | |
-
-#### Concept Board (Check Relay)
-- "Yesterday consecutive" concept rank: X
-- "Yesterday limit-up" concept rank: X
-- "Yesterday first-board" concept rank: X
-- **Judgment**: Top 10 = strong retail relay / Outside 20 = weak relay
-
----
-
-### V. Fund Flow
-
-| Type | Net Inflow | Proportion | Signal |
+**连板梯队**：
+| 连板数 | 代码 | 名称 | 所属行业 |
 |---|---|---|---|
-| Super-large | +XX bn | XX% | |
-| Large | +XX bn | XX% | |
-| Medium | -XX bn | XX% | |
-| Small | -XX bn | XX% | Retail absorbing / Retail leaving |
-| **Main total** | **+/- XX bn** | | |
+| X板 | | | |
 
-**Observation**: _______ (e.g. main force outflow ~50bn, retail passive absorption, typical low-volume adjustment)
+#### 四、板块表现
+
+**行业板块涨幅前10**：
+| 排名 | 板块 | 涨跌幅 | 龙头股 |
+|---|---|---|---|
+| 1 | | | |
+
+**概念板块（看接力）**：
+- 昨日连板概念排名：第 X 位
+- 昨日涨停概念排名：第 X 位
+
+#### 五、资金流向
+
+| 类型 | 净流入 | 占比 |
+|---|---|---|
+| 超大单 | +XX 亿 | XX% |
+| 大单 | +XX 亿 | XX% |
+| 中单 | -XX 亿 | XX% |
+| 小单 | -XX 亿 | XX% |
+| **主力合计** | **+/- XX 亿** | |
+
+#### 六、消息面与舆情
+
+- 当日热搜关键词：_______
+- Exa 复盘文章定调：_______
+
+#### 七、综合判断
+
+**市场阶段**：_______
+**明日展望**：_______
+**操作建议**：_______
 
 ---
 
-### VI. News & Sentiment
+## 港美股复盘模板
 
-- Hot keywords today: _______
-- Exa review article tone: _______ (1-2 sentence summary of mainstream media view)
-- Policy / sector major news: _______
+### 📅 日期：YYYY-MM-DD（星期X）
 
----
+#### 一、大盘情绪总览
 
-### VII. Sentiment Thermometer Score (6 Indicators)
+| 指标 | 数值 | 信号 |
+|---|---|---|
+| 纳斯达克 | XXXX.XX (+X.XX%) | 美股大盘 |
+| 标普 500 | XXXX.XX (+X.XX%) | |
+| 道琼斯 | XXXX.XX (+X.XX%) | |
+| 恒生指数 | XXXX.XX (+X.XX%) | 港股大盘 |
+| 国指 | XXXX.XX (+X.XX%) | |
+| 科指 | XXXX.XX (+X.XX%) | |
+| VIX | XX.XX | >20 市场恐惧升温 |
+| 十年期国债收益率 | X.XX% | 升高=收紧，下降=放松 |
+| 美元/人民币 | X.XXXX | 升值=资金回流美国 |
 
-| Indicator | Today | Score (0-10) | Weight | Weighted |
+**一句话定性**：_______
+
+#### 二、板块轮动
+
+| 板块 | 表现 | 代表股 | 备注 |
+|---|---|---|---|
+| 科技 | +X.XX% | AAPL, NVDA, MSFT | |
+| 金融 | +X.XX% | JPM, BAC | |
+| 能源 | +X.XX% | XOM, CVX | |
+| 消费 | +X.XX% | AMZN, TSLA | |
+| 医药 | +X.XX% | JNJ, PFE | |
+| 中概股 | +X.XX% | BABA, PDD | |
+| 港股科技 | +X.XX% | 0700, 9988 | |
+| 港股金融 | +X.XX% | 1299, 2318 | |
+
+**观察**：_______（如：科技领涨，中概股跟涨，能源板块回调）
+
+#### 三、重要个股动态
+
+| 股票 | 代码 | 涨跌幅 | 成交量 | 新闻/公告影响 | 社区情绪 |
+|---|---|---|---|---|---|
+| | | | | | |
+
+**观察**：_______
+
+#### 四、新闻与舆情
+
+- 当日重点新闻：_______
+- 政策/公司重大消息：_______
+- Exa/富途定调：_______
+- 社区情绪：_______（多空比例）
+
+#### 五、情绪指标
+
+| 指标 | 今日值 | 评分（0-10） | 权重 | 加权分 |
 |---|---|---|---|---|
-| Limit-up strength (count) | | | 20% | |
-| Limit-down pressure (count) | | | 15% | |
-| Broken-board rate | | | 15% | |
-| Consecutive-board height | | | 20% | |
-| Sector concentration | | | 15% | |
-| Capital attitude (main flow) | | | 15% | |
-| **Total** | | | **100%** | **XX / 10** |
+| 大盘强度 | | | 25% | |
+| 板块轮动 | | | 20% | |
+| 新闻/财报影响 | | | 25% | |
+| 社区情绪 | | | 15% | |
+| VIX/风险偏好 | | | 15% | |
+| **总分** | | | **100%** | **XX / 10** |
 
-> Score reference: ≥7 hot, 4-6 neutral, <4 cold
+> 评分参考：≥7 偏热，4-6 中性，<4 偏冷
 
----
+#### 六、综合判断
 
-### VIII. Comprehensive Judgment
-
-**Market stage**: _______ (e.g. leader fermentation / chaotic trial / pullback / bottom repair)
-
-**Tomorrow outlook**:
-1. _______
-2. _______
-3. _______
-
-**Operation suggestion**:
-- Position: _______ (full / heavy / half / light / empty)
-- Direction: _______ (e.g. focus on high consecutive-board / dip sector leader / mainly watch)
-- Risk points: _______
+**市场阶段**：_______
+**明日展望**：_______
+**操作建议**：_______
 
 ---
 
-*Template provided by stock-analysis skill. Data sources: Eastmoney free API + browser page capture + Exa sentiment cross-validation.*
+*Template provided by stock-analysis skill. Data sources: Eastmoney free API + Yahoo Finance API + Futunn free search + browser capture + Exa sentiment cross-validation.*
