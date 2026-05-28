@@ -1,170 +1,169 @@
 # stock-analysis
 
-Hermes Agent Skill for global stock market analysis, covering A-shares (Shanghai/Shenzhen/Beijing), Hong Kong stocks, US stocks, and Japan stocks.
+全球股市行情+情绪分析工具，覆盖 A股（沪深京）、港股、美股等主要市场。
 
-## What It Does
+## 功能
 
-- **A-shares**: Real-time and post-market data from Eastmoney free APIs, limit-up/down pools, sector/concept board rankings via browser automation
-- **US/HK stocks**: Real-time quotes from **Eastmoney clist free API** (no login, no rate limit), news/sentiment from Futunn free search
-- **Cross-market sentiment**: Structured review templates, sector rotation analysis, community sentiment scoring
-- **Browser automation**: camofox / Hermes built-in browser / Playwright for page capture when APIs fail
+- **A股**：东财免登录 API 实时/盘后数据，涨跌停池，行业/概念板块榜（浏览器抓取）
+- **港美股**：东财 clist 批量接口获取行情（免登录、不限流），富途免登录资讯搜索
+- **跨市场情绪**：结构化复盘模板，板块轮动分析，社区情绪评分
+- **浏览器降级**：camofox / Hermes 内置浏览器 / Playwright 页面抓取（API 失败时降级）
 
-## Install
+## 安装
 
-### Via Hermes CLI
+### 通过 Hermes CLI
 
 ```bash
 git clone https://github.com/AdvancingTitans/stock-analysis.git ~/.hermes/skills/research/stock-analysis
 ```
 
-### Requirements
+### 依赖
 
-- Python 3.8+ (for `scripts/aftermarket.py`)
-- `curl` (available on all major OS)
-- **Optional** — Browser automation for board rankings and page capture:
-  - [camofox-browser](https://github.com/daijro/camoufox) REST server, OR
-  - Hermes built-in browser tools (`browser_navigate`, `browser_console`), OR
+- Python 3.8+（运行 `scripts/aftermarket.py`）
+- `curl` (所有系统通用)
+- **可选** — 浏览器自动化（用于板块榜和页面抓取）：
+  - [camofox-browser](https://github.com/daijro/camoufox) REST 服务，或
+  - Hermes 内置浏览器工具（`browser_navigate`, `browser_console`），或
   - Playwright / Puppeteer / Selenium
 
-## Usage
+## 用法
 
-### Quick Script
+### 命令行脚本
 
 ```bash
-# A-shares review (auto-detects trading day)
+# A股复盘（自动检测交易日）
 python scripts/aftermarket.py --market a
 
-# US market review
+# 美股复盘
 python scripts/aftermarket.py --market us
 
-# HK market review
+# 港股复盘
 python scripts/aftermarket.py --market hk
 
-# Global market overview (US + HK + A-share indices)
+# 全球市场概览（美股+港股+A股指数）
 python scripts/aftermarket.py --market global
 
-# Specific date (A-shares only)
+# 指定日期（A股）
 python scripts/aftermarket.py --market a 20260526
 ```
 
-### As Hermes Skill
+### 作为 Hermes Skill 使用
 
-Once installed in `~/.hermes/skills/research/stock-analysis`, Hermes will auto-load `SKILL.md` context when you ask about stock market analysis.
+安装到 `~/.hermes/skills/research/stock-analysis` 后，Hermes 会自动加载 `SKILL.md` 上下文。
 
-Example prompts:
-- "今天A股怎么样" / "How's the A-share market today"
-- "复盘下今日行情" / "Post-market review"
-- "美股今天怎么样" / "How's the US market"
-- "港股腾讯怎么样" / "How's Tencent (0700.HK)"
-- "早盘怎么看" / "Morning session outlook"
+示例提示：
+- "今天 A 股怎么样"
+- "复盘下今日行情"
+- "美股今天怎么样"
+- "港股腾讯怎么样"
+- "早盘怎么看"
 
-## Structure
+## 目录结构
 
 ```
 stock-analysis/
 ├── skills/
 │   └── stock-analysis/
-│       ├── SKILL.md                  # Main skill instructions for Hermes Agent
+│       ├── SKILL.md                  # Hermes Agent 技能主体说明
 │       ├── scripts/
-│       │   └── aftermarket.py        # Standalone Python script for data collection
+│       │   └── aftermarket.py        # 一键采集脚本
 │       └── references/
-│           ├── eastmoney-api.md      # Eastmoney free API reference (A-shares + US/HK)
-│           ├── yahoo-finance-api.md  # Yahoo Finance API reference (legacy/deprecated)
-│           ├── futu-api.md           # Futunn free search API reference
-│           └── analysis-template.md  # Structured review templates (A-shares + global)
-├── README.md                         # This file
+│           ├── eastmoney-api.md      # 东财富免登录 API 速查（A股+港美股）
+│           ├── yahoo-finance-api.md  # Yahoo Finance API 速查（已废弃）
+│           ├── futu-api.md           # 富途免登录搜索 API 速查
+│           └── analysis-template.md  # 结构化复盘模板
+├── README.md                         # 本文件
 ├── LICENSE                           # MIT
 └── .gitignore
 ```
 
-### Install via Hermes CLI
+### 通过 Hermes CLI 安装
 
 ```bash
 hermes skills install --repo AdvancingTitans/stock-analysis --path skills/stock-analysis
 ```
 
-## Data Sources
+## 数据来源
 
-| Source | Market | Type | Auth Required | Advantages |
+| 来源 | 市场 | 类型 | 登录需求 | 优势 |
 |---|---|---|---|---|
-| push2.eastmoney.com | **A-shares** | Index quotes, fund flow, ticker data | **No** | 免登录、不限流、价格实时 |
-| push2ex.eastmoney.com | **A-shares** | Limit-up/down/broken-board pools | **No** | 同上 |
-| push2.eastmoney.com/api/qt/clist/get | **US/HK** | Index + stock real-time quotes | **No** | **免登录、不限流、一次请求批量拉取**，替代 Yahoo Finance |
-| quote.eastmoney.com | A-shares | Sector/concept board pages | No (browser capture) |  |
-| query1.finance.yahoo.com | Global | Real-time quotes, K-lines, financials | No |  legacy only; 美股道指/VIX 东财暂无时备用 |
-| ai-news-search.futunn.com | Global | News, announcements, research, community | No |  |
+| push2.eastmoney.com | **A股** | 指数行情、资金流向、涨跌停数据 | **不需要** | 免登录、不限流、价格实时 |
+| push2ex.eastmoney.com | **A股** | 涨跌停/炸板池 | **不需要** | 同上 |
+| push2.eastmoney.com/api/qt/clist/get | **港美股** | 指数+个股实时行情 | **不需要** | **免登录、不限流、一次批量拉取**，替代 Yahoo Finance |
+| quote.eastmoney.com | A股 | 行业/概念板块页面 | 不需要（浏览器抓取） | |
+| query1.finance.yahoo.com | 全球 | 行情、K线、财务指标 | 不需要 | 已废弃；仅美股道指/VIX 东财暂无时备用 |
+| ai-news-search.futunn.com | 全球 | 新闻、公告、研报、社区 | 不需要 | |
 
-### Why Eastmoney clist replaces Yahoo Finance
+### 为什么用东财 clist 替代 Yahoo Finance
 
-| Aspect | Yahoo Finance v8 | Eastmoney clist |
+| 维度 | Yahoo Finance v8 | 东财 clist |
 |---|---|---|
-| **Login / API Key** | Not required | **Not required** |
-| **Rate limit** | Strict (429 after ~5 req) | **None observed** |
-| **Batch fetch** | Per-symbol (slow) | **One request, up to 500 items** |
-| **US indices** | ✅ SPX, NDX, DJI, VIX | ✅ SPX, NDX; ❌ DJI, VIX (暂无) |
-| **US stocks** | ✅ All | ✅ Major ones (AAPL, NVDA, TSLA, etc.) |
-| **HK indices** | ✅ HSI, HSCE, HSTECH | ✅ HSI, HSCE, HSTECH |
-| **HK stocks** | ✅ All | ✅ Major ones (0700, 9988, etc.) |
+| 登录/API Key | 不需要 | **不需要** |
+| 限流 | 严格（约 5 次后 429） | **未观察到限流** |
+| 批量获取 | 逐个 symbol（慢） | **一次请求，最多 500 条** |
+| 美股指数 | ✅ SPX、NDX、DJI、VIX | ✅ SPX、NDX；❌ DJI、VIX（暂无） |
+| 美股个股 | ✅ 全部 | ✅ 主流标的（AAPL、NVDA、TSLA 等） |
+| 港股指数 | ✅ HSI、HSCE、HSTECH | ✅ HSI、HSCE、HSTECH |
+| 港股个股 | ✅ 全部 | ✅ 主流标的（0700、9988 等） |
 
-> **Note**: DJI and VIX are not available on Eastmoney yet; fallback to Yahoo Finance or other sources if needed.
+> 注意：美股道指 DJI 和 VIX 东财暂不支持，需其他数据源补充。
 
-## Market Coverage
+## 市场覆盖
 
-| Market | Indices | Tickers | News | Sentiment |
+| 市场 | 指数 | 个股 | 新闻 | 情绪 |
 |---|---|---|---|---|
-| **A-shares (沪深京)** | ✅ Eastmoney | ✅ Eastmoney | ✅ Futunn (中文名) | ✅ Futunn |
-| **US stocks** | ✅ Eastmoney clist (SPX, NDX) | ✅ Eastmoney clist | ✅ Futunn (代码) | ✅ Futunn |
-| **HK stocks** | ✅ Eastmoney clist (HSI, HSCE, HSTECH) | ✅ Eastmoney clist | ✅ Futunn (代码) | ✅ Futunn |
-| **Japan stocks** | ⚠️ Exa only | ⚠️ Exa only | ⚠️ Exa only | ⚠️ Exa only |
+| **A股（沪深京）** | ✅ 东财 | ✅ 东财 | ✅ 富途（中文名） | ✅ 富途 |
+| **美股** | ✅ 东财 clist (SPX、NDX) | ✅ 东财 clist | ✅ 富途（代码） | ✅ 富途 |
+| **港股** | ✅ 东财 clist (HSI、HSCE、HSTECH) | ✅ 东财 clist | ✅ 富途（代码） | ✅ 富途 |
+| **日股** | ⚠️ 仅 Exa | ⚠️ 仅 Exa | ⚠️ 仅 Exa | ⚠️ 仅 Exa |
 
-## Notes
+## 注意事项
 
-- **A-shares**: Eastmoney APIs are unofficial; field names may change. Limit-up/down pool `date` param only returns **today's** data.
-- **Eastmoney clist**: Uses `fltt=2`; price fields are returned ×100 as integers and are divided by 100 in the script.
-- **Data Quality**: All quotes return a unified `QuoteData` structure. Zero/negative prices are filtered, index volume=0 is downgraded to warning, suspiciously low volume is flagged with `*`, and a diagnostic summary + quality report is appended to the output.
-- **Futunn search**: HK/US-centric. Use **Chinese company names** (not codes) for A-share queries; use **codes** for HK/US queries.
-- **Time zones**: US market reviews should be done after US market close (ET 16:00). HK market reviews after HK close (HKT 16:00).
+- **A股**：东财 API 非官方公开接口，字段名可能调整。涨跌停池 `date` 参数只返回**当日**数据。
+- **东财 clist**：使用 `fltt=2`；价格字段以 ×100 的整数返回，脚本内已自动除以 100。
+- **数据质量**：所有行情返回统一的 `QuoteData` 结构。零/负价自动过滤，指数成交量为 0 降级为 warning，异常偏低成交量标记 `*`，输出末尾附数据质量报告。
+- **富途搜索**：偏港美股。A股用**中文公司名**（非代码）；港美股用**代码**。
+- **时区**：美股盘后复盘建议北京时间次日 05:00 后；港股 16:00 后。
 
-## Changelog
+## 更新日志
 
 ### v3.1.0
-- **Replaced Yahoo Finance v8 chart with Eastmoney clist API** for US/HK market data
-  - Yahoo's 429 rate limiting is no longer an issue
-  - Batch fetch in one request instead of per-symbol polling
-  - No login, no API key, no cookie required
-- Removed 3-second request interval for US/HK (Eastmoney is rate-limit-free); A-share interval unchanged
-- Added `_normalize_diff` helper to handle Eastmoney's inconsistent `diff` format (array vs object)
-- Added `_em_clist_price` helper to properly scale `fltt=2` price fields
-- Added `EM_CODE_MAP` for Yahoo symbol → Eastmoney f12 mapping
-- Removed DJI and VIX from default US indices (not available on Eastmoney yet)
-- Updated all `source` strings from `yahoo_chart` to `eastmoney_clist`
-- Bumped script User-Agent to `stock-analysis/3.1.0`
+- **东财 clist 替代 Yahoo Finance v8 chart**获取港美股数据
+  - Yahoo 429 限流问题不再存在
+  - 从逐个 symbol 请求改为批量拉取
+  - 不需登录、不需 API Key、不需 Cookie
+- 移除港美股 3 秒请求间隔（东财不限流）；A股间隔保持
+- 新增 `_normalize_diff` 辅助函数，兼容东财 `diff` 不一致格式（数组 vs 对象）
+- 新增 `_em_clist_price` 辅助函数，正确处理 `fltt=2` 价格字段
+- 新增 `EM_CODE_MAP` Yahoo symbol → 东财 f12 映射
+- 美股道指 DJI 和 VIX 移除默认指数（东财暂不支持）
+- 所有 `source` 字符串从 `yahoo_chart` 更新为 `eastmoney_clist`
+- User-Agent 升级为 `stock-analysis/3.1.0`
 
 ### v3.0.0
-- **Breaking**: Renamed skill from `a-stock-market` to `stock-analysis`
-- **Breaking**: Repository restructured to `skills/stock-analysis/` subdir for proper Hermes CLI install
-- **Breaking**: Yahoo v6/finance/quote batch API removed; all quotes now use v8 chart per-symbol with caching
-- Added three-tier fetch strategy: cache → stable API → browser fallback (camofox)
-- Added local cache layer at `~/.cache/stock-analysis/` to avoid duplicate requests
-- Fixed A-share index price formatting — Eastmoney `fltt=2` returns normal prices, no longer divide by 100
-- Fixed Futunn `publish_time` string crash (now casts to int before datetime)
-- Fixed `^HSTECH` 404 — now uses `HSTECH.HK`
-- Changed default request interval from 0.5s to 3s; only retry on 429/5xx/timeout (not 404)
-- Added diagnostic summary output when APIs fail (no more silent missing blocks)
-- Unified all data sources to `QuoteData` structure with completeness scoring
-- Added automated data quality validation with quality report at end of output
+- 技能重命名为 `stock-analysis`，仓库结构调整为 `skills/stock-analysis/`
+- 废弃 Yahoo v6 批量接口，改用 v8 chart 逐个拉取（带缓存）
+- 新增三层获取策略：缓存 → 稳定 API → 浏览器降级
+- 新增本地缓存层 `~/.cache/stock-analysis/`
+- 修复 A股指数价格格式 — 东财 `fltt=2` 已返回正常价格
+- 修复富途 `publish_time` 字符串转换崩溃
+- 修复 `^HSTECH` 404 — 改用 `HSTECH.HK`
+- 请求间隔从 0.5s 调整为 3s；404 不重试
+- 新增诊断摘要输出
+- 统一数据结构 `QuoteData`，完整度评分
+- 新增自动数据质量验证
 
 ### v2.1.0
-- Added `--market global` for cross-market overview
-- Added exponential backoff retry for all API requests
-- Added automatic data validation and cleaning (volume anomaly detection, price filtering)
-- Added data completeness scoring and quality report
-- Added market type auto-detection
-- Improved error handling — missing data is silently skipped without cluttering output
+- 新增 `--market global` 跨市场概览
+- 新增指数退避重试机制
+- 新增自动数据清洗（成交量异常检测、价格过滤）
+- 新增数据完整度评分与质量报告
+- 新增市场类型自动检测
+- 优化错误处理 — 缺失数据静默跳过，不干扰输出
 
 ### v2.0.0
-- Added global market support (US/HK/JP via Yahoo Finance + Futunn)
-- Removed hardcoded proxy settings for broader compatibility
+- 新增全球市场支持（港美日通过 Yahoo Finance + 富途）
+- 移除硬编码代理设置，提升兼容性
 
 ## License
 
