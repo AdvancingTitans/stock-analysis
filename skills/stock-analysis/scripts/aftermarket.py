@@ -96,7 +96,7 @@ EM_FS = {
     "hk_stock":   "m:128",
 }
 
-# 东财代码映射（Yahoo symbol → 东财 f12）
+# 东财代码映射（外部 symbol → 东财 f12）
 EM_CODE_MAP = {
     "^GSPC": "SPX",
     "^IXIC": "NDX",
