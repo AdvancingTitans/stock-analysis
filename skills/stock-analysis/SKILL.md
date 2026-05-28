@@ -33,7 +33,7 @@ python scripts/aftermarket.py --market global --no-cache
 |---|---|---|---|---|
 | A股 | 东方财富 API | 富途 news_search | camofox 抓东财 | 支持 6 大指数、涨跌停池、炸板池、资金流 |
 | 港股 | 东方财富 clist | 富途 news_search | camofox 抓富途/东财 | 不适用涨跌停、连板、炸板率 |
-| 美股 | 东方财富 clist | 富途 news_search | camofox 抓 Yahoo/富途 | 道指/VIX 若缺失，用诊断说明 |
+| 美股 | 东方财富 clist | 富途 news_search | camofox 抓富途/财经页面 | 道指/VIX 若缺失，用诊断说明 |
 
 三层获取：**缓存 → 稳定 API → 腾讯行情备用 → 浏览器降级**。稳定 API 包括东方财富、东方财富 clist、富途；腾讯 `qt.gtimg.cn` 用于补齐东财 clist 缺失的港股/美股正股和港股指数；浏览器降级用于东财板块榜、富途页面以及 API 连续失败、403、429 场景。
 
@@ -49,7 +49,7 @@ python scripts/aftermarket.py --market global --no-cache
 - 先跑脚本，再分析；同一市场同一轮不要重复请求相同 symbol。
 - 不把脚本代码、完整表格或长新闻列表塞进最终回答；保留指数、涨跌幅、活跃方向、异常数据和结论。
 - 缓存命中时不要强刷；需要刷新时一次性跑目标市场，不逐只股票手工请求。
-- 不使用 Yahoo 作为默认备用源；国外接口易受地区网络和限流影响。
+- 不使用境外行情接口作为默认备用源；这类接口易受地区网络和限流影响。
 - 需要更多实现细节时再读取 `references/` 和脚本帮助，主技能正文保持轻量。
 
 ## 关键坑位
