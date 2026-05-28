@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-全球股市行情一键采集脚本 v3.1.1
+全球股市行情一键采集脚本 v3.1.3
 用法: python aftermarket.py [--market a|hk|us|global] [YYYYMMDD] [--no-cache]
 
 --market a      : A股复盘（默认）
@@ -9,7 +9,7 @@
 --market global : 全球市场概览（美股+港股+A股指数）
 --no-cache      : 强制刷新缓存
 
-三层获取策略：缓存 → 稳定 API → 浏览器降级
+三层获取策略：缓存 → 稳定 API → 腾讯行情备用 → 浏览器降级
 """
 
 from __future__ import annotations
@@ -117,6 +117,16 @@ INDEX_NAME_MAP = {
 # 富途
 FUTU_NEWS_URL = "https://ai-news-search.futunn.com/news_search"
 FUTU_FEED_URL = "https://ai-news-search.futunn.com/stock_feed"
+
+# 腾讯行情（东财 clist 缺失时的免登录备用源）
+TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q={codes}"
+TENCENT_INDEX_CODES = {
+    "^GSPC": "usINX",
+    "^IXIC": "usIXIC",
+    "^HSI": "hkHSI",
+    "^HSCE": "hkHSCEI",
+    "HSTECH.HK": "hkHSTECH",
+}
 
 # 诊断记录
 DIAGNOSTICS: List[str] = []
@@ -347,6 +357,129 @@ def fetch_json(url: str, headers: Optional[Dict[str, str]] = None) -> Dict[str, 
 
 
 # ------------------------------------------------------------------
+# 腾讯行情备用源（东财 clist 缺失时使用）
+# ------------------------------------------------------------------
+
+def _tencent_code(symbol: str) -> str:
+    s = symbol.upper()
+    if s in TENCENT_INDEX_CODES:
+        return TENCENT_INDEX_CODES[s]
+    if s.endswith(".HK"):
+        return "hk" + s.replace(".HK", "").zfill(5)
+    return "us" + s
+
+
+def _tencent_market(symbol: str) -> str:
+    s = symbol.upper()
+    return "hk_market" if s.startswith("HK") or s in ("HKHSI", "HKHSCE", "HKHSTECH") else "us_market"
+
+
+def _parse_tencent_record(symbol: str, fields: List[str], date_str: str) -> QuoteData:
+    market = _tencent_market(symbol)
+    is_hk = market == "hk_market"
+    currency = "HKD" if is_hk else "USD"
+    qd_symbol = symbol
+    if symbol.startswith("hk") and symbol[2:].isdigit():
+        qd_symbol = symbol[2:].zfill(5) + ".HK"
+    elif symbol.startswith("us"):
+        qd_symbol = symbol[2:]
+
+    if is_hk:
+        name = fields[1] if len(fields) > 1 else qd_symbol
+        price = _safe_float(fields[3] if len(fields) > 3 else None)
+        prev_close = _safe_float(fields[4] if len(fields) > 4 else None)
+        open_price = _safe_float(fields[5] if len(fields) > 5 else None)
+        volume = _safe_int(fields[6] if len(fields) > 6 else None)
+        change = _safe_float(fields[31] if len(fields) > 31 else None)
+        change_pct = _safe_float(fields[32] if len(fields) > 32 else None)
+        high = _safe_float(fields[33] if len(fields) > 33 else None)
+        low = _safe_float(fields[34] if len(fields) > 34 else None)
+    else:
+        name = fields[1] if len(fields) > 1 else qd_symbol
+        price = _safe_float(fields[3] if len(fields) > 3 else None)
+        prev_close = _safe_float(fields[4] if len(fields) > 4 else None)
+        open_price = _safe_float(fields[5] if len(fields) > 5 else None)
+        volume = _safe_int(fields[6] if len(fields) > 6 else None)
+        change = _safe_float(fields[31] if len(fields) > 31 else None)
+        change_pct = _safe_float(fields[32] if len(fields) > 32 else None)
+        high = _safe_float(fields[33] if len(fields) > 33 else None)
+        low = _safe_float(fields[34] if len(fields) > 34 else None)
+        if len(fields) > 35 and fields[35]:
+            currency = fields[35]
+
+    if change is None and price is not None and prev_close is not None:
+        change = price - prev_close
+    if change_pct is None and price is not None and prev_close:
+        change_pct = (price / prev_close - 1) * 100
+
+    return validate_quote(QuoteData(
+        symbol=qd_symbol,
+        name=name,
+        market=market,
+        date=date_str,
+        price=price,
+        prev_close=prev_close,
+        change=change,
+        change_pct=change_pct,
+        open_price=open_price,
+        high=high,
+        low=low,
+        volume=volume,
+        currency=currency,
+        source="tencent_quote",
+    ))
+
+
+def parse_tencent_quotes(raw: str, requested: Dict[str, str], date_str: str) -> List[QuoteData]:
+    requested_by_code = {_tencent_code(sym).lower(): sym for sym in requested}
+    results = []
+    for code, payload in re.findall(r"v_([^=]+)=\"([^\"]*)\";", raw):
+        key = code.lower()
+        if key not in requested_by_code:
+            continue
+        fields = payload.split("~")
+        if len(fields) < 4 or not fields[3]:
+            continue
+        original_symbol = requested_by_code[key]
+        qd = _parse_tencent_record(key, fields, date_str)
+        qd.symbol = original_symbol
+        if requested[original_symbol]:
+            qd.name = requested[original_symbol]
+        results.append(qd)
+    return results
+
+
+@retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
+def tencent_quotes(requested: Dict[str, str], date_str: str) -> List[QuoteData]:
+    if not requested:
+        return []
+    cache_symbol = ",".join(sorted(requested))
+    cached = cache_load(cache_symbol, date_str, "tencent_quote")
+    if cached:
+        return [validate_quote(QuoteData(**item)) for item in cached.get("data", [])]
+
+    codes = ",".join(_tencent_code(sym) for sym in requested)
+    url = TENCENT_QUOTE_URL.format(codes=urllib.parse.quote(codes, safe=","))
+    try:
+        req = urllib.request.Request(url, headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            ),
+            "Referer": "https://finance.qq.com/",
+        })
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read().decode("gbk", errors="ignore")
+    except Exception as e:
+        diag(f"Tencent quote {cache_symbol}: {e}")
+        return []
+    quotes = parse_tencent_quotes(raw, requested, date_str)
+    if quotes:
+        cache_save(cache_symbol, date_str, "tencent_quote", {"data": [q.to_dict() for q in quotes]})
+    return quotes
+
+
+# ------------------------------------------------------------------
 # 东财数据解析工具
 # ------------------------------------------------------------------
 
@@ -380,11 +513,8 @@ def _safe_int(v: Any) -> Optional[int]:
 
 
 def _em_clist_price(v: Any) -> Optional[float]:
-    """clist/get fltt=2 返回价格类字段 ×100 的整数，需除以 100"""
-    val = _safe_float(v)
-    if val is None:
-        return None
-    return val / 100
+    """clist/get fltt=2 returns normal decimal prices for global markets."""
+    return _safe_float(v)
 
 
 def _em_item_to_quote(item: Dict[str, Any], symbol: str, market_type: str, date_str: str) -> QuoteData:
@@ -454,17 +584,28 @@ def fetch_em_indices(symbols_map: Dict[str, str], date_str: str, market_fs: str)
     all_data = eastmoney_clist(market_fs, date_str=date_str)
     results = []
     lookup = {item.get("f12", "").upper(): item for item in all_data}
+    missing: Dict[str, str] = {}
 
     for sym, name in symbols_map.items():
         em_code = EM_CODE_MAP.get(sym, sym.lstrip("^").upper())
         item = lookup.get(em_code)
         if not item:
-            diag(f"Eastmoney clist missing index: {sym} (lookup {em_code})")
+            missing[sym] = name
             continue
         market = "us_market" if market_fs.startswith("i:100.SPX") else "hk_market"
         qd = _em_item_to_quote(item, sym, market, date_str)
         qd.name = name
         results.append(qd)
+
+    if missing:
+        fallback = tencent_quotes(missing, date_str)
+        found = {q.symbol for q in fallback}
+        results.extend(fallback)
+        for sym in missing:
+            if sym not in found:
+                diag(f"Eastmoney/Tencent missing index: {sym}")
+            else:
+                diag(f"Eastmoney clist fallback via Tencent index: {sym}")
 
     return results
 
@@ -473,6 +614,7 @@ def fetch_em_stocks(codes: List[str], date_str: str, market_fs: str) -> List[Quo
     """通过东财 clist 获取个股，批量查询后本地过滤"""
     all_data = eastmoney_clist(market_fs, pz=500, date_str=date_str)
     results = []
+    missing: Dict[str, str] = {}
 
     # 构建查找表（支持 0700 / 00700 等变体）
     lookup: Dict[str, Dict[str, Any]] = {}
@@ -486,11 +628,21 @@ def fetch_em_stocks(codes: List[str], date_str: str, market_fs: str) -> List[Quo
         raw = code.upper().replace(".HK", "")
         item = lookup.get(raw) or lookup.get(raw.lstrip("0") or "0") or lookup.get(raw.zfill(5))
         if not item:
-            diag(f"Eastmoney clist missing stock: {code}")
+            missing[code] = ""
             continue
         market = "us_market" if market_fs == EM_FS["us_stock"] else "hk_market"
         qd = _em_item_to_quote(item, code, market, date_str)
         results.append(qd)
+
+    if missing:
+        fallback = tencent_quotes(missing, date_str)
+        found = {q.symbol for q in fallback}
+        results.extend(fallback)
+        for code in missing:
+            if code not in found:
+                diag(f"Eastmoney/Tencent missing stock: {code}")
+            else:
+                diag(f"Eastmoney clist fallback via Tencent stock: {code}")
 
     return results
 
@@ -656,7 +808,7 @@ def futu_news_search(keyword: str, size: int = 10, lang: str = "en", news_type: 
     })
     url = f"{FUTU_NEWS_URL}?{params}"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "stock-analysis/3.1.1"})
+        req = urllib.request.Request(url, headers={"User-Agent": "stock-analysis/3.1.3"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read().decode())
     except Exception as e:
@@ -669,7 +821,7 @@ def futu_stock_feed(keyword: str, size: int = 30) -> Dict[str, Any]:
     params = urllib.parse.urlencode({"keyword": keyword, "size": size})
     url = f"{FUTU_FEED_URL}?{params}"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "stock-analysis/3.1.1"})
+        req = urllib.request.Request(url, headers={"User-Agent": "stock-analysis/3.1.3"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read().decode())
     except Exception as e:
@@ -1051,7 +1203,7 @@ def run_a_share(date_str: str) -> None:
 
 def run_us_market(date_str: str) -> None:
     print("# 美股市场复盘\n")
-    print(f"数据来源: 东方财富免登录 API (clist) | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
+    print(f"数据来源: 东方财富 clist + 腾讯行情备用 | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
     print("=" * 60 + "\n")
 
     us_indices_map = {
@@ -1087,7 +1239,7 @@ def run_us_market(date_str: str) -> None:
 
 def run_hk_market(date_str: str) -> None:
     print("# 港股市场复盘\n")
-    print(f"数据来源: 东方财富免登录 API (clist) | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
+    print(f"数据来源: 东方财富 clist + 腾讯行情备用 | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
     print("=" * 60 + "\n")
 
     hk_indices_map = {
@@ -1124,7 +1276,7 @@ def run_hk_market(date_str: str) -> None:
 
 def run_global_market(date_str: str) -> None:
     print("# 全球市场概览\n")
-    print(f"数据来源: 东方财富免登录 API | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
+    print(f"数据来源: 东方财富 clist/API + 腾讯行情备用 | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
     print("=" * 60 + "\n")
 
     # 美股
