@@ -1,7 +1,7 @@
 ---
 name: stock-analysis
-description: "全球股市行情+情绪分析 v3.1：三层获取（缓存→稳定API→浏览器降级），A股（东财免登录API）、港美股（东财clist 批量接口，替代Yahoo 429）、板块榜浏览器抓取、数据质量验证与诊断摘要。"
-version: 3.1.0
+description: "全球股市行情+情绪分析 v3.1.1：三层获取（缓存→稳定API→浏览器降级），A股（东财免登录API）、港美股（东财clist 批量接口，替代Yahoo 429）、板块榜浏览器抓取、数据质量验证与诊断摘要。缓存增加TTL过期与--no-cache强制刷新。"
+version: 3.1.1
 author: Hermes Agent + yjw
 tags: [stock-market, a-shares, hk-shares, us-shares, eastmoney, futu, sentiment, global-finance, data-quality, camofox]
 platforms: [linux, macos, windows]
