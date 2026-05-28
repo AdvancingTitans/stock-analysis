@@ -127,6 +127,12 @@ hermes skills install --repo AdvancingTitans/stock-analysis --path skills/stock-
 
 ## 更新日志
 
+### v3.1.1
+- **修复缓存污染问题**：早盘数据未更新时缓存了昨日数据，导致后续运行始终输出旧数据
+  - 新增 `--no-cache` / `--refresh` 参数，强制刷新缓存
+  - 缓存增加 5 分钟 TTL 过期机制，盘中实时数据不再长期污染
+  - 标题根据当前时间自动切换：上午盘/午间/下午盘/盘后
+
 ### v3.1.0
 - **东财 clist 替代 Yahoo Finance v8 chart**获取港美股数据
   - Yahoo 429 限流问题不再存在
