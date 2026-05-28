@@ -1,7 +1,7 @@
 ---
 name: stock-analysis
-description: "全球股市行情+情绪分析 v3.1.1：三层获取（缓存→稳定API→浏览器降级），A股（东财免登录API）、港美股（东财clist 批量接口，替代Yahoo 429）、板块榜浏览器抓取、数据质量验证与诊断摘要。缓存增加TTL过期与--no-cache强制刷新。"
-version: 3.1.1
+description: "Use when the user asks for current or after-market A股、港股、美股 or global stock-market review, index/sector/sentiment analysis,涨跌停池,港美股重点个股, or asks to verify market data with low 429/token overhead."
+version: 3.1.2
 author: Hermes Agent + yjw
 tags: [stock-market, a-shares, hk-shares, us-shares, eastmoney, futu, sentiment, global-finance, data-quality, camofox]
 platforms: [linux, macos, windows]
@@ -9,270 +9,51 @@ platforms: [linux, macos, windows]
 
 # 全球股市行情与情绪分析
 
-> ⚠️ **数据质量声明**
-> - 东财 clist 接口免登录、不限流，一次请求可拉取多条美股/港股/指数，替代 Yahoo Finance v8 逐个 symbol 拉取
-> - 美股道指指数（DJI）和 VIX 东财暂无，需其他方案补充
-> - 异常数据（成交量为0、价格异常）自动检测并标记，指数成交量缺失降级为 warning 而非 error
-> - 脚本内置本地缓存层，同一轮分析内重复 symbol 只请求一次
-> - 三层获取策略：缓存 → 稳定 API → 浏览器降级（camofox），减少 429/404 浪费
-> - 数据仅供参考，不构成投资建议
+核心原则：**任何分析必须先拉数据，禁止裸眼定性**。优先让脚本采集和汇总，模型只做解释、归纳和风险提示，避免反复手工访问接口消耗额度。数据仅供参考，不构成投资建议。
 
-支持 A股（沪深京）、港股、美股等主要市场的行情获取与情绪分析。A股使用东财免登录 API；港美股使用东财 clist 批量接口（免登录、不限流），结合富途免登录资讯搜索。
+## 快速使用
 
-开箱即用脚本：`scripts/aftermarket.py`
-
-## 脚本用法
+在技能目录运行：
 
 ```bash
-python aftermarket.py [--market a|hk|us|global] [YYYYMMDD]
+python scripts/aftermarket.py --market global
+python scripts/aftermarket.py --market a
+python scripts/aftermarket.py --market hk
+python scripts/aftermarket.py --market us
+python scripts/aftermarket.py --market global --no-cache
 ```
 
-- `--market a` （默认）: A股复盘
-- `--market hk`: 港股复盘
-- `--market us`: 美股复盘
-- `--market global`: 全球市场概览（美股+港股+A股指数）
+- 默认使用缓存；只有用户要求刷新、数据明显过期或诊断提示缓存异常时才加 `--no-cache`。
+- 用户问“今日全球行情”优先跑 `python scripts/aftermarket.py --market global`，再按需要补跑单市场。
+- 输出已含诊断摘要和数据质量报告；回答时引用关键数字，不要把完整原始输出逐段复制给用户。
 
-## When to Use
+## 数据源优先级
 
-- 用户问"今天 A 股怎么样"、"复盘下今日行情"、"分析下大盘情绪"
-- 用户问"美股今天怎么样"、"拿拿 AAPL/TSLA 行情"、"纳斯达克怎么样"
-- 用户问"港股怎么样"、"腾讯/9633 怎么样"、"恒指怎么样"
-- 需要拿涨跌停数、连板梯队、板块涨跌（A股）
-- 需要查某只标的最新新闻、公告、研报
-- 需要全球市场概览（美股+港股+A股指数对比）
-- 任何涉及上证/深证/创业板/科创板/北证/恒指/国指/科指/纳指/标普 500 的查询
-
-## 三层获取策略
-
-```
-┌─────────────────────────────────────────────────────┐
-│  第一层：本地缓存（~/.cache/stock-analysis/） │
-│  按 {source,symbol,date} 缓存，TTL 当日有效    │
-├─────────────────────────────────────────────────────┤
-│  第二层：稳定 API                         │
-│  - 东财：指数、涨跌停池、资金流向           │
-│  - 东财 clist：美股/港股/指数 批量拉取        │
-│  - 富途：news_search / stock_feed          │
-│  请求间隔 1秒（东财不限流）                  │
-├─────────────────────────────────────────────────────┤
-│  第三层：浏览器降级（camofox）              │
-│  - 东财板块榜（行业/概念）                  │
-│  - API 连续失败/403/429 时自动走页面抓取     │
-└─────────────────────────────────────────────────────┘
-```
-
-## 市场分类与数据源
-
-| 市场 | 行情数据 | 新闻/情绪 | 板块/概念 | 复盘文章 |
+| 市场 | 行情 | 新闻/情绪 | 板块 | 说明 |
 |---|---|---|---|---|
-| **A股** | 东财 API | 富途 news_search | 东财页面抓取 | Exa 搜"当日复盘" |
-| **港股** | 东财 clist 批量 | 富途 news_search | 富途/东财页面 | Exa 搜"港股 行情" |
-| **美股** | 东财 clist 批量 | 富途 news_search | Yahoo/富途页面 | Exa 搜"美股市场" |
+| A股 | 东方财富 API | 富途 news_search | camofox 抓东财 | 支持 6 大指数、涨跌停池、炸板池、资金流 |
+| 港股 | 东方财富 clist | 富途 news_search | camofox 抓富途/东财 | 不适用涨跌停、连板、炸板率 |
+| 美股 | 东方财富 clist | 富途 news_search | camofox 抓 Yahoo/富途 | 道指/VIX 若缺失，用诊断说明 |
 
-## 核心数据源
+三层获取：**缓存 → 稳定 API → 浏览器降级**。稳定 API 包括东方财富、东方财富 clist、富途；浏览器降级用于东财板块榜、富途/Yahoo 页面以及 API 连续失败、403、429 场景。
 
-### 稳定 API 层
+## 分析要求
 
-1. **东方财富免登录 API** — A股指数、涨跌停池、资金流向。首选。
-2. **东方财富 clist 批量接口** — 美股/港股行情、指数。免登录、不限流、一次请求批量拉取。
-3. **富途免登录 Search** — 新闻/公告/研报搜索。对港美股代码支持极好。
+- A股最小集：6 大指数、涨跌停池、炸板池、主力资金流向、行业/概念板块；用涨停数、跌停数、炸板率、最高连板、封板时间、板块集中度判断情绪。
+- 港美股最小集：大盘指数、重点个股、成交量/质量标记、富途新闻；重点看大盘涨跌、成交量变化、板块轮动、个股新闻，不套用 A股连板逻辑。
+- Exa 或网页搜索只做舆情交叉验证，必须带当天 `startPublishedDate`；国内财经站优先 API 或 camofox，少用 Jina Reader。
+- 如果接口失败，不静默定性；说明“数据缺口 + 已用替代源/诊断摘要”。
 
-### 浏览器降级层
+## 省额度规则
 
-4. **camofox** — 东财板块榜（行业/概念）、富途/Yahoo 页面数据。绕开反爬。
-   - 环境变量：`CAMOFOX_URL=http://localhost:9377`、`CAMOFOX_USER_ID`、`CAMOFOX_SESSION_KEY`
-
-### 辅助
-
-5. **Exa 搜索**（带 `startPublishedDate`）— 交叉验证舆情。
-
-## 富途搜索市场区分
-
-| 市场 | 代码格式 | 建议 keyword |
-|---|---|---|
-| **A股** | 000001、603017 | 中文公司全称（如"比亚迪"） |
-| **港股** | 00700、99988 | 代码或中文名 |
-| **美股** | AAPL、TSLA | 代码 |
-| **中概股** | BABA、PDD | 代码 |
-
-**港股代码**：富途用 `0700`（去前导0）或 `00700`。Yahoo 必须用 `0700.HK`。
-
-## 数据拉取规范
-
-**任何分析必须先拉数据，禁止裸眼定性。**接口失败时输出诊断摘要，不静默消失。
-
-### A股最小数据集
-
-| 必拉项 | 接口 | 备注 |
-|---|---|---|
-| 6 大指数 | `push2.eastmoney.com` ulist | fltt=2 已返回正常价格，不再缩放 |
-| 涨跌停池 | `push2ex.eastmoney.com` ZT/DTPool | curl 稳定 |
-| 炸板池 | `push2ex.eastmoney.com` ZBPool | 同上 |
-| 主力资金流向 | `push2.eastmoney.com` fflow | 同上 |
-| 行业/概念板块榜 | camofox 抓取 | API 裸 curl 被拦 |
-| 当日复盘文章 | Exa | 必带 `startPublishedDate` |
-
-### 港美股最小数据集
-
-| 必拉项 | 接口 | 备注 |
-|---|---|---|
-| 实时行情 | Yahoo v8 chart | 逐个拉取，带缓存 |
-| 当日新闻 | 富途 news_search | 精准度高 |
-| 社区情绪 | 富途 stock_feed | 精准度高 |
-| 市场舆情 | Exa 搜索 | 英文覆盖更好 |
-
-**港美股特殊处理**：无涨跌停制度，不适用"连板梯队"、"炸板率"。重点看大盘指数涨跌、成交量变化、板块轮动、个股新闻。
-
-## 富途免登录 Search
-
-```bash
-# 美股新闻
-curl -sG 'https://ai-news-search.futunn.com/news_search' \
-  --data-urlencode 'keyword=AAPL' --data-urlencode 'size=10' \
-  --data-urlencode 'news_type=1' --data-urlencode 'lang=en' \
-  --data-urlencode 'sort_type=2'
-
-# 港股新闻
-curl -sG 'https://ai-news-search.futunn.com/news_search' \
-  --data-urlencode 'keyword=00700' --data-urlencode 'size=10' \
-  --data-urlencode 'news_type=1' --data-urlencode 'lang=zh-CN' \
-  --data-urlencode 'sort_type=2'
-```
-
-## 标准工作流
-
-### A股盘后复盘（6步）
-
-1. 东财指数接口 → SSE/SZSE/ChiNext/STAR/BSE 收盘
-2. ZTPool/DTPool/ZBPool → 活跃度指标
-3. camofox 抓行业/概念板块榜 → 看主线/接力
-4. 富途 news_search 搜索热点新闻 → 补充资讯
-5. Exa 搜 `startPublishedDate` → 主流媒体定调
-6. 套用复盘模板 → 综合定性
-
-### 美股盘后复盘（5步）
-
-1. 东财 clist 批量获取标普/纳指 → 大盘
-2. 东财 clist 批量获取重点个股行情 → 详细数据
-3. 富途 news_search 热门个股新闻 → 新闻定调
-4. Exa 搜索美股分析文章 → 主流观点
-5. 套用复盘模板 → 综合定性
-
-### 港股盘后复盘（5步）
-
-1. 东财 clist 批量获取恒指/国指/科指 → 大盘
-2. 东财 clist 批量获取个股行情 → 详细数据
-3. 富途 news_search 港股新闻 → 资讯定调
-4. Exa 搜索港股市场 → 主流观点
-5. 套用复盘模板 → 综合定性
-
-## 数据质量验证（v3.1.0）
-
-### 统一数据结构
-
-所有数据源返回统一的 `QuoteData`：
-```
-symbol, name, market, date, price, prev_close, change, change_pct,
-open_price, high, low, volume, currency, source, quality_flags, notes, completeness
-```
-
-### 涨跌幅计算
-
-**东财 clist 直接返回 f3(涨跌幅)、f4(涨跌额)、f18(昨收)**，不再从 K 线计算。
-- 若东财字段缺失，用 price 和 prev_close 自行计算
-- 若仍不足，标记为缺失
-
-### 自动数据清洗
-
-| 检测项 | 规则 | 处理方式 |
-|---|---|---|
-| 价格异常 | `<= 0` | 置为 `None` |
-| 指数成交量为0 | 恒指/国指/VIX 等 | 降级为 warning，不影响价格判断 |
-| 个股成交量为0 | `<= 0` | 标记 `volume_zero` |
-| 成交量偏低 | 指数<1M，个股<1K | 标记 `volume_anomaly` |
-| 完整性评分 | 必填字段 + 昨收 + 涨跌幅 | 0-100% |
-
-### 重试策略
-
-- 请求间隔：**1 秒**（东财免登录不限流）
-- 仅对 **429/403/5xx/timeout** 重试，最多 2 次
-- **404 不重试**，直接标记失败
-- 指数退避：`delay × 2^attempt × random(0.5~1.5)`
-
-### 诊断摘要
-
-脚本输出末尾自动附上：
-- 接口诊断（哪些 API 失败了，失败原因）
-- 平均完整度百分比
-- 异常数据警告列表
-- 改进建议
-
-## 情绪指标
-
-### A股（6 指标）
-
-| 指标 | 来源 | 解读 |
-|---|---|---|
-| 涨跌停数 | ZTPool/DTPool `tc` | 涨停>70 强势，<40 偏弱 |
-| 炸板率 | 炸板/(涨停+炸板) | >40% 赚钱效果差 |
-| 最高连板 | ZTPool.pool[].zttj.days | ≥10 板有"妖股锚" |
-| 封板时间分布 | ZTPool.pool[].fbt | 早盘扎堆=共振 |
-| 涨停板块集中度 | ZTPool.pool[].hybk 计数 | 集中=主线明确 |
-| 概念榜接力 | 概念板块 TOP10 | 进前10=游资接力强 |
-
-### 港美股（4 指标）
-
-| 指标 | 来源 | 解读 |
-|---|---|---|
-| 大盘涨跌+成交量 | 东财 clist | 放量上涨=强势 |
-| 板块轮动 | 页面抓取/富途榜单 | 轮动节奏 |
-| 新闻/财报影响 | 富途 news_search | 利好密集度 |
-| 社区情绪 | 富途 stock_feed | 极端情绪常是反转信号 |
+- 先跑脚本，再分析；同一市场同一轮不要重复请求相同 symbol。
+- 不把脚本代码、完整表格或长新闻列表塞进最终回答；保留指数、涨跌幅、活跃方向、异常数据和结论。
+- 缓存命中时不要强刷；需要刷新时一次性跑目标市场，不逐只股票手工请求。
+- 需要更多实现细节时再读取 `references/` 和脚本帮助，主技能正文保持轻量。
 
 ## 关键坑位
 
-### 通用
-
-**Exa 搜索必带 `startPublishedDate`** — 否则命中历史同期文章。
-
-**Jina Reader 国内财经站常超时** — 东财/雪球/富途直接走 API 或 camofox。
-
-### A股
-
-**东财板块 API 返空** → 用 camofox 抓 `gridlist.html`。
-**涨跌停池 date 参数** → 只能传当日。
-**东财 fltt=2 价格** → 已返回正常价格（如上证 4093.73），**不再除以 100**。
-
-### 港美股
-
-**东财 clist diff 格式不一致** → 有时是数组，有时是对象 `{\"0\":{}, \"1\":{}}，脚本已内置 `_normalize_diff` 处理。
-**东财 clist fltt=2 价格** → 返回 ×100 整数，脚本已自动除以 100。
-**富途 publish_time** → 字符串格式（如 "1779888173"），需先 `int()` 转换。
-**时区差异** → 美股盘后复盘应在北京时间第二天 05:00 后；港股 16:00 后。
-**美股道指 DJI / VIX** → 东财暂无，需其他方案补充。
-
-## 数据源配置与降级
-
-| 市场 | 行情数据 | 新闻/情绪 | 板块 | 降级方案 |
-|---|---|---|---|---|
-| **A股** | 东财 API (主) | 富途 news_search | camofox 东财页面 | Yahoo Finance |
-| **港股** | 东财 clist (主) | 富途 news_search | camofox 富途/东财 | Yahoo Finance |
-| **美股** | 东财 clist (主) | 富途 news_search | camofox Yahoo/富途 | 无 |
-
-### 市场类型自动检测
-
-| 检测规则 | 结果 |
-|---|---|
-| `.HK` 后缀、`HSI`/`HSCE`/`HSTECH` | hk_market |
-| `上证`、`深证`、`创业板`、`科创板` | cn_market |
-| `DAX`、`CAC`、`FTSE` | eu_market |
-| `Nikkei`、`.T` 后缀 | jp_market |
-| 其他 | us_market (默认) |
-
-## Limitations
-
-- A股数据（东财）仅支持沪深京。港/美股不支持涨跌停池等 A股专属指标。
-- 东财 clist 免登录不限流，但是非官方公开接口，字段名可能调整。
-- 富途免登录 Search 主要覆盖港美股标的新闻，A股标的覆盖率因标的而异。
-- 真实交易日才有数据；周末/节假日返回前一交易日或空。
-- 美股道指 DJI 和 VIX 东财暂不支持，需其他数据源补充。
+- 东方财富 `fltt=2` 的 A股指数价格已经是正常价格，不再除以 100；clist 港美股价格由脚本处理。
+- 富途 `publish_time` 是字符串，脚本会先转整数。
+- 指数成交量为 0 是 warning，不影响价格判断；个股成交量为 0 才影响质量评分。
+- 仅对 429/403/5xx/timeout 重试；404 不重试，直接降级或诊断。
