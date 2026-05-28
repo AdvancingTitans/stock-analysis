@@ -1,7 +1,7 @@
 ---
 name: stock-analysis
 description: "Use when the user asks for current or after-market A股、港股、美股 or global stock-market review, index/sector/sentiment analysis,涨跌停池,港美股重点个股, or asks to verify market data with low 429/token overhead."
-version: 3.1.2
+version: 3.1.3
 author: Hermes Agent + yjw
 tags: [stock-market, a-shares, hk-shares, us-shares, eastmoney, futu, sentiment, global-finance, data-quality, camofox]
 platforms: [linux, macos, windows]
@@ -35,7 +35,7 @@ python scripts/aftermarket.py --market global --no-cache
 | 港股 | 东方财富 clist | 富途 news_search | camofox 抓富途/东财 | 不适用涨跌停、连板、炸板率 |
 | 美股 | 东方财富 clist | 富途 news_search | camofox 抓 Yahoo/富途 | 道指/VIX 若缺失，用诊断说明 |
 
-三层获取：**缓存 → 稳定 API → 浏览器降级**。稳定 API 包括东方财富、东方财富 clist、富途；浏览器降级用于东财板块榜、富途/Yahoo 页面以及 API 连续失败、403、429 场景。
+三层获取：**缓存 → 稳定 API → 腾讯行情备用 → 浏览器降级**。稳定 API 包括东方财富、东方财富 clist、富途；腾讯 `qt.gtimg.cn` 用于补齐东财 clist 缺失的港股/美股正股和港股指数；浏览器降级用于东财板块榜、富途页面以及 API 连续失败、403、429 场景。
 
 ## 分析要求
 
@@ -49,6 +49,7 @@ python scripts/aftermarket.py --market global --no-cache
 - 先跑脚本，再分析；同一市场同一轮不要重复请求相同 symbol。
 - 不把脚本代码、完整表格或长新闻列表塞进最终回答；保留指数、涨跌幅、活跃方向、异常数据和结论。
 - 缓存命中时不要强刷；需要刷新时一次性跑目标市场，不逐只股票手工请求。
+- 不使用 Yahoo 作为默认备用源；国外接口易受地区网络和限流影响。
 - 需要更多实现细节时再读取 `references/` 和脚本帮助，主技能正文保持轻量。
 
 ## 关键坑位
@@ -57,3 +58,4 @@ python scripts/aftermarket.py --market global --no-cache
 - 富途 `publish_time` 是字符串，脚本会先转整数。
 - 指数成交量为 0 是 warning，不影响价格判断；个股成交量为 0 才影响质量评分。
 - 仅对 429/403/5xx/timeout 重试；404 不重试，直接降级或诊断。
+- 东财 clist 按榜单返回，可能漏掉港股/美股大盘股；此时用腾讯行情批量补齐。
