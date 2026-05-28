@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-全球股市行情一键采集脚本 v3.1.0
-用法: python aftermarket.py [--market a|hk|us|global] [YYYYMMDD]
+全球股市行情一键采集脚本 v3.1.1
+用法: python aftermarket.py [--market a|hk|us|global] [YYYYMMDD] [--no-cache]
 
 --market a      : A股复盘（默认）
 --market hk     : 港股复盘
 --market us     : 美股复盘
 --market global : 全球市场概览（美股+港股+A股指数）
+--no-cache      : 强制刷新缓存
 
 三层获取策略：缓存 → 稳定 API → 浏览器降级
 """
@@ -37,12 +38,18 @@ REQUEST_INTERVAL = 1.0            # 东财免登录不限流，1 秒间隔足够
 MAX_RETRIES = 2                   # 最大重试次数
 INITIAL_BACKOFF = 2.0             # 初始退避秒数
 
+# 缓存有效期（秒）：盘中实时数据缓存 5 分钟，盘后数据可设更长
+CACHE_TTL_SECONDS = 300
+
 # 数据质量阈值
 VOLUME_THRESHOLD_INDEX = 1_000_000
 VOLUME_THRESHOLD_STOCK = 1_000
 
 # 缓存目录
 CACHE_DIR = Path.home() / ".cache" / "stock-analysis"
+
+# 全局开关：是否强制忽略缓存
+NO_CACHE = False
 
 # A股配置
 INDEX_SECIDS = "1.000001,0.399001,0.399006,1.000688,0.399005,0.899050"
@@ -162,10 +169,15 @@ def _cache_path(symbol: str, date_str: str, source: str) -> Path:
     return d / _cache_key(symbol, date_str, source)
 
 
-def cache_load(symbol: str, date_str: str, source: str) -> Optional[Dict[str, Any]]:
+def cache_load(symbol: str, date_str: str, source: str, ttl: int = CACHE_TTL_SECONDS) -> Optional[Dict[str, Any]]:
+    if NO_CACHE:
+        return None
     p = _cache_path(symbol, date_str, source)
     if p.exists():
         try:
+            mtime = p.stat().st_mtime
+            if time.time() - mtime > ttl:
+                return None  # 缓存过期
             with open(p, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
@@ -644,7 +656,7 @@ def futu_news_search(keyword: str, size: int = 10, lang: str = "en", news_type: 
     })
     url = f"{FUTU_NEWS_URL}?{params}"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "stock-analysis/3.1.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "stock-analysis/3.1.1"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read().decode())
     except Exception as e:
@@ -657,7 +669,7 @@ def futu_stock_feed(keyword: str, size: int = 30) -> Dict[str, Any]:
     params = urllib.parse.urlencode({"keyword": keyword, "size": size})
     url = f"{FUTU_FEED_URL}?{params}"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "stock-analysis/3.1.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "stock-analysis/3.1.1"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read().decode())
     except Exception as e:
@@ -990,9 +1002,24 @@ def nearest_trade_date(dt: Optional[datetime] = None) -> str:
     return dt.strftime("%Y%m%d")
 
 
+def _session_label() -> str:
+    """根据当前时间返回场次标签"""
+    now = datetime.now()
+    t = now.hour * 60 + now.minute
+    if 570 <= t < 690:      # 09:30 - 11:30
+        return "上午盘"
+    elif 690 <= t < 780:    # 11:30 - 13:00
+        return "午间"
+    elif 780 <= t < 900:    # 13:00 - 15:00
+        return "下午盘"
+    else:
+        return "盘后"
+
+
 def run_a_share(date_str: str) -> None:
     display_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
-    print(f"# A 股盘后复盘（{display_date}）\n")
+    session = _session_label()
+    print(f"# A 股{session}复盘（{display_date}）\n")
     print(f"数据来源: 东方财富免登录 API | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
     print("=" * 60 + "\n")
 
@@ -1157,6 +1184,7 @@ def run_global_market(date_str: str) -> None:
 # ------------------------------------------------------------------
 
 def main():
+    global NO_CACHE
     market = "a"
     date_str = None
 
@@ -1168,6 +1196,9 @@ def main():
             i += 2
         elif args[i].startswith("--market="):
             market = args[i].split("=", 1)[1].lower()
+            i += 1
+        elif args[i] == "--no-cache" or args[i] == "--refresh":
+            NO_CACHE = True
             i += 1
         elif re.fullmatch(r"\d{8}", args[i]):
             date_str = args[i]
