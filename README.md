@@ -129,6 +129,9 @@ hermes skills install --repo AdvancingTitans/stock-analysis --path skills/stock-
 
 ## 更新日志
 
+### v3.1.4
+- 恢复并前置缓存防污染约束到 `SKILL.md` 主上下文：5 分钟 TTL、按交易日隔离缓存、`--no-cache` / `--refresh` 强制刷新、过期缓存直接 miss、盘中/盘后标题自动切换
+- 明确后续迭代如果调整缓存策略，必须同步更新脚本、技能说明和 README，防止 v3.1.1 的缓存污染修复被文档压缩遗漏
 ### v3.1.3
 - 新增腾讯行情 `qt.gtimg.cn` 作为港股/美股免登录备用源
   - 东财 clist 缺失港股正股、美股大盘股或部分港股指数时自动补齐
