@@ -1,7 +1,7 @@
 ---
 name: stock-analysis
 description: "Use when the user asks for current or after-market A股、港股、美股 or global stock-market review, index/sector/sentiment analysis,涨跌停池,港美股重点个股, or asks to verify market data with low 429/token overhead."
-version: 3.1.3
+version: 3.1.4
 author: Hermes Agent + yjw
 tags: [stock-market, a-shares, hk-shares, us-shares, eastmoney, futu, sentiment, global-finance, data-quality, camofox]
 platforms: [linux, macos, windows]
@@ -27,6 +27,16 @@ python scripts/aftermarket.py --market global --no-cache
 - 用户问“今日全球行情”优先跑 `python scripts/aftermarket.py --market global`，再按需要补跑单市场。
 - 输出已含诊断摘要和数据质量报告；回答时引用关键数字，不要把完整原始输出逐段复制给用户。
 
+## 缓存防污染硬约束
+
+v3.1.1 引入的缓存防污染机制必须保留，后续迭代不得弱化：
+
+- 行情缓存 TTL 固定为 **5 分钟（300 秒）**，盘中实时数据过期后必须重新拉取，不能长期复用旧快照。
+- 缓存路径必须按交易日隔离：`~/.cache/stock-analysis/YYYYMMDD/`；缓存 key 至少包含数据源、symbol 和日期，避免早盘未更新时把昨日数据污染到今日。
+- 脚本必须继续支持 `--no-cache` 和 `--refresh`，用于用户要求刷新、早盘/午间疑似旧数据、接口诊断异常等场景。
+- 缓存读取必须校验文件修改时间；超过 TTL 直接视为 miss，不应返回 stale data。
+- 标题必须根据当前时间自动标注 `上午盘` / `午间` / `下午盘` / `盘后`，避免把盘中数据误写成盘后复盘。
+- 如果未来调整缓存策略，必须同时更新 `scripts/aftermarket.py`、本文件和 README 更新日志，并明确说明如何防止缓存污染。
 ## 数据源优先级
 
 | 市场 | 行情 | 新闻/情绪 | 板块 | 说明 |
