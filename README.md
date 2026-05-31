@@ -4,7 +4,7 @@
 
 ## 功能
 
-- **A股**：东财免登录 API 实时/盘后数据，涨跌停池，行业/概念板块榜（浏览器抓取）
+- **A股**：东财免登录 API 实时/盘后数据，涨跌停池，可核验资金流，行业/概念板块榜（浏览器抓取）
 - **港美股**：腾讯/新浪财经批量行情为主，东财 `stock/get` 精确兜底，clist 批量补充，富途与新浪资讯多源 fallback
 - **跨市场情绪**：结构化复盘模板，板块轮动分析，社区情绪评分
 - **浏览器降级**：camofox / Hermes 内置浏览器 / Playwright 页面抓取（板块榜或 API 失败时降级）
@@ -43,6 +43,10 @@ python scripts/aftermarket.py --market hk
 # 全球市场概览（美股+港股+A股指数）
 python scripts/aftermarket.py --market global
 
+# 单只股票速览（A股/港股/美股，自动标注来源交易日）
+python scripts/aftermarket.py --market stock --stock 600519
+python scripts/aftermarket.py --market stock --stock 0700.HK
+
 # 指定日期（A股）
 python scripts/aftermarket.py --market a 20260526
 ```
@@ -56,6 +60,8 @@ python scripts/aftermarket.py --market a 20260526
 - "复盘下今日行情"
 - "美股今天怎么样"
 - "港股腾讯怎么样"
+- "查一下 600519"
+- "腾讯控股现在什么情况"
 - "早盘怎么看"
 
 ## 目录结构
@@ -86,12 +92,11 @@ hermes skills install --repo AdvancingTitans/stock-analysis --path skills/stock-
 
 | 来源 | 市场 | 类型 | 登录需求 | 优势 |
 |---|---|---|---|---|
-| push2.eastmoney.com | **A股** | 指数行情、资金流向、涨跌停数据 | **不需要** | 免登录、不限流、价格实时 |
-| push2his.eastmoney.com | **A股** | 历史资金流向 | **不需要** | `fflow` 实时接口关闭连接时兜底 |
+| push2.eastmoney.com | **A股** | 指数行情、最新 A股资金流、涨跌停数据 | **不需要** | 免登录，资金流输出会标注实际交易日 |
 | push2ex.eastmoney.com | **A股** | 涨跌停/炸板池 | **不需要** | 同上 |
 | qt.gtimg.cn | **港美股/A股指数降级** | 指数行情、港股收盘口径 | **不需要** | 港股指数收盘点位更接近交易所/新闻稿口径 |
-| hq.sinajs.cn | **港美股/A股指数降级** | 指数+重点个股实时行情 | **不需要** | 批量、免登录，对港美股更稳 |
-| push2.eastmoney.com/api/qt/stock/get | **港美股** | 单只指数/个股实时行情 | **不需要** | 精确查询，避开 clist 排序窗口 |
+| hq.sinajs.cn | **A股/港美股** | 单只股票、指数、重点个股实时行情 | **不需要** | 批量、免登录，单票查询主路径 |
+| push2.eastmoney.com/api/qt/stock/get | **A股/港美股** | 单只指数/个股实时行情 | **不需要** | 精确查询，避开 clist 排序窗口 |
 | push2.eastmoney.com/api/qt/clist/get | **港美股** | 指数+部分榜单行情 | **不需要** | 批量补充路径 |
 | quote.eastmoney.com | A股 | 行业/概念板块页面 | 不需要（浏览器抓取） | |
 | ai-news-search.futunn.com | 全球 | 新闻、公告、研报、社区 | 不需要 | |
@@ -140,6 +145,12 @@ hermes skills install --repo AdvancingTitans/stock-analysis --path skills/stock-
 - A股指数在东财失败、再到新浪失败时可继续降级到腾讯指数。
 - 输出风格改为“数据质量与来源提示 / 口径说明 / 复盘仅供参考”，移除“输出结束”等偏技术化文案。
 - 港股指数表将成交额和成交量区分展示，并显示当前命中的数据源。
+
+### v3.4.0
+- 新增单只股票速览：`--market stock --stock 600519`，支持 A股、港股和 best-effort 美股，输出价格、涨跌、成交量/额、来源和数据交易日。
+- 同步 young-stock-cli 0.1.4：`young flow`/脚本资金流输出明确标注为 A股上证指数口径，并显示数据源实际交易日。
+- 默认交易日选择在工作日 15:00 前仍使用上一交易日，避免早盘/午间把尚未结算的当天数据写入复盘。
+- 东财 `push2his` 历史资金流当前不再作为稳定兜底；A股复盘仅在资金流返回日期与复盘日期一致时使用，否则给出清晰提示。
 
 ### v3.2.0
 - **同步 young-stock-cli 核心实现**：港美股主路径改为新浪财经批量行情，东财 `stock/get` 单只精确兜底，clist 作为补充。

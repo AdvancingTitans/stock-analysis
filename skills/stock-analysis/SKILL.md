@@ -1,6 +1,6 @@
 ---
 name: stock-analysis
-description: "Use when the user asks for current or after-market A股、港股、美股 or global stock-market review, index/sector/sentiment analysis,涨跌停池,港美股重点个股, or asks to verify market data with low 429/token overhead. v3.3.0 uses Tencent, Sina, and Eastmoney no-login quote sources with news fallbacks."
+description: "Use when the user asks for current or after-market A股、港股、美股 or global stock-market review, single-stock lookup, index/sector/sentiment analysis,涨跌停池,港美股重点个股, or asks to verify market data with low 429/token overhead. v3.4.0 uses Tencent, Sina, and Eastmoney no-login quote sources with news fallbacks."
 version: 3.3.0
 author: Hermes Agent + yjw
 tags: [stock-market, a-shares, hk-shares, us-shares, eastmoney, futu, sentiment, global-finance, data-quality, camofox]
@@ -41,16 +41,19 @@ v3.1.1 引入的缓存防污染机制必须保留，后续迭代不得弱化：
 
 | 市场 | 行情 | 新闻/情绪 | 板块 | 说明 |
 |---|---|---|---|---|
-| A股 | 东方财富 API + 新浪/腾讯指数兜底 | 富途 news_search + 新浪滚动新闻 | camofox 抓东财 | 支持 6 大指数、涨跌停池、炸板池、资金流 |
+| A股 | 东方财富 API + 新浪/腾讯指数兜底 | 富途 news_search + 新浪滚动新闻 | camofox 抓东财 | 支持 6 大指数、涨跌停池、炸板池；资金流仅在日期可核验时使用 |
 | 港股 | 腾讯指数口径 + 新浪个股 + 东财 stock/get/clist | 富途 news/feed + 新浪滚动新闻 | camofox 抓富途/东财 | 不适用涨跌停、连板、炸板率 |
 | 美股 | 新浪财经主路径 + 腾讯指数 + 东财 stock/get/clist | 富途 news/feed + 新浪滚动新闻 | camofox 抓富途/财经页面 | DJI 已覆盖；VIX 若缺失，用诊断说明 |
 
-三层获取：**缓存 → 稳定 API → 浏览器降级**。稳定 API 包括东方财富 A股接口、东财 `push2his` 资金流兜底、腾讯港股指数收盘口径、港美股新浪财经批量行情、腾讯美股指数补充、东财 `stock/get` 单只精确兜底、东财 clist 批量补充、富途资讯和新浪滚动新闻；浏览器降级用于东财板块榜、富途页面以及 API 连续失败、403、429 场景。
+三层获取：**缓存 → 稳定 API → 浏览器降级**。稳定 API 包括东方财富 A股接口、东财 `fflow` 最新 A股资金流、腾讯港股指数收盘口径、港美股新浪财经批量行情、腾讯美股指数补充、东财 `stock/get` 单只精确兜底、东财 clist 批量补充、富途资讯和新浪滚动新闻；浏览器降级用于东财板块榜、富途页面以及 API 连续失败、403、429 场景。
+
+单只股票速览：脚本支持 `python scripts/aftermarket.py --market stock --stock 600519`，也支持港股 `0700.HK` 和 best-effort 美股 `AAPL`。单票输出必须标注市场、来源、数据交易日、最新价、涨跌、成交量/额和完整度；若数据源交易日与请求日不一致，必须明确提醒，不把旧数据当成当天数据。
 
 ## 分析要求
 
-- A股最小集：6 大指数、涨跌停池、炸板池、主力资金流向、行业/概念板块；用涨停数、跌停数、炸板率、最高连板、封板时间、板块集中度判断情绪。
+- A股最小集：6 大指数、涨跌停池、炸板池、行业/概念板块；主力资金流向仅在返回交易日与复盘交易日一致时纳入，用涨停数、跌停数、炸板率、最高连板、封板时间、板块集中度判断情绪。
 - 港美股最小集：大盘指数、重点个股、成交量/质量标记、富途新闻；重点看大盘涨跌、成交量变化、板块轮动、个股新闻，不套用 A股连板逻辑。
+- 单只股票最小集：当前价、涨跌幅、昨收、开高低、成交量/额、来源、数据交易日、近期新闻；拿不到可核验价格时只提示缺口和建议重试，不输出空表或猜测。
 - Exa 或网页搜索只做舆情交叉验证，必须带当天 `startPublishedDate`；国内财经站优先 API 或 camofox，少用 Jina Reader。
 - 如果接口失败，不静默定性；说明“数据缺口 + 已用替代源/诊断摘要”。
 
@@ -65,7 +68,7 @@ v3.1.1 引入的缓存防污染机制必须保留，后续迭代不得弱化：
 ## 关键坑位
 
 - 东方财富 `fltt=2` 的 A股指数和 clist 港美股价格当前均按真实价处理，不再除以 100。
-- A股资金流实时 `fflow` 若关闭 Python 直连，脚本会用 `requests`/`curl` 请求策略并降级到 `push2his` 历史资金流。
+- A股资金流仅采用可核验日期的东财 `fflow` 最新上证指数口径数据；`push2his` 历史资金流当前不视为稳定兜底。
 - 富途 `publish_time` 是字符串，脚本会先转整数。
 - 指数成交量为 0 是 warning，不影响价格判断；个股成交量为 0 才影响质量评分。
 - 仅对 429/403/5xx/timeout 重试；404 不重试，直接降级或诊断。

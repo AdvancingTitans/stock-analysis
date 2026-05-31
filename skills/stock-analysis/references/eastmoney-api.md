@@ -164,7 +164,7 @@ curl -s "https://push2ex.eastmoney.com/getTopicZBPool?ut=7eea3edcaed734bea9cbfc2
 
 ---
 
-## 4. 资金流向（`fflow/kline`）
+## 4. 最新 A股资金流向（`fflow/kline`）
 
 ```bash
 curl -s "https://push2.eastmoney.com/api/qt/stock/fflow/kline/get?secid=1.000001&fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65&klt=101&lmt=1&_=$(date +%s)000"
@@ -193,7 +193,7 @@ f64 总成交额
 f65 未知（冗余）
 ```
 
-> 单位：元。净流入为正表示资金流入。
+> 单位：元。净流入为正表示资金流入。该接口返回最新可用交易日，使用前必须校验 `f51` 日期；`push2his` 历史资金流当前不作为稳定兜底。
 
 ---
 

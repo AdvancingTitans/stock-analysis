@@ -86,6 +86,7 @@ FFLOW_HIS_URL = (
     "&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65"
     "&klt=101&lmt=1&_={ts}"
 )
+FUND_FLOW_COLS = "date,主力净流入,小单净流入,中单净流入,大单净流入,超大单净流入,主力净流入占比,小单净流入占比,中单净流入占比,大单净流入占比,超大单净流入占比,收盘价,涨跌幅,总成交额".split(",")
 INDEX_URL = (
     "https://push2.eastmoney.com/api/qt/ulist.np/get"
     "?fltt=2&secids={secids}&fields={fields}&_={ts}"
@@ -460,6 +461,18 @@ def fetch_fund_flow_json(url: str) -> dict[str, Any]:
     return {"_error": " | ".join(e for e in errors if e)}
 
 
+def _display_date(date_str: str) -> str:
+    return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+
+
+def _source_date(value: str | None) -> str:
+    if not value:
+        return ""
+    value = str(value).strip().replace("/", "-")
+    m = re.match(r"(\d{4}-\d{2}-\d{2})", value)
+    return m.group(1) if m else value
+
+
 # ------------------------------------------------------------------
 # 东财数据解析工具
 # ------------------------------------------------------------------
@@ -622,6 +635,13 @@ def _hk_secid(code: str) -> str:
     return f"116.{raw.zfill(5)}"
 
 
+def _cn_secid(code: str) -> str:
+    """A股 secid: 沪市 1.<code>，深市/北交所 0.<code>。"""
+    raw = code.upper().replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
+    exchange = "1" if raw.startswith(("5", "6", "9")) else "0"
+    return f"{exchange}.{raw}"
+
+
 def _us_secid(symbol: str) -> str | None:
     """美股 secid: 优先查表，否则返回 None（让上层尝试 105/106 探测）。"""
     s = symbol.upper().lstrip("^")
@@ -700,6 +720,18 @@ def fetch_hk_stocks_direct(symbols: list[str], date_str: str) -> list[QuoteData]
     return results
 
 
+def fetch_cn_stocks_direct(symbols: list[str], date_str: str) -> list[QuoteData]:
+    """逐个用 stock/get 查 A股，作为新浪不可用时的精确兜底。"""
+    results: list[QuoteData] = []
+    for sym in symbols:
+        payload = fetch_em_stock_get(_cn_secid(sym))
+        if not payload:
+            diag(f"Eastmoney stock/get missing A-share: {sym}")
+            continue
+        results.append(_stock_get_to_quote(payload, sym, "cn_market", date_str))
+    return results
+
+
 def fetch_indices_direct(symbols_map: dict[str, str], date_str: str, secid_map: dict[str, str]) -> list[QuoteData]:
     """用 stock/get 单查指数（绕开 clist 反爬/排序问题）。"""
     results: list[QuoteData] = []
@@ -728,6 +760,16 @@ SINA_US_INDEX = {
     "^IXIC": "gb_$ixic",
     "^DJI":  "gb_$dji",
 }
+
+
+def _sina_a_code(symbol: str) -> str:
+    """A股 600519 / 000001.SZ → sh600519 / sz000001。"""
+    raw = symbol.upper().replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
+    if raw.startswith(("5", "6", "9")):
+        return f"sh{raw}"
+    if raw.startswith(("4", "8")):
+        return f"bj{raw}"
+    return f"sz{raw}"
 
 
 def _sina_us_code(symbol: str) -> str:
@@ -772,6 +814,37 @@ def fetch_sina_batch(codes: list[str]) -> dict[str, list[str]]:
     return out
 
 
+def _sina_a_to_quote(fields: list[str], symbol: str, date_str: str) -> QuoteData | None:
+    """新浪 A股字段：[名称, 开盘, 昨收, 当前价, 最高, 最低, 买一, 卖一, 成交量, 成交额, ... 日期, 时间]。"""
+    if len(fields) < 32:
+        return None
+    price = _safe_float(fields[3])
+    prev_close = _safe_float(fields[2])
+    change = None
+    change_pct = None
+    if price is not None and prev_close not in (None, 0):
+        change = price - float(prev_close)
+        change_pct = change / float(prev_close) * 100
+    qd = QuoteData(
+        symbol=symbol,
+        name=fields[0] or symbol,
+        market="cn_market",
+        date=_source_date(fields[30]) or _display_date(date_str),
+        price=price,
+        prev_close=prev_close,
+        change=change,
+        change_pct=change_pct,
+        open_price=_safe_float(fields[1]),
+        high=_safe_float(fields[4]),
+        low=_safe_float(fields[5]),
+        volume=_safe_int(fields[8]),
+        turnover=_safe_float(fields[9]),
+        currency="CNY",
+        source="sina",
+    )
+    return validate_quote(qd)
+
+
 def _sina_us_to_quote(fields: list[str], symbol: str, date_str: str, name_override: str | None = None) -> QuoteData | None:
     """新浪美股字段：[名称, 当前价, 涨跌幅%, 时间, 涨跌额, 开盘, 最高, 最低, 52周高, 52周低, 成交量, ...]"""
     if len(fields) < 11:
@@ -780,7 +853,7 @@ def _sina_us_to_quote(fields: list[str], symbol: str, date_str: str, name_overri
         symbol=symbol,
         name=name_override or fields[0] or symbol,
         market="us_market",
-        date=date_str,
+        date=_display_date(date_str),
         price=_safe_float(fields[1]),
         change_pct=_safe_float(fields[2]),
         change=_safe_float(fields[4]),
@@ -805,7 +878,7 @@ def _sina_hk_to_quote(fields: list[str], symbol: str, date_str: str) -> QuoteDat
         symbol=symbol,
         name=fields[1] or fields[0] or symbol,
         market="hk_market",
-        date=date_str,
+        date=_source_date(fields[17] if len(fields) > 17 else "") or _display_date(date_str),
         price=_safe_float(fields[6]),
         prev_close=_safe_float(fields[3]),
         change=_safe_float(fields[7]),
@@ -814,10 +887,27 @@ def _sina_hk_to_quote(fields: list[str], symbol: str, date_str: str) -> QuoteDat
         high=_safe_float(fields[4]),
         low=_safe_float(fields[5]),
         volume=_safe_int(fields[12]),
+        turnover=_safe_float(fields[11]),
         currency="HKD",
         source="sina",
     )
     return validate_quote(qd)
+
+
+def fetch_cn_stocks_sina(symbols: list[str], date_str: str) -> list[QuoteData]:
+    """新浪批量拉 A股个股。"""
+    codes = [_sina_a_code(s) for s in symbols]
+    raw_map = fetch_sina_batch(codes)
+    results: list[QuoteData] = []
+    for sym in symbols:
+        fields = raw_map.get(_sina_a_code(sym))
+        if not fields:
+            diag(f"Sina missing A-share: {sym}")
+            continue
+        qd = _sina_a_to_quote(fields, sym, date_str)
+        if qd:
+            results.append(qd)
+    return results
 
 
 def fetch_us_stocks_sina(symbols: list[str], date_str: str) -> list[QuoteData]:
@@ -1110,7 +1200,7 @@ def detect_market_type(ticker: str) -> str:
     t = str(ticker).upper()
     if t.endswith(".HK") or any(x in t for x in ["HSI", "HSCE", "HSTECH"]):
         return "hk_market"
-    elif any(x in t for x in ["上证", "深证", "创业板", "科创板", "399001", "899050", "000001"]):
+    elif re.fullmatch(r"\d{6}", t) or t.endswith((".SH", ".SZ", ".BJ")) or any(x in t for x in ["上证", "深证", "创业板", "科创板", "399001", "899050", "000001"]):
         return "cn_market"
     elif any(x in t for x in ["DAX", "CAC", "FTSE", "ESTX", "GDAXI", "FCHI"]):
         return "eu_market"
@@ -1118,6 +1208,37 @@ def detect_market_type(ticker: str) -> str:
         return "jp_market"
     else:
         return "us_market"
+
+
+def normalize_stock_symbol(symbol: str) -> tuple[str, str]:
+    """把用户输入规范化为内部 symbol + 市场类型。"""
+    raw = str(symbol).strip().upper()
+    if not raw:
+        raise ValueError("股票代码不能为空")
+
+    if raw.endswith((".SH", ".SZ", ".BJ")):
+        code = raw.rsplit(".", 1)[0]
+        if re.fullmatch(r"\d{6}", code):
+            return code, "cn_market"
+        raise ValueError(f"无法识别的 A股代码: {symbol}")
+
+    if raw.endswith(".HK"):
+        code = raw[:-3].lstrip("0") or "0"
+        if code.isdigit() and len(code) <= 5:
+            return f"{code.zfill(4)}.HK", "hk_market"
+        raise ValueError(f"无法识别的港股代码: {symbol}")
+
+    if raw.isdigit():
+        if len(raw) == 6:
+            return raw, "cn_market"
+        if 1 <= len(raw) <= 5:
+            return f"{raw.lstrip('0').zfill(4)}.HK", "hk_market"
+        raise ValueError(f"无法识别的股票代码: {symbol}")
+
+    if re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", raw):
+        return raw, "us_market"
+
+    raise ValueError(f"无法识别的股票代码: {symbol}")
 
 
 # ------------------------------------------------------------------
@@ -1229,14 +1350,20 @@ def get_zb_pool(date_str: str) -> dict[str, Any]:
 
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
-def get_fund_flow(date_str: str) -> dict[str, str]:
+def get_fund_flow(date_str: str, *, strict_date: bool = True) -> dict[str, str]:
     cached = cache_load("fund_flow", date_str, "eastmoney")
     if cached:
-        return cached
+        if cached.get("_unavailable") or cached.get("date", "").replace("-", "") == date_str:
+            return cached
+        diag(
+            "Ignored cached fund flow because the returned trading date "
+            f"{cached.get('date')} does not match requested {date_str}"
+        )
 
     klines = []
     last_error = ""
     flow_source = ""
+    latest_result: dict[str, str] | None = None
     for source_name, url_template, display_source in (
         ("Eastmoney fflow realtime", FFLOW_URL, "东财实时资金流"),
         ("Eastmoney fflow history", FFLOW_HIS_URL, "东财历史日线资金流"),
@@ -1248,22 +1375,38 @@ def get_fund_flow(date_str: str) -> dict[str, str]:
             continue
         klines = (data.get("data") or {}).get("klines", [])
         if klines:
-            flow_source = display_source
-            if source_name.endswith("history"):
-                diag("Fund flow fell back to Eastmoney push2his")
-            break
+            for row in klines:
+                vals = row.split(",")
+                result = dict(zip(FUND_FLOW_COLS, vals, strict=False))
+                result["_source"] = display_source
+                result["_scope"] = "A股"
+                if latest_result is None:
+                    latest_result = result
+                if result.get("date", "").replace("-", "") == date_str:
+                    flow_source = display_source
+                    if source_name.endswith("history"):
+                        diag("Fund flow fell back to Eastmoney push2his")
+                    cache_save("fund_flow", date_str, "eastmoney", result)
+                    return result
+                if not strict_date:
+                    result["_requested_date"] = _display_date(date_str)
+                    result["_date_note"] = "latest_available"
+                    return result
+            latest_date = latest_result.get("date") if latest_result else "unknown"
+            last_error = f"{source_name}: latest flow date {latest_date} != requested {date_str}"
+            continue
         last_error = f"{source_name}: empty klines"
 
-    if not klines:
-        if last_error:
-            diag(last_error)
-        return {}
-    cols = "date,主力净流入,小单净流入,中单净流入,大单净流入,超大单净流入,主力净流入占比,小单净流入占比,中单净流入占比,大单净流入占比,超大单净流入占比,收盘价,涨跌幅,总成交额".split(",")
-    vals = klines[0].split(",")
-    result = dict(zip(cols, vals, strict=False))
-    result["_source"] = flow_source
-    cache_save("fund_flow", date_str, "eastmoney", result)
-    return result
+    if last_error:
+        diag(last_error)
+    latest_date = latest_result.get("date") if latest_result else ""
+    return {
+        "_unavailable": "资金流数据日期和请求日期不一致，已避免展示可能滞后的数据",
+        "_scope": "A股",
+        "_requested_date": _display_date(date_str),
+        "_latest_date": latest_date,
+        "_source": flow_source or (latest_result or {}).get("_source", "东财资金流"),
+    }
 
 
 # ------------------------------------------------------------------
@@ -1522,11 +1665,25 @@ def print_zt_analysis(zt_data: dict, dt_data: dict, zb_data: dict) -> None:
 
 
 def print_fund_flow(flow_data: dict[str, str]) -> None:
-    print("## 资金流向（上证指数口径）\n")
+    print("## A股资金流向（上证指数口径）\n")
     if not flow_data or "_error" in flow_data:
-        print("  数据暂不可用（东财实时/历史资金流接口均不可用，请稍后重试或加 --refresh）")
+        print("  暂不展示：当前没有拿到可核验交易日的免登录资金流数据。")
         print()
         return
+    if flow_data.get("_unavailable"):
+        print("  暂不展示：资金流来源返回的交易日与本次复盘日期不一致。")
+        if flow_data.get("_requested_date"):
+            print(f"  本次复盘: {flow_data['_requested_date']}")
+        if flow_data.get("_latest_date"):
+            print(f"  来源最新: {flow_data['_latest_date']}")
+        if flow_data.get("_source"):
+            print(f"  来源: {flow_data['_source']}")
+        print()
+        return
+    if flow_data.get("date"):
+        print(f"  交易日: {flow_data['date']}")
+    if flow_data.get("_date_note") == "latest_available" and flow_data.get("_requested_date"):
+        print(f"  提醒: 当前展示来源最新可用数据，本次请求日期为 {flow_data['_requested_date']}")
     if flow_data.get("_source"):
         print(f"  来源: {flow_data['_source']}")
     print(f"  主力净流入: {fmt_amount(flow_data.get('主力净流入'))}")
@@ -1616,6 +1773,127 @@ def print_global_stock(qd: QuoteData) -> None:
     if qd.notes:
         print(f"  ⚠️ {', '.join(qd.notes)}")
     print()
+
+
+def _source_label(source: str) -> str:
+    return {
+        "sina": "新浪财经",
+        "tencent": "腾讯财经",
+        "eastmoney_stock_get": "东方财富",
+        "eastmoney_clist": "东方财富",
+    }.get(source, source or "-")
+
+
+def _market_label(market: str) -> str:
+    return {
+        "cn_market": "A股",
+        "hk_market": "港股",
+        "us_market": "美股",
+    }.get(market, market)
+
+
+def _is_usable_quote(qd: QuoteData | None) -> bool:
+    return bool(qd and qd.price is not None and qd.completeness >= 50)
+
+
+def _quote_from_cache(data: dict[str, Any] | None) -> QuoteData | None:
+    if not data:
+        return None
+    try:
+        return QuoteData(**data)
+    except TypeError:
+        return None
+
+
+def get_single_stock_quote(symbol: str, date_str: str) -> QuoteData | None:
+    normalized, market = normalize_stock_symbol(symbol)
+    cached = _quote_from_cache(cache_load(normalized, date_str, "single_stock"))
+    if _is_usable_quote(cached):
+        return cached
+
+    quotes: list[QuoteData] = []
+    if market == "cn_market":
+        quotes = fetch_cn_stocks_sina([normalized], date_str)
+        if not _has_all_quotes(quotes, [normalized]):
+            quotes = merge_quotes_by_symbol(quotes, fetch_cn_stocks_direct([normalized], date_str), [normalized])
+    elif market == "hk_market":
+        quotes = fetch_hk_stocks_sina([normalized], date_str)
+        if not _has_all_quotes(quotes, [normalized]):
+            quotes = merge_quotes_by_symbol(quotes, fetch_hk_stocks_direct([normalized], date_str), [normalized])
+        if not _has_all_quotes(quotes, [normalized]):
+            quotes = merge_quotes_by_symbol(quotes, fetch_em_stocks([normalized], date_str, EM_FS["hk_stock"]), [normalized])
+    elif market == "us_market":
+        quotes = fetch_us_stocks_sina([normalized], date_str)
+        if not _has_all_quotes(quotes, [normalized]):
+            quotes = merge_quotes_by_symbol(quotes, fetch_us_stocks_direct([normalized], date_str), [normalized])
+        if not _has_all_quotes(quotes, [normalized]):
+            quotes = merge_quotes_by_symbol(quotes, fetch_em_stocks([normalized], date_str, EM_FS["us_stock"]), [normalized])
+
+    qd = quotes[0] if quotes else None
+    if not _is_usable_quote(qd):
+        diag(f"No verified single-stock quote for {normalized}")
+        return None
+
+    cache_save(normalized, date_str, "single_stock", qd.to_dict())
+    return qd
+
+
+def print_single_stock_unavailable(symbol: str, reason: str) -> None:
+    print(f"# 个股速览：{symbol}\n")
+    print(f"暂未拿到可核验行情：{reason}")
+    print("可以稍后加 --refresh 重试，或确认代码格式，例如 A股 600519、港股 0700.HK、美股 AAPL。")
+
+
+def print_single_stock_report(qd: QuoteData, requested_date: str) -> None:
+    print(f"# 个股速览：{qd.name or qd.symbol} ({qd.symbol})\n")
+    print(f"市场: {_market_label(qd.market)} | 来源: {_source_label(qd.source)} | 数据日期: {qd.date or '-'}")
+    if qd.date and qd.date.replace("-", "") != requested_date:
+        print(f"提醒: 当前展示数据源最新可用交易日，本次请求日期为 {_display_date(requested_date)}")
+    print()
+    print(f"  最新价: {fmt_price(qd.price)} {qd.currency}")
+    if qd.change is not None or qd.change_pct is not None:
+        change_str = f"{qd.change:+.2f}" if qd.change is not None else "-"
+        print(f"  涨跌:   {change_str} ({fmt_pct(qd.change_pct)})")
+    print(f"  昨收:   {fmt_price(qd.prev_close)}")
+    print(f"  开盘:   {fmt_price(qd.open_price)}")
+    print(f"  最高:   {fmt_price(qd.high)}")
+    print(f"  最低:   {fmt_price(qd.low)}")
+    if qd.turnover is not None:
+        print(f"  成交额: {fmt_amount(qd.turnover)}")
+    print(f"  成交量: {fmt_volume(qd.volume)}")
+    print(f"  完整度: {qd.completeness:.0f}%")
+    if qd.notes:
+        print(f"  提醒:   {'；'.join(qd.notes)}")
+    print()
+
+
+def run_stock_quote(symbol: str, date_str: str, include_news: bool = True) -> None:
+    DIAGNOSTICS.clear()
+    try:
+        qd = get_single_stock_quote(symbol, date_str)
+    except ValueError as e:
+        print_single_stock_unavailable(symbol, str(e))
+        print_report_footer()
+        return
+
+    if not qd:
+        print_single_stock_unavailable(symbol, "当前数据源没有返回有效价格或成交数据")
+        if DIAGNOSTICS:
+            print_diagnostic_summary()
+        print_report_footer()
+        return
+
+    print_single_stock_report(qd, date_str)
+
+    if include_news:
+        keyword = qd.name if qd.market in ("cn_market", "hk_market") and qd.name else qd.symbol
+        lang = "zh-CN" if qd.market in ("cn_market", "hk_market") else "en"
+        aliases = [qd.symbol, qd.name] if qd.name else [qd.symbol]
+        print_futu_news(news_search_chain(keyword, size=5, lang=lang, aliases=aliases), keyword)
+
+    if DIAGNOSTICS:
+        print_diagnostic_summary()
+    print_report_footer()
 
 
 def print_futu_news(news_data: dict, keyword: str) -> None:
@@ -1744,6 +2022,8 @@ def print_report_footer() -> None:
 def nearest_trade_date(dt: datetime | None = None) -> str:
     if dt is None:
         dt = datetime.now()
+    if dt.weekday() < 5 and (dt.hour, dt.minute) < (15, 0):
+        dt -= timedelta(days=1)
     wd = dt.weekday()
     if wd == 5:
         dt -= timedelta(days=1)
@@ -1974,6 +2254,7 @@ def main():
     global NO_CACHE
     market = "a"
     date_str = None
+    stock_symbol = None
 
     args = sys.argv[1:]
     i = 0
@@ -1987,14 +2268,21 @@ def main():
         elif args[i] == "--no-cache" or args[i] == "--refresh":
             NO_CACHE = True
             i += 1
+        elif args[i] in ("--stock", "--symbol") and i + 1 < len(args):
+            stock_symbol = args[i + 1]
+            market = "stock"
+            i += 2
         elif re.fullmatch(r"\d{8}", args[i]):
             date_str = args[i]
             i += 1
         else:
             i += 1
 
-    if market not in ("a", "hk", "us", "global"):
-        print("错误: --market 参数必须是 a、hk、us 或 global", file=sys.stderr)
+    if market not in ("a", "hk", "us", "global", "stock"):
+        print("错误: --market 参数必须是 a、hk、us、global 或 stock", file=sys.stderr)
+        sys.exit(1)
+    if market == "stock" and not stock_symbol:
+        print("错误: --market stock 需要配合 --stock 600519 使用", file=sys.stderr)
         sys.exit(1)
 
     # 清理过期缓存
@@ -2011,6 +2299,8 @@ def main():
         run_hk_market(date_str)
     elif market == "global":
         run_global_market(date_str)
+    elif market == "stock" and stock_symbol:
+        run_stock_quote(stock_symbol, date_str)
 
 
 if __name__ == "__main__":
