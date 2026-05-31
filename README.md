@@ -87,6 +87,7 @@ hermes skills install --repo AdvancingTitans/stock-analysis --path skills/stock-
 | 来源 | 市场 | 类型 | 登录需求 | 优势 |
 |---|---|---|---|---|
 | push2.eastmoney.com | **A股** | 指数行情、资金流向、涨跌停数据 | **不需要** | 免登录、不限流、价格实时 |
+| push2his.eastmoney.com | **A股** | 历史资金流向 | **不需要** | `fflow` 实时接口关闭连接时兜底 |
 | push2ex.eastmoney.com | **A股** | 涨跌停/炸板池 | **不需要** | 同上 |
 | hq.sinajs.cn | **港美股/A股指数降级** | 指数+重点个股实时行情 | **不需要** | 批量、免登录，对港美股更稳 |
 | push2.eastmoney.com/api/qt/stock/get | **港美股** | 单只指数/个股实时行情 | **不需要** | 精确查询，避开 clist 排序窗口 |
@@ -133,6 +134,8 @@ hermes skills install --repo AdvancingTitans/stock-analysis --path skills/stock-
 ### v3.2.0
 - **同步 young-stock-cli 核心实现**：港美股主路径改为新浪财经批量行情，东财 `stock/get` 单只精确兜底，clist 作为补充。
 - 美股默认指数恢复道指 DJI（走新浪财经）；VIX 仍暂不默认纳入。
+- A股资金流在东财实时 `fflow` 接口关闭 Python 直连时，降级到 `push2his` 历史资金流接口并放宽请求策略。
+- 恒生指数改用新浪 `hkHSI` 完整行情，补齐成交量字段。
 - A股指数在东财接口失败时降级到新浪指数。
 - HTTP 请求绕过本地代理，避免 Clash 等代理导致东财/新浪接口 502。
 - 空数据/错误响应不再写入缓存，减少缓存污染。

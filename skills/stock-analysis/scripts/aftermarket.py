@@ -18,6 +18,8 @@ import json
 import os
 import random
 import re
+import shutil
+import subprocess
 import sys
 import time
 import urllib.error
@@ -73,6 +75,12 @@ ZB_URL = (
 )
 FFLOW_URL = (
     "https://push2.eastmoney.com/api/qt/stock/fflow/kline/get"
+    "?secid=1.000001&fields1=f1,f2,f3,f7"
+    "&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65"
+    "&klt=101&lmt=1&_={ts}"
+)
+FFLOW_HIS_URL = (
+    "https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get"
     "?secid=1.000001&fields1=f1,f2,f3,f7"
     "&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65"
     "&klt=101&lmt=1&_={ts}"
@@ -366,7 +374,10 @@ def fetch_json(url: str, headers: dict[str, str] | None = None) -> dict[str, Any
         raw = _fetch_raw(url, headers)
     except Exception as e:
         return {"_error": str(e)}
+    return _parse_json_text(raw)
 
+
+def _parse_json_text(raw: str) -> dict[str, Any]:
     raw = raw.strip()
     if raw.startswith("(") and raw.endswith(")"):
         raw = raw[1:-1]
@@ -387,6 +398,60 @@ def fetch_json(url: str, headers: dict[str, str] | None = None) -> dict[str, Any
             except json.JSONDecodeError:
                 pass
         return {"_error": "JSON parse failed", "_raw": raw[:500]}
+
+
+def fetch_fund_flow_json(url: str) -> dict[str, Any]:
+    """资金流接口对 Python 直连较挑剔，单独放宽请求策略。"""
+    headers = {"Referer": "https://quote.eastmoney.com/"}
+    data = fetch_json(url, headers)
+    if "_error" not in data:
+        return data
+    errors = [data["_error"]]
+
+    try:
+        import requests
+
+        resp = requests.get(
+            url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                ),
+                "Accept": "application/json,text/plain,*/*",
+                "Referer": "https://quote.eastmoney.com/",
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return _parse_json_text(resp.text)
+    except Exception as e:
+        errors.append(str(e))
+
+    curl = shutil.which("curl")
+    if curl:
+        try:
+            result = subprocess.run(
+                [
+                    curl,
+                    "--noproxy", "*",
+                    "-sS",
+                    "--max-time", "15",
+                    "-H", "Referer: https://quote.eastmoney.com/",
+                    "-H", "Accept: application/json,text/plain,*/*",
+                    url,
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0 and result.stdout:
+                return _parse_json_text(result.stdout)
+            errors.append(result.stderr.strip() or f"curl exited {result.returncode}")
+        except Exception as e:
+            errors.append(str(e))
+
+    return {"_error": " | ".join(e for e in errors if e)}
 
 
 # ------------------------------------------------------------------
@@ -802,11 +867,10 @@ def fetch_us_indices_sina(symbols_map: dict[str, str], date_str: str) -> list[Qu
 
 def fetch_hk_indices_sina(symbols_map: dict[str, str], date_str: str) -> list[QuoteData]:
     """新浪批量拉港股指数。
-    int_hangseng → 4 字段简化版（恒生指数）；
-    hkHSCEI / hkHSTECH → 13 字段标准版（同 rt_hk 格式）。
+    hkHSI / hkHSCEI / hkHSTECH → 13 字段标准版（同 rt_hk 格式）。
     """
     code_map = {
-        "^HSI":      "int_hangseng",
+        "^HSI":      "hkHSI",
         "^HSCE":     "hkHSCEI",
         "HSTECH.HK": "hkHSTECH",
     }
@@ -821,25 +885,10 @@ def fetch_hk_indices_sina(symbols_map: dict[str, str], date_str: str) -> list[Qu
         if not fields:
             diag(f"Sina missing HK index: {sym}")
             continue
-        if code == "int_hangseng":
-            # [中文名, 价, 涨跌额, 涨跌幅%]
-            if len(fields) < 4:
-                continue
-            qd = QuoteData(
-                symbol=sym, name=name, market="hk_market", date=date_str,
-                price=_safe_float(fields[1]),
-                change=_safe_float(fields[2]),
-                change_pct=_safe_float(fields[3]),
-                currency="HKD", source="sina",
-            )
-            if qd.price is not None and qd.change is not None:
-                qd.prev_close = qd.price - qd.change
-            results.append(validate_quote(qd))
-        else:
-            qd = _sina_hk_to_quote(fields, sym, date_str)
-            if qd:
-                qd.name = name
-                results.append(qd)
+        qd = _sina_hk_to_quote(fields, sym, date_str)
+        if qd:
+            qd.name = name
+            results.append(qd)
     return results
 
 
@@ -1018,14 +1067,27 @@ def get_fund_flow(date_str: str) -> dict[str, str]:
     if cached:
         return cached
 
-    url = FFLOW_URL.format(ts=int(datetime.now().timestamp() * 1000))
-    data = fetch_json(url, {"Referer": "https://quote.eastmoney.com/"})
-    if "_error" in data:
-        diag(f"Eastmoney fund flow: {data['_error']}")
-        return {}
-    d = data.get("data", {})
-    klines = d.get("klines", [])
+    klines = []
+    last_error = ""
+    for source_name, url_template in (
+        ("Eastmoney fflow realtime", FFLOW_URL),
+        ("Eastmoney fflow history", FFLOW_HIS_URL),
+    ):
+        url = url_template.format(ts=int(datetime.now().timestamp() * 1000))
+        data = fetch_fund_flow_json(url)
+        if "_error" in data:
+            last_error = f"{source_name}: {data['_error']}"
+            continue
+        klines = (data.get("data") or {}).get("klines", [])
+        if klines:
+            if source_name.endswith("history"):
+                diag("Fund flow fell back to Eastmoney push2his")
+            break
+        last_error = f"{source_name}: empty klines"
+
     if not klines:
+        if last_error:
+            diag(last_error)
         return {}
     cols = "date,主力净流入,小单净流入,中单净流入,大单净流入,超大单净流入,主力净流入占比,小单净流入占比,中单净流入占比,大单净流入占比,超大单净流入占比,收盘价,涨跌幅,总成交额".split(",")
     vals = klines[0].split(",")
@@ -1200,7 +1262,7 @@ def print_zt_analysis(zt_data: dict, dt_data: dict, zb_data: dict) -> None:
 def print_fund_flow(flow_data: dict[str, str]) -> None:
     print("## 资金流向（上证指数口径）\n")
     if not flow_data or "_error" in flow_data:
-        print("  数据暂不可用（东财 fflow 接口可能被风控，请稍后重试或加 --refresh）")
+        print("  数据暂不可用（东财实时/历史资金流接口均不可用，请稍后重试或加 --refresh）")
         print()
         return
     print(f"  主力净流入: {fmt_amount(flow_data.get('主力净流入'))}")
