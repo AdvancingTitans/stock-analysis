@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import random
@@ -154,9 +155,13 @@ INDEX_NAME_MAP = {
 # 富途
 FUTU_NEWS_URL = "https://ai-news-search.futunn.com/news_search"
 FUTU_FEED_URL = "https://ai-news-search.futunn.com/stock_feed"
+SINA_ROLL_NEWS_URL = "https://feed.mix.sina.com.cn/api/roll/get"
 
 # 新浪财经（免登录、GBK 编码、对美股/港股最稳，作为 stock/get 之外的主路径）
 SINA_HQ_URL = "https://hq.sinajs.cn/list={codes}"
+
+# 腾讯财经（免登录、GBK 编码；港股指数收盘口径更接近交易所/新闻稿）
+TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q={codes}"
 
 # 诊断记录
 DIAGNOSTICS: list[str] = []
@@ -184,6 +189,7 @@ class QuoteData:
     high: float | None = None
     low: float | None = None
     volume: int | None = None
+    turnover: float | None = None
     currency: str = "USD"
     source: str = ""
     quality_flags: list[str] = field(default_factory=list)
@@ -893,6 +899,163 @@ def fetch_hk_indices_sina(symbols_map: dict[str, str], date_str: str) -> list[Qu
 
 
 # ------------------------------------------------------------------
+# 腾讯财经数据源 —— 港股指数收盘口径 / 美股指数 / A股指数备用
+# ------------------------------------------------------------------
+
+TENCENT_US_INDEX = {
+    "^GSPC": "usINX",
+    "^IXIC": "usIXIC",
+    "^DJI":  "usDJI",
+}
+
+TENCENT_HK_INDEX = {
+    "^HSI":      "hkHSI",
+    "^HSCE":     "hkHSCEI",
+    "HSTECH.HK": "hkHSTECH",
+}
+
+TENCENT_A_INDEX_MAP = {
+    "sh000001": "000001",
+    "sz399001": "399001",
+    "sz399006": "399006",
+    "sh000688": "000688",
+    "sz399005": "399005",
+    "bj899050": "899050",
+}
+
+
+@retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
+def fetch_tencent_batch(codes: list[str]) -> str:
+    """批量拉腾讯行情原文；调用方按市场解析字段。"""
+    if not codes:
+        return ""
+    url = TENCENT_QUOTE_URL.format(codes=",".join(codes))
+    try:
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0",
+            "Referer": "https://gu.qq.com/",
+        })
+        proxy_handler = urllib.request.ProxyHandler({})
+        opener = urllib.request.build_opener(proxy_handler)
+        with opener.open(req, timeout=15) as resp:
+            return resp.read().decode("gbk", errors="ignore")
+    except Exception as e:
+        diag(f"Tencent quote: {e}")
+        return ""
+
+
+def _parse_tencent_batch(raw: str) -> dict[str, list[str]]:
+    out: dict[str, list[str]] = {}
+    for line in raw.splitlines():
+        m = re.match(r'v_([^=]+)="(.*)";?\s*$', line.strip())
+        if not m:
+            continue
+        code, payload = m.group(1), m.group(2)
+        if payload:
+            out[code] = payload.split("~")
+    return out
+
+
+def _tencent_index_to_quote(fields: list[str], symbol: str, name: str, market: str, date_str: str) -> QuoteData | None:
+    if len(fields) < 35:
+        return None
+    turnover = None
+    volume = _safe_int(fields[6])
+    if market == "hk_market":
+        # 腾讯港股指数第 6 字段是成交额，单位为万港元。
+        raw_turnover = _safe_float(fields[6])
+        turnover = raw_turnover * 1e4 if raw_turnover is not None else None
+        volume = None
+    qd = QuoteData(
+        symbol=symbol,
+        name=name or fields[1] or symbol,
+        market=market,
+        date=date_str,
+        price=_safe_float(fields[3]),
+        prev_close=_safe_float(fields[4]),
+        change=_safe_float(fields[31]),
+        change_pct=_safe_float(fields[32]),
+        open_price=_safe_float(fields[5]),
+        high=_safe_float(fields[33]),
+        low=_safe_float(fields[34]),
+        volume=volume,
+        turnover=turnover,
+        currency="HKD" if market == "hk_market" else "USD",
+        source="tencent",
+    )
+    if market == "hk_market":
+        qd.notes.append("港股指数采用腾讯收盘口径，和新浪盘后快照可能略有差异")
+    return validate_quote(qd)
+
+
+def fetch_hk_indices_tencent(symbols_map: dict[str, str], date_str: str) -> list[QuoteData]:
+    codes = [TENCENT_HK_INDEX[s] for s in symbols_map if s in TENCENT_HK_INDEX]
+    raw_map = _parse_tencent_batch(fetch_tencent_batch(codes))
+    results: list[QuoteData] = []
+    for sym, name in symbols_map.items():
+        code = TENCENT_HK_INDEX.get(sym)
+        if not code:
+            continue
+        fields = raw_map.get(code)
+        if not fields:
+            diag(f"Tencent missing HK index: {sym}")
+            continue
+        qd = _tencent_index_to_quote(fields, sym, name, "hk_market", date_str)
+        if qd:
+            results.append(qd)
+    return results
+
+
+def fetch_us_indices_tencent(symbols_map: dict[str, str], date_str: str) -> list[QuoteData]:
+    codes = [TENCENT_US_INDEX[s] for s in symbols_map if s in TENCENT_US_INDEX]
+    raw_map = _parse_tencent_batch(fetch_tencent_batch(codes))
+    results: list[QuoteData] = []
+    for sym, name in symbols_map.items():
+        code = TENCENT_US_INDEX.get(sym)
+        if not code:
+            continue
+        fields = raw_map.get(code)
+        if not fields:
+            diag(f"Tencent missing US index: {sym}")
+            continue
+        qd = _tencent_index_to_quote(fields, sym, name, "us_market", date_str)
+        if qd:
+            results.append(qd)
+    return results
+
+
+def _fetch_a_indices_tencent() -> list[dict[str, Any]]:
+    raw_map = _parse_tencent_batch(fetch_tencent_batch(list(TENCENT_A_INDEX_MAP.keys())))
+    result = []
+    for tencent_code, em_code in TENCENT_A_INDEX_MAP.items():
+        fields = raw_map.get(tencent_code)
+        if not fields or len(fields) < 38:
+            continue
+        raw_amount = _safe_float(fields[37])
+        result.append({
+            "f12": em_code,
+            "f14": fields[1],
+            "f2": _safe_float(fields[3]),
+            "f4": _safe_float(fields[31]),
+            "f3": _safe_float(fields[32]),
+            "f6": raw_amount * 1e4 if raw_amount is not None else None,
+        })
+    return result
+
+
+def merge_quotes_by_symbol(primary: list[QuoteData], fallback: list[QuoteData], order: list[str]) -> list[QuoteData]:
+    """保留主源已有报价，仅用备用源补齐缺失 symbol。"""
+    lookup: dict[str, QuoteData] = {q.symbol.upper(): q for q in fallback}
+    lookup.update({q.symbol.upper(): q for q in primary})
+    return [lookup[s.upper()] for s in order if s.upper() in lookup]
+
+
+def _has_all_quotes(quotes: list[QuoteData], order: list[str]) -> bool:
+    found = {q.symbol.upper() for q in quotes}
+    return all(symbol.upper() in found for symbol in order)
+
+
+# ------------------------------------------------------------------
 # 数据验证
 # ------------------------------------------------------------------
 
@@ -924,17 +1087,17 @@ def validate_quote(qd: QuoteData) -> QuoteData:
             notes.append(f"指数成交量偏低({fmt_volume(qd.volume)})")
             flags.append("volume_anomaly")
 
-    # 完整性评分
-    required = ["price", "volume"]
-    available = sum(1 for f in required if getattr(qd, f) is not None)
-    qd.completeness = (available / len(required)) * 100 if required else 0
+    # 完整性评分：指数可用成交额替代成交量。
+    has_activity = qd.volume is not None or qd.turnover is not None
+    available = int(qd.price is not None) + int(has_activity)
+    qd.completeness = (available / 2) * 100
     # 如果昨收存在再 +20 分
     if qd.prev_close is not None:
         qd.completeness = min(100, qd.completeness + 20)
     if qd.change_pct is not None:
         qd.completeness = min(100, qd.completeness + 20)
 
-    qd.notes = notes
+    qd.notes = [*qd.notes, *notes]
     qd.quality_flags = flags
     return qd
 
@@ -977,6 +1140,10 @@ def get_index(date_str: str) -> list[dict[str, Any]]:
         result = _fetch_a_indices_sina()
         if result:
             diag("A-share index fell back to sina")
+    if not result:
+        result = _fetch_a_indices_tencent()
+        if result:
+            diag("A-share index fell back to tencent")
     if result:
         cache_save("index_all", date_str, "eastmoney", {"data": result})
     return result
@@ -1069,9 +1236,10 @@ def get_fund_flow(date_str: str) -> dict[str, str]:
 
     klines = []
     last_error = ""
-    for source_name, url_template in (
-        ("Eastmoney fflow realtime", FFLOW_URL),
-        ("Eastmoney fflow history", FFLOW_HIS_URL),
+    flow_source = ""
+    for source_name, url_template, display_source in (
+        ("Eastmoney fflow realtime", FFLOW_URL, "东财实时资金流"),
+        ("Eastmoney fflow history", FFLOW_HIS_URL, "东财历史日线资金流"),
     ):
         url = url_template.format(ts=int(datetime.now().timestamp() * 1000))
         data = fetch_fund_flow_json(url)
@@ -1080,6 +1248,7 @@ def get_fund_flow(date_str: str) -> dict[str, str]:
             continue
         klines = (data.get("data") or {}).get("klines", [])
         if klines:
+            flow_source = display_source
             if source_name.endswith("history"):
                 diag("Fund flow fell back to Eastmoney push2his")
             break
@@ -1092,6 +1261,7 @@ def get_fund_flow(date_str: str) -> dict[str, str]:
     cols = "date,主力净流入,小单净流入,中单净流入,大单净流入,超大单净流入,主力净流入占比,小单净流入占比,中单净流入占比,大单净流入占比,超大单净流入占比,收盘价,涨跌幅,总成交额".split(",")
     vals = klines[0].split(",")
     result = dict(zip(cols, vals, strict=False))
+    result["_source"] = flow_source
     cache_save("fund_flow", date_str, "eastmoney", result)
     return result
 
@@ -1130,6 +1300,98 @@ def futu_stock_feed(keyword: str, size: int = 30) -> dict[str, Any]:
     except Exception as e:
         diag(f"Futu feed {keyword}: {e}")
         return {"_error": str(e)}
+
+
+SINA_NEWS_ALIASES = {
+    "AAPL": ["AAPL", "Apple", "苹果"],
+    "TSLA": ["TSLA", "Tesla", "特斯拉"],
+    "NVDA": ["NVDA", "NVIDIA", "英伟达"],
+    "0700": ["0700", "00700", "腾讯", "腾讯控股"],
+    "9988": ["9988", "09988", "阿里", "阿里巴巴"],
+    "3690": ["3690", "03690", "美团"],
+}
+
+
+def _clean_news_title(title: str) -> str:
+    title = re.sub(r"<[^>]+>", "", title or "")
+    return html.unescape(title).strip()
+
+
+def _normalize_futu_feed(feed_data: dict[str, Any], size: int = 5) -> dict[str, Any]:
+    if "_error" in feed_data:
+        return feed_data
+    raw_items = feed_data.get("data", [])
+    if isinstance(raw_items, dict):
+        raw_items = raw_items.get("list") or raw_items.get("items") or []
+    items = []
+    for item in raw_items[:size]:
+        title = _clean_news_title(str(item.get("title") or item.get("content") or ""))
+        if not title:
+            continue
+        items.append({
+            "title": title,
+            "url": item.get("url") or item.get("jump_url") or "",
+            "publish_time": item.get("publish_time") or item.get("time") or 0,
+            "source": "futu_feed",
+        })
+    return {"source": "futu_feed", "data": items}
+
+
+@retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
+def sina_roll_news(keyword: str, size: int = 5, aliases: list[str] | None = None) -> dict[str, Any]:
+    """新浪财经滚动新闻 fallback。按别名过滤，避免给个股塞无关新闻。"""
+    params = urllib.parse.urlencode({
+        "pageid": 153,
+        "lid": 2509,
+        "num": 60,
+        "page": 1,
+    })
+    url = f"{SINA_ROLL_NEWS_URL}?{params}"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            payload = json.loads(resp.read().decode("utf-8", errors="ignore"))
+    except Exception as e:
+        diag(f"Sina roll news {keyword}: {e}")
+        return {"_error": str(e)}
+
+    candidates = [keyword, *(aliases or SINA_NEWS_ALIASES.get(keyword.upper(), []))]
+    candidates = [c.lower() for c in candidates if c]
+    raw_items = payload.get("result", {}).get("data", [])
+    items = []
+    for item in raw_items:
+        title = _clean_news_title(str(item.get("title", "")))
+        intro = _clean_news_title(str(item.get("intro", "")))
+        text = f"{title} {intro}".lower()
+        if candidates and not any(alias in text for alias in candidates):
+            continue
+        items.append({
+            "title": title,
+            "url": item.get("url") or item.get("wapurl") or "",
+            "publish_time": item.get("ctime") or item.get("intime") or 0,
+            "source": item.get("media_name") or "新浪财经",
+        })
+        if len(items) >= size:
+            break
+    return {"source": "sina_roll", "data": items}
+
+
+def news_search_chain(keyword: str, size: int = 5, lang: str = "en", aliases: list[str] | None = None) -> dict[str, Any]:
+    """资讯三段式：Futu 新闻 → Futu feed → 新浪财经滚动新闻。"""
+    news = futu_news_search(keyword, size=size, lang=lang)
+    if news.get("data"):
+        news.setdefault("source", "futu_news")
+        return news
+
+    feed = _normalize_futu_feed(futu_stock_feed(keyword, size=size * 2), size=size)
+    if feed.get("data"):
+        return feed
+
+    fallback = sina_roll_news(keyword, size=size, aliases=aliases)
+    if fallback.get("data"):
+        return fallback
+
+    return news if "_error" in news else {"source": "none", "data": []}
 
 
 # ------------------------------------------------------------------
@@ -1265,6 +1527,8 @@ def print_fund_flow(flow_data: dict[str, str]) -> None:
         print("  数据暂不可用（东财实时/历史资金流接口均不可用，请稍后重试或加 --refresh）")
         print()
         return
+    if flow_data.get("_source"):
+        print(f"  来源: {flow_data['_source']}")
     print(f"  主力净流入: {fmt_amount(flow_data.get('主力净流入'))}")
     print(f"  超大单:     {fmt_amount(flow_data.get('超大单净流入'))}")
     print(f"  大单:       {fmt_amount(flow_data.get('大单净流入'))}")
@@ -1314,17 +1578,24 @@ def print_sentiment_summary(zt_data: dict, dt_data: dict, zb_data: dict, flow_da
 
 def print_global_indices(indices: list[QuoteData], market_name: str) -> None:
     print(f"## {market_name} 大盘指数\n")
-    print(f"{'指数':<15} {'当前价':>12} {'涨跌幅':>10} {'成交量':>14} {'数据质量':>8}")
-    print("-" * 70)
+    activity_label = "成交额" if any(q.turnover is not None for q in indices) else "成交量"
+    print(f"{'指数':<15} {'点位':>12} {'涨跌幅':>10} {activity_label:>14} {'来源':>8} {'完整度':>8}")
+    print("-" * 82)
     for qd in indices:
         name = qd.name or qd.symbol
         price_str = fmt_price(qd.price)
         pct_str = fmt_pct(qd.change_pct) if qd.change_pct is not None else "-"
-        vol_str = fmt_volume(qd.volume)
+        vol_str = fmt_amount(qd.turnover) if qd.turnover is not None else fmt_volume(qd.volume)
         if "volume_missing_index" in qd.quality_flags or "volume_zero" in qd.quality_flags:
             vol_str += " *"
+        source_str = {
+            "sina": "新浪",
+            "tencent": "腾讯",
+            "eastmoney_stock_get": "东财",
+            "eastmoney_clist": "东财",
+        }.get(qd.source, qd.source or "-")
         quality_str = f"{qd.completeness:.0f}%"
-        print(f"{name:<15} {price_str:>12} {pct_str:>10} {vol_str:>14} {quality_str:>8}")
+        print(f"{name:<15} {price_str:>12} {pct_str:>10} {vol_str:>14} {source_str:>8} {quality_str:>8}")
     print()
 
 
@@ -1353,7 +1624,13 @@ def print_futu_news(news_data: dict, keyword: str) -> None:
     data = news_data.get("data", [])
     if not data:
         return
-    print(f"## {keyword} 新闻（前5条）\n")
+    source = news_data.get("source", "futu_news")
+    source_label = {
+        "futu_news": "富途资讯",
+        "futu_feed": "富途社区/资讯",
+        "sina_roll": "新浪财经",
+    }.get(source, str(source))
+    print(f"## {keyword} 相关新闻（{source_label}，前5条）\n")
     for i, item in enumerate(data[:5], 1):
         ts = item.get("publish_time", 0)
         # 富途返回的 publish_time 是字符串，先转 int
@@ -1362,7 +1639,7 @@ def print_futu_news(news_data: dict, keyword: str) -> None:
             dt_str = datetime.fromtimestamp(ts_int).strftime("%m-%d %H:%M") if ts_int else ""
         except (TypeError, ValueError):
             dt_str = ""
-        print(f"{i}. [{dt_str}] {item.get('title', '')}")
+        print(f"{i}. [{dt_str}] {_clean_news_title(item.get('title', ''))}")
         print(f"   {item.get('url', '')}")
     print()
 
@@ -1396,6 +1673,7 @@ def print_global_sentiment(indices: list[QuoteData]) -> None:
 
 def print_data_quality_report(results: list[QuoteData]) -> None:
     warnings = []
+    source_notes = []
     recommendations = []
     total = len(results)
     if total == 0:
@@ -1409,23 +1687,30 @@ def print_data_quality_report(results: list[QuoteData]) -> None:
             warnings.append(f"{name}: 数据完整性较低 ({r.completeness:.0f}%)")
         for note in r.notes:
             name = r.name or r.symbol
-            warnings.append(f"{name}: {note}")
+            if "口径" in note:
+                source_notes.append(f"{name}: {note}")
+            else:
+                warnings.append(f"{name}: {note}")
 
     if avg_score < 90:
         recommendations.append("数据完整性一般，建议检查网络连接或稍后重试")
     if any("异常" in w or "缺失" in w for w in warnings):
         recommendations.append("部分数据异常，已标记 * ，仅供参考")
 
-    if warnings or recommendations or DIAGNOSTICS:
+    if warnings or source_notes or recommendations or DIAGNOSTICS:
         print("\n" + "=" * 60)
-        print("📊 数据质量与诊断报告")
+        print("📊 数据质量与来源提示")
         print(f"  平均完整度: {avg_score:.0f}%")
         if DIAGNOSTICS:
-            print("\n  ⚙️ 接口诊断:")
+            print("\n  数据源切换:")
             for d in DIAGNOSTICS[:6]:
                 print(f"    • {d}")
             if len(DIAGNOSTICS) > 6:
                 print(f"    ... 还有 {len(DIAGNOSTICS) - 6} 条")
+        if source_notes:
+            print(f"\n  口径说明 ({len(source_notes)}条):")
+            for note in source_notes[:8]:
+                print(f"    • {note}")
         if warnings:
             print(f"\n  ⚠️ 数据警告 ({len(warnings)}条):")
             for w in warnings[:8]:
@@ -1442,10 +1727,14 @@ def print_data_quality_report(results: list[QuoteData]) -> None:
 def print_diagnostic_summary() -> None:
     if DIAGNOSTICS:
         print("\n" + "=" * 60)
-        print("⚙️ 接口诊断摘要")
+        print("数据源切换记录")
         for d in DIAGNOSTICS:
             print(f"  • {d}")
         print("=" * 60)
+
+
+def print_report_footer() -> None:
+    print("\n复盘仅供参考，请结合公告、交易所披露和自身风险承受能力判断。")
 
 
 # ------------------------------------------------------------------
@@ -1478,6 +1767,7 @@ def _session_label() -> str:
 
 
 def run_a_share(date_str: str) -> None:
+    DIAGNOSTICS.clear()
     display_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
     session = _session_label()
     print(f"# A 股{session}复盘（{display_date}）\n")
@@ -1506,13 +1796,13 @@ def run_a_share(date_str: str) -> None:
     if DIAGNOSTICS:
         print_diagnostic_summary()
 
-    print("=" * 60)
-    print("\n*输出结束。")
+    print_report_footer()
 
 
 def run_us_market(date_str: str) -> None:
+    DIAGNOSTICS.clear()
     print("# 美股市场复盘\n")
-    print(f"数据来源: 新浪财经 (主) + 东方财富 (备) | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
+    print(f"数据来源: 新浪财经 + 腾讯财经 + 东方财富，多源自动切换 | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
     print("=" * 60 + "\n")
 
     us_indices_map = {
@@ -1520,41 +1810,49 @@ def run_us_market(date_str: str) -> None:
         "^IXIC": "纳斯达克",
         "^DJI":  "道琼斯",
     }
+    us_index_order = list(us_indices_map)
     indices = fetch_us_indices_sina(us_indices_map, date_str)
-    if not indices:
-        indices = fetch_indices_direct(us_indices_map, date_str, EM_US_INDEX_SECID)
+    if not _has_all_quotes(indices, us_index_order):
+        indices = merge_quotes_by_symbol(indices, fetch_us_indices_tencent(us_indices_map, date_str), us_index_order)
+    if not _has_all_quotes(indices, us_index_order):
+        indices = merge_quotes_by_symbol(indices, fetch_indices_direct(us_indices_map, date_str, EM_US_INDEX_SECID), us_index_order)
     if indices:
         print_global_indices(indices, "美股")
 
     hot_stocks = ["AAPL", "TSLA", "NVDA", "MSFT", "AMZN", "GOOGL", "META", "BABA", "PDD", "JD"]
     print("## 重点个股行情\n")
     stocks = fetch_us_stocks_sina(hot_stocks, date_str)
-    if not stocks:
-        stocks = fetch_us_stocks_direct(hot_stocks, date_str)
+    if not _has_all_quotes(stocks, hot_stocks):
+        stocks = merge_quotes_by_symbol(stocks, fetch_us_stocks_direct(hot_stocks, date_str), hot_stocks)
+    if not _has_all_quotes(stocks, hot_stocks):
+        stocks = merge_quotes_by_symbol(stocks, fetch_em_stocks(hot_stocks, date_str, EM_FS["us_stock"]), hot_stocks)
     for qd in stocks:
         print_global_stock(qd)
 
     print("## 相关新闻\n")
     for sym in ["AAPL", "TSLA", "NVDA"]:
-        news = futu_news_search(sym, size=5, lang="en")
+        news = news_search_chain(sym, size=5, lang="en")
         print_futu_news(news, sym)
 
+    printed_quality = False
     if indices:
         print_global_sentiment(indices)
         print_data_quality_report(indices + stocks)
+        printed_quality = True
     elif stocks:
         print_data_quality_report(stocks)
+        printed_quality = True
 
-    if DIAGNOSTICS:
+    if DIAGNOSTICS and not printed_quality:
         print_diagnostic_summary()
 
-    print("=" * 60)
-    print("\n*输出结束。")
+    print_report_footer()
 
 
 def run_hk_market(date_str: str) -> None:
+    DIAGNOSTICS.clear()
     print("# 港股市场复盘\n")
-    print(f"数据来源: 新浪财经 (主) + 东方财富 (备) | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
+    print(f"数据来源: 腾讯财经 + 新浪财经 + 东方财富，多源自动切换 | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
     print("=" * 60 + "\n")
 
     hk_indices_map = {
@@ -1562,41 +1860,49 @@ def run_hk_market(date_str: str) -> None:
         "^HSCE": "国企指数",
         "HSTECH.HK": "恒生科技指数",
     }
-    indices = fetch_hk_indices_sina(hk_indices_map, date_str)
-    if not indices:
-        indices = fetch_indices_direct(hk_indices_map, date_str, EM_HK_INDEX_SECID)
+    hk_index_order = list(hk_indices_map)
+    indices = fetch_hk_indices_tencent(hk_indices_map, date_str)
+    if not _has_all_quotes(indices, hk_index_order):
+        indices = merge_quotes_by_symbol(indices, fetch_hk_indices_sina(hk_indices_map, date_str), hk_index_order)
+    if not _has_all_quotes(indices, hk_index_order):
+        indices = merge_quotes_by_symbol(indices, fetch_indices_direct(hk_indices_map, date_str, EM_HK_INDEX_SECID), hk_index_order)
     if indices:
         print_global_indices(indices, "港股")
 
     hot_stocks = ["0700.HK", "9988.HK", "3690.HK", "9618.HK", "1299.HK", "2318.HK", "0005.HK", "0388.HK"]
     print("## 重点个股行情\n")
     stocks = fetch_hk_stocks_sina(hot_stocks, date_str)
-    if not stocks:
-        stocks = fetch_hk_stocks_direct(hot_stocks, date_str)
+    if not _has_all_quotes(stocks, hot_stocks):
+        stocks = merge_quotes_by_symbol(stocks, fetch_hk_stocks_direct(hot_stocks, date_str), hot_stocks)
+    if not _has_all_quotes(stocks, hot_stocks):
+        stocks = merge_quotes_by_symbol(stocks, fetch_em_stocks(hot_stocks, date_str, EM_FS["hk_stock"]), hot_stocks)
     for qd in stocks:
         print_global_stock(qd)
 
     print("## 相关新闻\n")
     for sym in ["0700", "9988", "3690"]:
-        news = futu_news_search(sym, size=5, lang="zh-CN")
+        news = news_search_chain(sym, size=5, lang="zh-CN")
         print_futu_news(news, sym)
 
+    printed_quality = False
     if indices:
         print_global_sentiment(indices)
         print_data_quality_report(indices + stocks)
+        printed_quality = True
     elif stocks:
         print_data_quality_report(stocks)
+        printed_quality = True
 
-    if DIAGNOSTICS:
+    if DIAGNOSTICS and not printed_quality:
         print_diagnostic_summary()
 
-    print("=" * 60)
-    print("\n*输出结束。")
+    print_report_footer()
 
 
 def run_global_market(date_str: str) -> None:
+    DIAGNOSTICS.clear()
     print("# 全球市场概览\n")
-    print(f"数据来源: 东方财富免登录 API | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
+    print(f"数据来源: 腾讯财经 + 新浪财经 + 东方财富，多源自动切换 | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
     print("=" * 60 + "\n")
 
     # 美股
@@ -1605,8 +1911,11 @@ def run_global_market(date_str: str) -> None:
         "^IXIC": "纳斯达克",
     }
     us_indices = fetch_us_indices_sina(us_indices_map, date_str)
-    if not us_indices:
-        us_indices = fetch_indices_direct(us_indices_map, date_str, EM_US_INDEX_SECID)
+    us_index_order = list(us_indices_map)
+    if not _has_all_quotes(us_indices, us_index_order):
+        us_indices = merge_quotes_by_symbol(us_indices, fetch_us_indices_tencent(us_indices_map, date_str), us_index_order)
+    if not _has_all_quotes(us_indices, us_index_order):
+        us_indices = merge_quotes_by_symbol(us_indices, fetch_indices_direct(us_indices_map, date_str, EM_US_INDEX_SECID), us_index_order)
     if us_indices:
         print_global_indices(us_indices, "美股")
 
@@ -1616,9 +1925,12 @@ def run_global_market(date_str: str) -> None:
         "^HSCE": "国企指数",
         "HSTECH.HK": "恒生科技指数",
     }
-    hk_indices = fetch_hk_indices_sina(hk_indices_map, date_str)
-    if not hk_indices:
-        hk_indices = fetch_indices_direct(hk_indices_map, date_str, EM_HK_INDEX_SECID)
+    hk_indices = fetch_hk_indices_tencent(hk_indices_map, date_str)
+    hk_index_order = list(hk_indices_map)
+    if not _has_all_quotes(hk_indices, hk_index_order):
+        hk_indices = merge_quotes_by_symbol(hk_indices, fetch_hk_indices_sina(hk_indices_map, date_str), hk_index_order)
+    if not _has_all_quotes(hk_indices, hk_index_order):
+        hk_indices = merge_quotes_by_symbol(hk_indices, fetch_indices_direct(hk_indices_map, date_str, EM_HK_INDEX_SECID), hk_index_order)
     if hk_indices:
         print_global_indices(hk_indices, "港股")
 
@@ -1648,11 +1960,10 @@ def run_global_market(date_str: str) -> None:
     if all_results:
         print_data_quality_report(all_results)
 
-    if DIAGNOSTICS:
+    if DIAGNOSTICS and not all_results:
         print_diagnostic_summary()
 
-    print("=" * 60)
-    print("\n*输出结束。")
+    print_report_footer()
 
 
 # ------------------------------------------------------------------

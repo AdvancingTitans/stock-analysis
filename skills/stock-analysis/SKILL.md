@@ -1,7 +1,7 @@
 ---
 name: stock-analysis
-description: "Use when the user asks for current or after-market A股、港股、美股 or global stock-market review, index/sector/sentiment analysis,涨跌停池,港美股重点个股, or asks to verify market data with low 429/token overhead. v3.2.0 uses 新浪财经 as the HK/US primary quote source with Eastmoney stock/get and clist fallbacks."
-version: 3.2.0
+description: "Use when the user asks for current or after-market A股、港股、美股 or global stock-market review, index/sector/sentiment analysis,涨跌停池,港美股重点个股, or asks to verify market data with low 429/token overhead. v3.3.0 uses Tencent, Sina, and Eastmoney no-login quote sources with news fallbacks."
+version: 3.3.0
 author: Hermes Agent + yjw
 tags: [stock-market, a-shares, hk-shares, us-shares, eastmoney, futu, sentiment, global-finance, data-quality, camofox]
 platforms: [linux, macos, windows]
@@ -25,7 +25,7 @@ python scripts/aftermarket.py --market global --no-cache
 
 - 默认使用缓存；只有用户要求刷新、数据明显过期或诊断提示缓存异常时才加 `--no-cache`。
 - 用户问“今日全球行情”优先跑 `python scripts/aftermarket.py --market global`，再按需要补跑单市场。
-- 输出已含诊断摘要和数据质量报告；回答时引用关键数字，不要把完整原始输出逐段复制给用户。
+- 输出已含来源提示、口径说明和数据质量报告；回答时引用关键数字，不要把完整原始输出逐段复制给用户。
 
 ## 缓存防污染硬约束
 
@@ -41,11 +41,11 @@ v3.1.1 引入的缓存防污染机制必须保留，后续迭代不得弱化：
 
 | 市场 | 行情 | 新闻/情绪 | 板块 | 说明 |
 |---|---|---|---|---|
-| A股 | 东方财富 API | 富途 news_search | camofox 抓东财 | 支持 6 大指数、涨跌停池、炸板池、资金流 |
-| 港股 | 新浪财经主路径 + 东财 stock/get/clist | 富途 news_search | camofox 抓富途/东财 | 不适用涨跌停、连板、炸板率 |
-| 美股 | 新浪财经主路径 + 东财 stock/get/clist | 富途 news_search | camofox 抓富途/财经页面 | DJI 已覆盖；VIX 若缺失，用诊断说明 |
+| A股 | 东方财富 API + 新浪/腾讯指数兜底 | 富途 news_search + 新浪滚动新闻 | camofox 抓东财 | 支持 6 大指数、涨跌停池、炸板池、资金流 |
+| 港股 | 腾讯指数口径 + 新浪个股 + 东财 stock/get/clist | 富途 news/feed + 新浪滚动新闻 | camofox 抓富途/东财 | 不适用涨跌停、连板、炸板率 |
+| 美股 | 新浪财经主路径 + 腾讯指数 + 东财 stock/get/clist | 富途 news/feed + 新浪滚动新闻 | camofox 抓富途/财经页面 | DJI 已覆盖；VIX 若缺失，用诊断说明 |
 
-三层获取：**缓存 → 稳定 API → 浏览器降级**。稳定 API 包括东方财富 A股接口、东财 `push2his` 资金流兜底、港美股新浪财经批量行情、东财 `stock/get` 单只精确兜底、东财 clist 批量补充、富途；浏览器降级用于东财板块榜、富途页面以及 API 连续失败、403、429 场景。
+三层获取：**缓存 → 稳定 API → 浏览器降级**。稳定 API 包括东方财富 A股接口、东财 `push2his` 资金流兜底、腾讯港股指数收盘口径、港美股新浪财经批量行情、腾讯美股指数补充、东财 `stock/get` 单只精确兜底、东财 clist 批量补充、富途资讯和新浪滚动新闻；浏览器降级用于东财板块榜、富途页面以及 API 连续失败、403、429 场景。
 
 ## 分析要求
 
@@ -59,7 +59,7 @@ v3.1.1 引入的缓存防污染机制必须保留，后续迭代不得弱化：
 - 先跑脚本，再分析；同一市场同一轮不要重复请求相同 symbol。
 - 不把脚本代码、完整表格或长新闻列表塞进最终回答；保留指数、涨跌幅、活跃方向、异常数据和结论。
 - 缓存命中时不要强刷；需要刷新时一次性跑目标市场，不逐只股票手工请求。
-- 不使用境外行情接口作为默认备用源；这类接口易受地区网络和限流影响。港美股优先用新浪财经，缺失时再用东财 `stock/get` / clist。
+- 不使用境外行情接口作为默认备用源；这类接口易受地区网络和限流影响。港美股优先用腾讯/新浪/东财这些免登录国内可访问源。
 - 需要更多实现细节时再读取 `references/` 和脚本帮助，主技能正文保持轻量。
 
 ## 关键坑位
@@ -69,4 +69,5 @@ v3.1.1 引入的缓存防污染机制必须保留，后续迭代不得弱化：
 - 富途 `publish_time` 是字符串，脚本会先转整数。
 - 指数成交量为 0 是 warning，不影响价格判断；个股成交量为 0 才影响质量评分。
 - 仅对 429/403/5xx/timeout 重试；404 不重试，直接降级或诊断。
-- 港美股新浪财经缺失时用东财 `stock/get` 单只兜底；clist 只作为批量补充，避免榜单分页漏掉大盘股。恒指使用新浪 `hkHSI` 完整行情以保留成交量。
+- 港股指数优先腾讯 `qt.gtimg.cn` 收盘口径；新浪 `hkHSI` 可作实时快照补充，二者盘后点位可能略有差异，回答时说明口径。
+- 港美股新浪财经缺失时用东财 `stock/get` 单只兜底；clist 只作为批量补充，避免榜单分页漏掉大盘股。
