@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-全球股市行情一键采集脚本 v3.1.3
+全球股市行情一键采集脚本 v3.1.1
 用法: python aftermarket.py [--market a|hk|us|global] [YYYYMMDD] [--no-cache]
 
 --market a      : A股复盘（默认）
@@ -9,26 +9,27 @@
 --market global : 全球市场概览（美股+港股+A股指数）
 --no-cache      : 强制刷新缓存
 
-三层获取策略：缓存 → 稳定 API → 腾讯行情备用 → 浏览器降级
+三层获取策略：缓存 → 稳定 API → 浏览器降级
 """
 
 from __future__ import annotations
 
 import json
 import os
+import random
 import re
 import sys
 import time
-import random
-import urllib.request
-import urllib.parse
 import urllib.error
-from datetime import datetime, timedelta
-from dataclasses import dataclass, field, asdict
-from functools import wraps
+import urllib.parse
+import urllib.request
 from collections import Counter
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timedelta
+from functools import wraps
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Callable
+from typing import Any
 
 # ------------------------------------------------------------------
 # 配置
@@ -96,7 +97,7 @@ EM_FS = {
     "hk_stock":   "m:128",
 }
 
-# 东财代码映射（外部 symbol → 东财 f12）
+# 东财代码映射（Yahoo symbol → 东财 f12）
 EM_CODE_MAP = {
     "^GSPC": "SPX",
     "^IXIC": "NDX",
@@ -104,6 +105,34 @@ EM_CODE_MAP = {
     "^HSCE": "HSCE",
     "HSTECH.HK": "HSTECH",
 }
+
+# 美股 secid 映射（市场代码: 105=NASDAQ, 106=NYSE, 107=AMEX）
+EM_US_SECID = {
+    "AAPL": "105.AAPL", "TSLA": "105.TSLA", "NVDA": "105.NVDA",
+    "MSFT": "105.MSFT", "AMZN": "105.AMZN", "GOOGL": "105.GOOGL",
+    "META": "105.META", "PDD":  "105.PDD",  "NFLX": "105.NFLX",
+    "AMD":  "105.AMD",  "INTC": "105.INTC", "AVGO": "105.AVGO",
+    "BABA": "106.BABA", "JD":   "106.JD",   "BIDU": "105.BIDU",
+    "TSM":  "106.TSM",  "ORCL": "106.ORCL", "CRM":  "106.CRM",
+}
+
+# 美股指数 secid
+EM_US_INDEX_SECID = {
+    "^GSPC": "100.SPX",
+    "^IXIC": "100.NDX",
+    "^DJI":  "100.DJIA",
+}
+
+# 港股指数 secid
+EM_HK_INDEX_SECID = {
+    "^HSI":      "100.HSI",
+    "^HSCE":     "100.HSCE",
+    "HSTECH.HK": "100.HSTECH",
+}
+
+# stock/get 字段映射: f43=最新价, f44=最高, f45=最低, f46=开盘, f47=成交量(股),
+# f48=成交额(元), f57=代码, f58=名称, f60=昨收, f169=涨跌额, f170=涨跌幅
+EM_STOCK_GET_FIELDS = "f43,f44,f45,f46,f47,f48,f57,f58,f60,f169,f170"
 
 # 指数中文名
 INDEX_NAME_MAP = {
@@ -118,18 +147,11 @@ INDEX_NAME_MAP = {
 FUTU_NEWS_URL = "https://ai-news-search.futunn.com/news_search"
 FUTU_FEED_URL = "https://ai-news-search.futunn.com/stock_feed"
 
-# 腾讯行情（东财 clist 缺失时的免登录备用源）
-TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q={codes}"
-TENCENT_INDEX_CODES = {
-    "^GSPC": "usINX",
-    "^IXIC": "usIXIC",
-    "^HSI": "hkHSI",
-    "^HSCE": "hkHSCEI",
-    "HSTECH.HK": "hkHSTECH",
-}
+# 新浪财经（免登录、GBK 编码、对美股/港股最稳，作为 stock/get 之外的主路径）
+SINA_HQ_URL = "https://hq.sinajs.cn/list={codes}"
 
 # 诊断记录
-DIAGNOSTICS: List[str] = []
+DIAGNOSTICS: list[str] = []
 
 
 def diag(msg: str) -> None:
@@ -146,21 +168,21 @@ class QuoteData:
     name: str = ""
     market: str = "us_market"
     date: str = ""
-    price: Optional[float] = None
-    prev_close: Optional[float] = None
-    change: Optional[float] = None
-    change_pct: Optional[float] = None
-    open_price: Optional[float] = None
-    high: Optional[float] = None
-    low: Optional[float] = None
-    volume: Optional[int] = None
+    price: float | None = None
+    prev_close: float | None = None
+    change: float | None = None
+    change_pct: float | None = None
+    open_price: float | None = None
+    high: float | None = None
+    low: float | None = None
+    volume: int | None = None
     currency: str = "USD"
     source: str = ""
-    quality_flags: List[str] = field(default_factory=list)
-    notes: List[str] = field(default_factory=list)
+    quality_flags: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
     completeness: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -179,7 +201,7 @@ def _cache_path(symbol: str, date_str: str, source: str) -> Path:
     return d / _cache_key(symbol, date_str, source)
 
 
-def cache_load(symbol: str, date_str: str, source: str, ttl: int = CACHE_TTL_SECONDS) -> Optional[Dict[str, Any]]:
+def cache_load(symbol: str, date_str: str, source: str, ttl: int = CACHE_TTL_SECONDS) -> dict[str, Any] | None:
     if NO_CACHE:
         return None
     p = _cache_path(symbol, date_str, source)
@@ -188,14 +210,20 @@ def cache_load(symbol: str, date_str: str, source: str, ttl: int = CACHE_TTL_SEC
             mtime = p.stat().st_mtime
             if time.time() - mtime > ttl:
                 return None  # 缓存过期
-            with open(p, "r", encoding="utf-8") as f:
+            with open(p, encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             pass
     return None
 
 
-def cache_save(symbol: str, date_str: str, source: str, data: Dict[str, Any]) -> None:
+def cache_save(symbol: str, date_str: str, source: str, data: dict[str, Any]) -> None:
+    # 空数据/错误响应不入缓存，避免污染后续读取
+    if not data:
+        return
+    payload = data.get("data") if isinstance(data, dict) else None
+    if payload is not None and not payload:  # data: [] / data: {}
+        return
     p = _cache_path(symbol, date_str, source)
     try:
         with open(p, "w", encoding="utf-8") as f:
@@ -284,11 +312,13 @@ def fmt_amount(v) -> str:
         return "-"
     try:
         v = float(v)
-        if v >= 1e8:
-            return f"{v/1e8:.2f}亿"
-        if v >= 1e4:
-            return f"{v/1e4:.2f}万"
-        return f"{v:.0f}"
+        sign = "-" if v < 0 else ""
+        a = abs(v)
+        if a >= 1e8:
+            return f"{sign}{a/1e8:.2f}亿"
+        if a >= 1e4:
+            return f"{sign}{a/1e4:.2f}万"
+        return f"{sign}{a:.0f}"
     except (TypeError, ValueError):
         return str(v)
 
@@ -313,7 +343,7 @@ def fmt_volume(v) -> str:
 # HTTP 工具
 # ------------------------------------------------------------------
 
-def _fetch_raw(url: str, headers: Optional[Dict[str, str]] = None, timeout: int = 15) -> str:
+def _fetch_raw(url: str, headers: dict[str, str] | None = None, timeout: int = 15) -> str:
     default_headers = {
         "User-Agent": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -324,11 +354,14 @@ def _fetch_raw(url: str, headers: Optional[Dict[str, str]] = None, timeout: int 
     if headers:
         default_headers.update(headers)
     req = urllib.request.Request(url, headers=default_headers)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    # 绕过本地代理（Clash 等会拦截东财 API 返 502）
+    proxy_handler = urllib.request.ProxyHandler({})
+    opener = urllib.request.build_opener(proxy_handler)
+    with opener.open(req, timeout=timeout) as resp:
         return resp.read().decode("utf-8", errors="ignore")
 
 
-def fetch_json(url: str, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+def fetch_json(url: str, headers: dict[str, str] | None = None) -> dict[str, Any]:
     try:
         raw = _fetch_raw(url, headers)
     except Exception as e:
@@ -357,133 +390,10 @@ def fetch_json(url: str, headers: Optional[Dict[str, str]] = None) -> Dict[str, 
 
 
 # ------------------------------------------------------------------
-# 腾讯行情备用源（东财 clist 缺失时使用）
-# ------------------------------------------------------------------
-
-def _tencent_code(symbol: str) -> str:
-    s = symbol.upper()
-    if s in TENCENT_INDEX_CODES:
-        return TENCENT_INDEX_CODES[s]
-    if s.endswith(".HK"):
-        return "hk" + s.replace(".HK", "").zfill(5)
-    return "us" + s
-
-
-def _tencent_market(symbol: str) -> str:
-    s = symbol.upper()
-    return "hk_market" if s.startswith("HK") or s in ("HKHSI", "HKHSCE", "HKHSTECH") else "us_market"
-
-
-def _parse_tencent_record(symbol: str, fields: List[str], date_str: str) -> QuoteData:
-    market = _tencent_market(symbol)
-    is_hk = market == "hk_market"
-    currency = "HKD" if is_hk else "USD"
-    qd_symbol = symbol
-    if symbol.startswith("hk") and symbol[2:].isdigit():
-        qd_symbol = symbol[2:].zfill(5) + ".HK"
-    elif symbol.startswith("us"):
-        qd_symbol = symbol[2:]
-
-    if is_hk:
-        name = fields[1] if len(fields) > 1 else qd_symbol
-        price = _safe_float(fields[3] if len(fields) > 3 else None)
-        prev_close = _safe_float(fields[4] if len(fields) > 4 else None)
-        open_price = _safe_float(fields[5] if len(fields) > 5 else None)
-        volume = _safe_int(fields[6] if len(fields) > 6 else None)
-        change = _safe_float(fields[31] if len(fields) > 31 else None)
-        change_pct = _safe_float(fields[32] if len(fields) > 32 else None)
-        high = _safe_float(fields[33] if len(fields) > 33 else None)
-        low = _safe_float(fields[34] if len(fields) > 34 else None)
-    else:
-        name = fields[1] if len(fields) > 1 else qd_symbol
-        price = _safe_float(fields[3] if len(fields) > 3 else None)
-        prev_close = _safe_float(fields[4] if len(fields) > 4 else None)
-        open_price = _safe_float(fields[5] if len(fields) > 5 else None)
-        volume = _safe_int(fields[6] if len(fields) > 6 else None)
-        change = _safe_float(fields[31] if len(fields) > 31 else None)
-        change_pct = _safe_float(fields[32] if len(fields) > 32 else None)
-        high = _safe_float(fields[33] if len(fields) > 33 else None)
-        low = _safe_float(fields[34] if len(fields) > 34 else None)
-        if len(fields) > 35 and fields[35]:
-            currency = fields[35]
-
-    if change is None and price is not None and prev_close is not None:
-        change = price - prev_close
-    if change_pct is None and price is not None and prev_close:
-        change_pct = (price / prev_close - 1) * 100
-
-    return validate_quote(QuoteData(
-        symbol=qd_symbol,
-        name=name,
-        market=market,
-        date=date_str,
-        price=price,
-        prev_close=prev_close,
-        change=change,
-        change_pct=change_pct,
-        open_price=open_price,
-        high=high,
-        low=low,
-        volume=volume,
-        currency=currency,
-        source="tencent_quote",
-    ))
-
-
-def parse_tencent_quotes(raw: str, requested: Dict[str, str], date_str: str) -> List[QuoteData]:
-    requested_by_code = {_tencent_code(sym).lower(): sym for sym in requested}
-    results = []
-    for code, payload in re.findall(r"v_([^=]+)=\"([^\"]*)\";", raw):
-        key = code.lower()
-        if key not in requested_by_code:
-            continue
-        fields = payload.split("~")
-        if len(fields) < 4 or not fields[3]:
-            continue
-        original_symbol = requested_by_code[key]
-        qd = _parse_tencent_record(key, fields, date_str)
-        qd.symbol = original_symbol
-        if requested[original_symbol]:
-            qd.name = requested[original_symbol]
-        results.append(qd)
-    return results
-
-
-@retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
-def tencent_quotes(requested: Dict[str, str], date_str: str) -> List[QuoteData]:
-    if not requested:
-        return []
-    cache_symbol = ",".join(sorted(requested))
-    cached = cache_load(cache_symbol, date_str, "tencent_quote")
-    if cached:
-        return [validate_quote(QuoteData(**item)) for item in cached.get("data", [])]
-
-    codes = ",".join(_tencent_code(sym) for sym in requested)
-    url = TENCENT_QUOTE_URL.format(codes=urllib.parse.quote(codes, safe=","))
-    try:
-        req = urllib.request.Request(url, headers={
-            "User-Agent": (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            ),
-            "Referer": "https://finance.qq.com/",
-        })
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            raw = resp.read().decode("gbk", errors="ignore")
-    except Exception as e:
-        diag(f"Tencent quote {cache_symbol}: {e}")
-        return []
-    quotes = parse_tencent_quotes(raw, requested, date_str)
-    if quotes:
-        cache_save(cache_symbol, date_str, "tencent_quote", {"data": [q.to_dict() for q in quotes]})
-    return quotes
-
-
-# ------------------------------------------------------------------
 # 东财数据解析工具
 # ------------------------------------------------------------------
 
-def _normalize_diff(data_diff: Any) -> List[Dict[str, Any]]:
+def _normalize_diff(data_diff: Any) -> list[dict[str, Any]]:
     """东财 diff 有时是数组，有时是对象（clist 返回 {\"0\":{}, \"1\":{}}）"""
     if data_diff is None:
         return []
@@ -494,7 +404,7 @@ def _normalize_diff(data_diff: Any) -> List[Dict[str, Any]]:
     return []
 
 
-def _safe_float(v: Any) -> Optional[float]:
+def _safe_float(v: Any) -> float | None:
     if v is None or v == "" or v == "-":
         return None
     try:
@@ -503,7 +413,7 @@ def _safe_float(v: Any) -> Optional[float]:
         return None
 
 
-def _safe_int(v: Any) -> Optional[int]:
+def _safe_int(v: Any) -> int | None:
     if v is None or v == "" or v == "-":
         return None
     try:
@@ -512,12 +422,12 @@ def _safe_int(v: Any) -> Optional[int]:
         return None
 
 
-def _em_clist_price(v: Any) -> Optional[float]:
-    """clist/get fltt=2 returns normal decimal prices for global markets."""
+def _em_clist_price(v: Any) -> float | None:
+    """clist/get?fltt=2 已直接返回真实价（带小数），无需缩放。"""
     return _safe_float(v)
 
 
-def _em_item_to_quote(item: Dict[str, Any], symbol: str, market_type: str, date_str: str) -> QuoteData:
+def _em_item_to_quote(item: dict[str, Any], symbol: str, market_type: str, date_str: str) -> QuoteData:
     """将东财 diff 项转为 QuoteData"""
     price = _em_clist_price(item.get("f2"))
     prev_close = _em_clist_price(item.get("f18"))
@@ -561,7 +471,7 @@ def _em_item_to_quote(item: Dict[str, Any], symbol: str, market_type: str, date_
 # ------------------------------------------------------------------
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
-def eastmoney_clist(fs_filter: str, fields: str = EM_CLIST_FIELDS, pz: int = 200, date_str: str = "") -> List[Dict[str, Any]]:
+def eastmoney_clist(fs_filter: str, fields: str = EM_CLIST_FIELDS, pz: int = 200, date_str: str = "") -> list[dict[str, Any]]:
     """东财 clist 批量接口：免登录、不限流、一次可拉多条"""
     cached = cache_load(fs_filter, date_str, "eastmoney_clist")
     if cached:
@@ -579,45 +489,33 @@ def eastmoney_clist(fs_filter: str, fields: str = EM_CLIST_FIELDS, pz: int = 200
     return diff
 
 
-def fetch_em_indices(symbols_map: Dict[str, str], date_str: str, market_fs: str) -> List[QuoteData]:
+def fetch_em_indices(symbols_map: dict[str, str], date_str: str, market_fs: str) -> list[QuoteData]:
     """通过东财 clist 获取指数，按 symbol 过滤"""
     all_data = eastmoney_clist(market_fs, date_str=date_str)
     results = []
     lookup = {item.get("f12", "").upper(): item for item in all_data}
-    missing: Dict[str, str] = {}
 
     for sym, name in symbols_map.items():
         em_code = EM_CODE_MAP.get(sym, sym.lstrip("^").upper())
         item = lookup.get(em_code)
         if not item:
-            missing[sym] = name
+            diag(f"Eastmoney clist missing index: {sym} (lookup {em_code})")
             continue
         market = "us_market" if market_fs.startswith("i:100.SPX") else "hk_market"
         qd = _em_item_to_quote(item, sym, market, date_str)
         qd.name = name
         results.append(qd)
 
-    if missing:
-        fallback = tencent_quotes(missing, date_str)
-        found = {q.symbol for q in fallback}
-        results.extend(fallback)
-        for sym in missing:
-            if sym not in found:
-                diag(f"Eastmoney/Tencent missing index: {sym}")
-            else:
-                diag(f"Eastmoney clist fallback via Tencent index: {sym}")
-
     return results
 
 
-def fetch_em_stocks(codes: List[str], date_str: str, market_fs: str) -> List[QuoteData]:
+def fetch_em_stocks(codes: list[str], date_str: str, market_fs: str) -> list[QuoteData]:
     """通过东财 clist 获取个股，批量查询后本地过滤"""
     all_data = eastmoney_clist(market_fs, pz=500, date_str=date_str)
     results = []
-    missing: Dict[str, str] = {}
 
     # 构建查找表（支持 0700 / 00700 等变体）
-    lookup: Dict[str, Dict[str, Any]] = {}
+    lookup: dict[str, dict[str, Any]] = {}
     for item in all_data:
         c = str(item.get("f12", "")).upper().replace(".HK", "")
         lookup[c] = item
@@ -628,22 +526,320 @@ def fetch_em_stocks(codes: List[str], date_str: str, market_fs: str) -> List[Quo
         raw = code.upper().replace(".HK", "")
         item = lookup.get(raw) or lookup.get(raw.lstrip("0") or "0") or lookup.get(raw.zfill(5))
         if not item:
-            missing[code] = ""
+            diag(f"Eastmoney clist missing stock: {code}")
             continue
         market = "us_market" if market_fs == EM_FS["us_stock"] else "hk_market"
         qd = _em_item_to_quote(item, code, market, date_str)
         results.append(qd)
 
-    if missing:
-        fallback = tencent_quotes(missing, date_str)
-        found = {q.symbol for q in fallback}
-        results.extend(fallback)
-        for code in missing:
-            if code not in found:
-                diag(f"Eastmoney/Tencent missing stock: {code}")
-            else:
-                diag(f"Eastmoney clist fallback via Tencent stock: {code}")
+    return results
 
+
+# ------------------------------------------------------------------
+# 单只直查（stock/get）—— 大票按代码精准查询，绕开 clist 排序窗口限制
+# ------------------------------------------------------------------
+
+EM_STOCK_GET_URL = (
+    "https://push2.eastmoney.com/api/qt/stock/get"
+    "?fltt=2&secid={secid}&fields={fields}&_={ts}"
+)
+
+
+def _hk_secid(code: str) -> str:
+    """港股 secid: 116.<5位补零代码>"""
+    raw = code.upper().replace(".HK", "").lstrip("0") or "0"
+    return f"116.{raw.zfill(5)}"
+
+
+def _us_secid(symbol: str) -> str | None:
+    """美股 secid: 优先查表，否则返回 None（让上层尝试 105/106 探测）。"""
+    s = symbol.upper().lstrip("^")
+    return EM_US_SECID.get(s)
+
+
+@retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
+def fetch_em_stock_get(secid: str) -> dict[str, Any]:
+    """调用 stock/get 单查接口，返回 data dict 或 {}"""
+    url = EM_STOCK_GET_URL.format(
+        secid=secid, fields=EM_STOCK_GET_FIELDS, ts=int(datetime.now().timestamp() * 1000)
+    )
+    data = fetch_json(url, {"Referer": "https://quote.eastmoney.com/"})
+    if "_error" in data:
+        diag(f"Eastmoney stock/get {secid}: {data['_error']}")
+        return {}
+    payload = data.get("data") or {}
+    # 价格为 "-" 表示无效（未上市/secid 错）
+    if payload.get("f43") in (None, "-"):
+        return {}
+    return payload
+
+
+def _stock_get_to_quote(payload: dict[str, Any], symbol: str, market_type: str, date_str: str) -> QuoteData:
+    """stock/get 字段 → QuoteData（fltt=2 已是真实价，不缩放）"""
+    currency = "USD" if market_type == "us_market" else ("HKD" if market_type == "hk_market" else "CNY")
+    qd = QuoteData(
+        symbol=symbol,
+        name=str(payload.get("f58") or symbol),
+        market=market_type,
+        date=date_str,
+        price=_safe_float(payload.get("f43")),
+        prev_close=_safe_float(payload.get("f60")),
+        change=_safe_float(payload.get("f169")),
+        change_pct=_safe_float(payload.get("f170")),
+        open_price=_safe_float(payload.get("f46")),
+        high=_safe_float(payload.get("f44")),
+        low=_safe_float(payload.get("f45")),
+        volume=_safe_int(payload.get("f47")),
+        currency=currency,
+        source="eastmoney_stock_get",
+    )
+    return validate_quote(qd)
+
+
+def fetch_us_stocks_direct(symbols: list[str], date_str: str) -> list[QuoteData]:
+    """逐个用 stock/get 查美股，未知 symbol 自动尝试 105→106→107。"""
+    results: list[QuoteData] = []
+    for sym in symbols:
+        secid = _us_secid(sym)
+        payload: dict[str, Any] = {}
+        if secid:
+            payload = fetch_em_stock_get(secid)
+        if not payload:
+            # fallback: 探测三大交易所前缀
+            for prefix in ("105", "106", "107"):
+                payload = fetch_em_stock_get(f"{prefix}.{sym.upper()}")
+                if payload:
+                    break
+        if not payload:
+            diag(f"Eastmoney stock/get missing: {sym}")
+            continue
+        results.append(_stock_get_to_quote(payload, sym, "us_market", date_str))
+    return results
+
+
+def fetch_hk_stocks_direct(symbols: list[str], date_str: str) -> list[QuoteData]:
+    """逐个用 stock/get 查港股（secid=116.<5位补零>）。"""
+    results: list[QuoteData] = []
+    for sym in symbols:
+        payload = fetch_em_stock_get(_hk_secid(sym))
+        if not payload:
+            diag(f"Eastmoney stock/get missing HK: {sym}")
+            continue
+        results.append(_stock_get_to_quote(payload, sym, "hk_market", date_str))
+    return results
+
+
+def fetch_indices_direct(symbols_map: dict[str, str], date_str: str, secid_map: dict[str, str]) -> list[QuoteData]:
+    """用 stock/get 单查指数（绕开 clist 反爬/排序问题）。"""
+    results: list[QuoteData] = []
+    market = "us_market" if any(v.startswith("100.SPX") or v.startswith("100.NDX") or v.startswith("100.DJIA") for v in secid_map.values()) else "hk_market"
+    for sym, name in symbols_map.items():
+        secid = secid_map.get(sym)
+        if not secid:
+            diag(f"No secid for index {sym}")
+            continue
+        payload = fetch_em_stock_get(secid)
+        if not payload:
+            continue
+        qd = _stock_get_to_quote(payload, sym, market, date_str)
+        qd.name = name  # 用中文名覆盖
+        results.append(qd)
+    return results
+
+
+# ------------------------------------------------------------------
+# 新浪财经数据源 —— 美股/港股主路径，免登录、批量、抗风控
+# ------------------------------------------------------------------
+
+# 新浪 symbol 映射
+SINA_US_INDEX = {
+    "^GSPC": "gb_$inx",
+    "^IXIC": "gb_$ixic",
+    "^DJI":  "gb_$dji",
+}
+
+
+def _sina_us_code(symbol: str) -> str:
+    """美股 AAPL → gb_aapl"""
+    return f"gb_{symbol.lower().lstrip('^')}"
+
+
+def _sina_hk_code(symbol: str) -> str:
+    """港股 0700.HK / 00700 / 700 → rt_hk00700"""
+    raw = symbol.upper().replace(".HK", "").lstrip("0") or "0"
+    return f"rt_hk{raw.zfill(5)}"
+
+
+@retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
+def fetch_sina_batch(codes: list[str]) -> dict[str, list[str]]:
+    """批量拉新浪行情，返回 {sina_code: [field, ...]}。一次最多 ~80 个 symbol。"""
+    if not codes:
+        return {}
+    url = SINA_HQ_URL.format(codes=",".join(codes))
+    try:
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0",
+            "Referer": "https://finance.sina.com.cn/",
+        })
+        proxy_handler = urllib.request.ProxyHandler({})
+        opener = urllib.request.build_opener(proxy_handler)
+        with opener.open(req, timeout=15) as resp:
+            raw = resp.read().decode("gbk", errors="ignore")
+    except Exception as e:
+        diag(f"Sina batch: {e}")
+        return {}
+
+    out: dict[str, list[str]] = {}
+    for line in raw.splitlines():
+        m = re.match(r'var hq_str_([^=]+)="(.*)";?\s*$', line.strip())
+        if not m:
+            continue
+        code, payload = m.group(1), m.group(2)
+        if not payload:
+            continue
+        out[code] = payload.split(",")
+    return out
+
+
+def _sina_us_to_quote(fields: list[str], symbol: str, date_str: str, name_override: str | None = None) -> QuoteData | None:
+    """新浪美股字段：[名称, 当前价, 涨跌幅%, 时间, 涨跌额, 开盘, 最高, 最低, 52周高, 52周低, 成交量, ...]"""
+    if len(fields) < 11:
+        return None
+    qd = QuoteData(
+        symbol=symbol,
+        name=name_override or fields[0] or symbol,
+        market="us_market",
+        date=date_str,
+        price=_safe_float(fields[1]),
+        change_pct=_safe_float(fields[2]),
+        change=_safe_float(fields[4]),
+        open_price=_safe_float(fields[5]),
+        high=_safe_float(fields[6]),
+        low=_safe_float(fields[7]),
+        volume=_safe_int(fields[10]),
+        currency="USD",
+        source="sina",
+    )
+    # 昨收：当前价 - 涨跌额
+    if qd.price is not None and qd.change is not None:
+        qd.prev_close = qd.price - qd.change
+    return validate_quote(qd)
+
+
+def _sina_hk_to_quote(fields: list[str], symbol: str, date_str: str) -> QuoteData | None:
+    """新浪港股字段：[en_name, cn_name, 开盘, 昨收, 最高, 最低, 当前价, 涨跌额, 涨跌幅%, 买一, 卖一, 成交额(港币), 成交量(股), ...]"""
+    if len(fields) < 13:
+        return None
+    qd = QuoteData(
+        symbol=symbol,
+        name=fields[1] or fields[0] or symbol,
+        market="hk_market",
+        date=date_str,
+        price=_safe_float(fields[6]),
+        prev_close=_safe_float(fields[3]),
+        change=_safe_float(fields[7]),
+        change_pct=_safe_float(fields[8]),
+        open_price=_safe_float(fields[2]),
+        high=_safe_float(fields[4]),
+        low=_safe_float(fields[5]),
+        volume=_safe_int(fields[12]),
+        currency="HKD",
+        source="sina",
+    )
+    return validate_quote(qd)
+
+
+def fetch_us_stocks_sina(symbols: list[str], date_str: str) -> list[QuoteData]:
+    """新浪批量拉美股个股。"""
+    codes = [_sina_us_code(s) for s in symbols]
+    raw_map = fetch_sina_batch(codes)
+    results: list[QuoteData] = []
+    for sym in symbols:
+        fields = raw_map.get(_sina_us_code(sym))
+        if not fields:
+            diag(f"Sina missing US: {sym}")
+            continue
+        qd = _sina_us_to_quote(fields, sym, date_str)
+        if qd:
+            results.append(qd)
+    return results
+
+
+def fetch_hk_stocks_sina(symbols: list[str], date_str: str) -> list[QuoteData]:
+    """新浪批量拉港股个股。"""
+    codes = [_sina_hk_code(s) for s in symbols]
+    raw_map = fetch_sina_batch(codes)
+    results: list[QuoteData] = []
+    for sym in symbols:
+        fields = raw_map.get(_sina_hk_code(sym))
+        if not fields:
+            diag(f"Sina missing HK: {sym}")
+            continue
+        qd = _sina_hk_to_quote(fields, sym, date_str)
+        if qd:
+            results.append(qd)
+    return results
+
+
+def fetch_us_indices_sina(symbols_map: dict[str, str], date_str: str) -> list[QuoteData]:
+    """新浪批量拉美股指数。"""
+    codes = [SINA_US_INDEX[s] for s in symbols_map if s in SINA_US_INDEX]
+    raw_map = fetch_sina_batch(codes)
+    results: list[QuoteData] = []
+    for sym, name in symbols_map.items():
+        code = SINA_US_INDEX.get(sym)
+        if not code:
+            continue
+        fields = raw_map.get(code)
+        if not fields:
+            diag(f"Sina missing index: {sym}")
+            continue
+        qd = _sina_us_to_quote(fields, sym, date_str, name_override=name)
+        if qd:
+            results.append(qd)
+    return results
+
+
+def fetch_hk_indices_sina(symbols_map: dict[str, str], date_str: str) -> list[QuoteData]:
+    """新浪批量拉港股指数。
+    int_hangseng → 4 字段简化版（恒生指数）；
+    hkHSCEI / hkHSTECH → 13 字段标准版（同 rt_hk 格式）。
+    """
+    code_map = {
+        "^HSI":      "int_hangseng",
+        "^HSCE":     "hkHSCEI",
+        "HSTECH.HK": "hkHSTECH",
+    }
+    codes = [code_map[s] for s in symbols_map if s in code_map]
+    raw_map = fetch_sina_batch(codes)
+    results: list[QuoteData] = []
+    for sym, name in symbols_map.items():
+        code = code_map.get(sym)
+        if not code:
+            continue
+        fields = raw_map.get(code)
+        if not fields:
+            diag(f"Sina missing HK index: {sym}")
+            continue
+        if code == "int_hangseng":
+            # [中文名, 价, 涨跌额, 涨跌幅%]
+            if len(fields) < 4:
+                continue
+            qd = QuoteData(
+                symbol=sym, name=name, market="hk_market", date=date_str,
+                price=_safe_float(fields[1]),
+                change=_safe_float(fields[2]),
+                change_pct=_safe_float(fields[3]),
+                currency="HKD", source="sina",
+            )
+            if qd.price is not None and qd.change is not None:
+                qd.prev_close = qd.price - qd.change
+            results.append(validate_quote(qd))
+        else:
+            qd = _sina_hk_to_quote(fields, sym, date_str)
+            if qd:
+                qd.name = name
+                results.append(qd)
     return results
 
 
@@ -717,7 +913,7 @@ def detect_market_type(ticker: str) -> str:
 # ------------------------------------------------------------------
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
-def get_index(date_str: str) -> List[Dict[str, Any]]:
+def get_index(date_str: str) -> list[dict[str, Any]]:
     cached = cache_load("index_all", date_str, "eastmoney")
     if cached:
         return cached.get("data", [])
@@ -726,14 +922,59 @@ def get_index(date_str: str) -> List[Dict[str, Any]]:
     data = fetch_json(url, {"Referer": "https://quote.eastmoney.com/"})
     if "_error" in data:
         diag(f"Eastmoney index: {data['_error']}")
-        return []
-    result = data.get("data", {}).get("diff", [])
-    cache_save("index_all", date_str, "eastmoney", {"data": result})
+    result = data.get("data", {}).get("diff", []) if "_error" not in data else []
+    # 东财失败时降级到新浪
+    if not result:
+        result = _fetch_a_indices_sina()
+        if result:
+            diag("A-share index fell back to sina")
+    if result:
+        cache_save("index_all", date_str, "eastmoney", {"data": result})
+    return result
+
+
+# 新浪 A 股指数代码 → 模拟东财 diff 字段（f12=代码,f14=名称,f2=收盘,f3=涨跌幅,f4=涨跌,f6=成交额）
+_SINA_A_INDEX_MAP = {
+    "s_sh000001": "000001",
+    "s_sz399001": "399001",
+    "s_sz399006": "399006",
+    "s_sh000688": "000688",
+    "s_sz399005": "399005",
+    "s_bj899050": "899050",
+}
+
+
+def _fetch_a_indices_sina() -> list[dict[str, Any]]:
+    """从新浪拉 A 股主要指数，转成东财 diff 字段以复用 print_index。
+    新浪格式: [名称, 价, 涨跌额, 涨跌幅%, 成交量(手), 成交额]
+    成交额单位：sh/sz 前缀为万元；bj 前缀为元。
+    注意：新浪指数成交额仅覆盖成份股，会比东财全口径偏小，仅作降级显示。
+    """
+    raw_map = fetch_sina_batch(list(_SINA_A_INDEX_MAP.keys()))
+    result = []
+    for sina_code, em_code in _SINA_A_INDEX_MAP.items():
+        f = raw_map.get(sina_code)
+        if not f or len(f) < 6:
+            continue
+        try:
+            raw_amount = float(f[5])
+            # bj 前缀单位是元，sh/sz 前缀单位是万元
+            amount_yuan = raw_amount if sina_code.startswith("s_bj") else raw_amount * 1e4
+        except (TypeError, ValueError):
+            amount_yuan = None
+        result.append({
+            "f12": em_code,
+            "f14": f[0],
+            "f2": _safe_float(f[1]),
+            "f4": _safe_float(f[2]),
+            "f3": _safe_float(f[3]),
+            "f6": amount_yuan,
+        })
     return result
 
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
-def get_zt_pool(date_str: str) -> Dict[str, Any]:
+def get_zt_pool(date_str: str) -> dict[str, Any]:
     cached = cache_load("zt_pool", date_str, "eastmoney")
     if cached:
         return cached
@@ -746,7 +987,7 @@ def get_zt_pool(date_str: str) -> Dict[str, Any]:
 
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
-def get_dt_pool(date_str: str) -> Dict[str, Any]:
+def get_dt_pool(date_str: str) -> dict[str, Any]:
     cached = cache_load("dt_pool", date_str, "eastmoney")
     if cached:
         return cached
@@ -759,7 +1000,7 @@ def get_dt_pool(date_str: str) -> Dict[str, Any]:
 
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
-def get_zb_pool(date_str: str) -> Dict[str, Any]:
+def get_zb_pool(date_str: str) -> dict[str, Any]:
     cached = cache_load("zb_pool", date_str, "eastmoney")
     if cached:
         return cached
@@ -772,7 +1013,7 @@ def get_zb_pool(date_str: str) -> Dict[str, Any]:
 
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
-def get_fund_flow(date_str: str) -> Dict[str, str]:
+def get_fund_flow(date_str: str) -> dict[str, str]:
     cached = cache_load("fund_flow", date_str, "eastmoney")
     if cached:
         return cached
@@ -788,7 +1029,7 @@ def get_fund_flow(date_str: str) -> Dict[str, str]:
         return {}
     cols = "date,主力净流入,小单净流入,中单净流入,大单净流入,超大单净流入,主力净流入占比,小单净流入占比,中单净流入占比,大单净流入占比,超大单净流入占比,收盘价,涨跌幅,总成交额".split(",")
     vals = klines[0].split(",")
-    result = dict(zip(cols, vals))
+    result = dict(zip(cols, vals, strict=False))
     cache_save("fund_flow", date_str, "eastmoney", result)
     return result
 
@@ -798,7 +1039,7 @@ def get_fund_flow(date_str: str) -> Dict[str, str]:
 # ------------------------------------------------------------------
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
-def futu_news_search(keyword: str, size: int = 10, lang: str = "en", news_type: int = 1) -> Dict[str, Any]:
+def futu_news_search(keyword: str, size: int = 10, lang: str = "en", news_type: int = 1) -> dict[str, Any]:
     params = urllib.parse.urlencode({
         "keyword": keyword,
         "size": size,
@@ -808,7 +1049,7 @@ def futu_news_search(keyword: str, size: int = 10, lang: str = "en", news_type: 
     })
     url = f"{FUTU_NEWS_URL}?{params}"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "stock-analysis/3.1.3"})
+        req = urllib.request.Request(url, headers={"User-Agent": "stock-analysis/3.1.1"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read().decode())
     except Exception as e:
@@ -817,11 +1058,11 @@ def futu_news_search(keyword: str, size: int = 10, lang: str = "en", news_type: 
 
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
-def futu_stock_feed(keyword: str, size: int = 30) -> Dict[str, Any]:
+def futu_stock_feed(keyword: str, size: int = 30) -> dict[str, Any]:
     params = urllib.parse.urlencode({"keyword": keyword, "size": size})
     url = f"{FUTU_FEED_URL}?{params}"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "stock-analysis/3.1.3"})
+        req = urllib.request.Request(url, headers={"User-Agent": "stock-analysis/3.1.1"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read().decode())
     except Exception as e:
@@ -833,7 +1074,7 @@ def futu_stock_feed(keyword: str, size: int = 30) -> Dict[str, Any]:
 # 板块榜（camofox 降级层）
 # ------------------------------------------------------------------
 
-def camofox_board_list(board_type: str = "industry") -> Dict[str, Any]:
+def camofox_board_list(board_type: str = "industry") -> dict[str, Any]:
     base = os.environ.get("CAMOFOX_URL", "http://localhost:9377")
     user_id = os.environ.get("CAMOFOX_USER_ID", "")
     session_key = os.environ.get("CAMOFOX_SESSION_KEY", "")
@@ -883,10 +1124,14 @@ def camofox_board_list(board_type: str = "industry") -> Dict[str, Any]:
 # 输出格式化
 # ------------------------------------------------------------------
 
-def print_index(data: List[Dict[str, Any]]) -> None:
+def print_index(data: list[dict[str, Any]]) -> None:
     print("## 指数表现\n")
     print(f"{'指数':<10} {'收盘':>10} {'涨跌':>10} {'涨跌幅':>10} {'成交额':>12}")
     print("-" * 60)
+    if not data:
+        print("  数据暂不可用（接口可能被风控，请稍后重试或加 --refresh）")
+        print()
+        return
     name_map = {
         "000001": "上证指数",
         "399001": "深证成指",
@@ -907,7 +1152,7 @@ def print_index(data: List[Dict[str, Any]]) -> None:
     print()
 
 
-def print_zt_analysis(zt_data: Dict, dt_data: Dict, zb_data: Dict) -> None:
+def print_zt_analysis(zt_data: dict, dt_data: dict, zb_data: dict) -> None:
     zt_pool = zt_data.get("data", {}).get("pool", []) if "_error" not in zt_data else []
     dt_pool = dt_data.get("data", {}).get("pool", []) if "_error" not in dt_data else []
     zb_pool = zb_data.get("data", {}).get("pool", []) if "_error" not in zb_data else []
@@ -922,7 +1167,7 @@ def print_zt_analysis(zt_data: Dict, dt_data: Dict, zb_data: Dict) -> None:
         print(f"炸板率: {zb_rate:.1f}% {'(高)' if zb_rate > 40 else ''}")
     print()
 
-    ladders: Dict[int, List] = {}
+    ladders: dict[int, list] = {}
     for s in zt_pool:
         days = s.get("zttj", {}).get("days", 1)
         if days >= 2:
@@ -946,16 +1191,18 @@ def print_zt_analysis(zt_data: Dict, dt_data: Dict, zb_data: Dict) -> None:
     print(f"\n封板时间分布: 早盘(≤10:00) {early}只 / 上午 {mid}只 / 下午 {late}只")
 
     hy_counter = Counter([s.get("hybk", "未知") for s in zt_pool])
-    print(f"\n涨停行业 TOP5:")
+    print("\n涨停行业 TOP5:")
     for hy, cnt in hy_counter.most_common(5):
         print(f"  {hy}: {cnt}只")
     print()
 
 
-def print_fund_flow(flow_data: Dict[str, str]) -> None:
-    if not flow_data or "_error" in flow_data:
-        return
+def print_fund_flow(flow_data: dict[str, str]) -> None:
     print("## 资金流向（上证指数口径）\n")
+    if not flow_data or "_error" in flow_data:
+        print("  数据暂不可用（东财 fflow 接口可能被风控，请稍后重试或加 --refresh）")
+        print()
+        return
     print(f"  主力净流入: {fmt_amount(flow_data.get('主力净流入'))}")
     print(f"  超大单:     {fmt_amount(flow_data.get('超大单净流入'))}")
     print(f"  大单:       {fmt_amount(flow_data.get('大单净流入'))}")
@@ -964,7 +1211,7 @@ def print_fund_flow(flow_data: Dict[str, str]) -> None:
     print()
 
 
-def print_boards(board_data: Dict[str, Any], title: str) -> None:
+def print_boards(board_data: dict[str, Any], title: str) -> None:
     if "_skipped" in board_data or "_error" in board_data:
         return
     rows = board_data.get("rows", [])
@@ -984,7 +1231,7 @@ def print_boards(board_data: Dict[str, Any], title: str) -> None:
     print()
 
 
-def print_sentiment_summary(zt_data: Dict, dt_data: Dict, zb_data: Dict, flow_data: Dict) -> None:
+def print_sentiment_summary(zt_data: dict, dt_data: dict, zb_data: dict, flow_data: dict) -> None:
     zt_total = zt_data.get("data", {}).get("tc", 0) if "_error" not in zt_data else 0
     dt_total = dt_data.get("data", {}).get("tc", 0) if "_error" not in dt_data else 0
     zb_total = zb_data.get("data", {}).get("tc", 0) if "_error" not in zb_data else 0
@@ -1003,7 +1250,7 @@ def print_sentiment_summary(zt_data: Dict, dt_data: Dict, zb_data: Dict, flow_da
     print()
 
 
-def print_global_indices(indices: List[QuoteData], market_name: str) -> None:
+def print_global_indices(indices: list[QuoteData], market_name: str) -> None:
     print(f"## {market_name} 大盘指数\n")
     print(f"{'指数':<15} {'当前价':>12} {'涨跌幅':>10} {'成交量':>14} {'数据质量':>8}")
     print("-" * 70)
@@ -1038,7 +1285,7 @@ def print_global_stock(qd: QuoteData) -> None:
     print()
 
 
-def print_futu_news(news_data: Dict, keyword: str) -> None:
+def print_futu_news(news_data: dict, keyword: str) -> None:
     if "_error" in news_data:
         return
     data = news_data.get("data", [])
@@ -1058,7 +1305,7 @@ def print_futu_news(news_data: Dict, keyword: str) -> None:
     print()
 
 
-def print_global_sentiment(indices: List[QuoteData]) -> None:
+def print_global_sentiment(indices: list[QuoteData]) -> None:
     print("## 情绪定性\n")
     bullish = 0
     bearish = 0
@@ -1085,7 +1332,7 @@ def print_global_sentiment(indices: List[QuoteData]) -> None:
     print()
 
 
-def print_data_quality_report(results: List[QuoteData]) -> None:
+def print_data_quality_report(results: list[QuoteData]) -> None:
     warnings = []
     recommendations = []
     total = len(results)
@@ -1112,7 +1359,7 @@ def print_data_quality_report(results: List[QuoteData]) -> None:
         print("📊 数据质量与诊断报告")
         print(f"  平均完整度: {avg_score:.0f}%")
         if DIAGNOSTICS:
-            print(f"\n  ⚙️ 接口诊断:")
+            print("\n  ⚙️ 接口诊断:")
             for d in DIAGNOSTICS[:6]:
                 print(f"    • {d}")
             if len(DIAGNOSTICS) > 6:
@@ -1124,7 +1371,7 @@ def print_data_quality_report(results: List[QuoteData]) -> None:
             if len(warnings) > 8:
                 print(f"    ... 还有 {len(warnings) - 8} 条")
         if recommendations:
-            print(f"\n  💡 建议:")
+            print("\n  💡 建议:")
             for rec in recommendations:
                 print(f"    • {rec}")
         print("=" * 60)
@@ -1143,7 +1390,7 @@ def print_diagnostic_summary() -> None:
 # 复盘主体
 # ------------------------------------------------------------------
 
-def nearest_trade_date(dt: Optional[datetime] = None) -> str:
+def nearest_trade_date(dt: datetime | None = None) -> str:
     if dt is None:
         dt = datetime.now()
     wd = dt.weekday()
@@ -1203,23 +1450,29 @@ def run_a_share(date_str: str) -> None:
 
 def run_us_market(date_str: str) -> None:
     print("# 美股市场复盘\n")
-    print(f"数据来源: 东方财富 clist + 腾讯行情备用 | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
+    print(f"数据来源: 新浪财经 (主) + 东方财富 (备) | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
     print("=" * 60 + "\n")
 
     us_indices_map = {
         "^GSPC": "标普 500",
         "^IXIC": "纳斯达克",
+        "^DJI":  "道琼斯",
     }
-    indices = fetch_em_indices(us_indices_map, date_str, EM_FS["us_index"])
+    indices = fetch_us_indices_sina(us_indices_map, date_str)
+    if not indices:
+        indices = fetch_indices_direct(us_indices_map, date_str, EM_US_INDEX_SECID)
     if indices:
         print_global_indices(indices, "美股")
 
     hot_stocks = ["AAPL", "TSLA", "NVDA", "MSFT", "AMZN", "GOOGL", "META", "BABA", "PDD", "JD"]
     print("## 重点个股行情\n")
-    stocks = fetch_em_stocks(hot_stocks, date_str, EM_FS["us_stock"])
+    stocks = fetch_us_stocks_sina(hot_stocks, date_str)
+    if not stocks:
+        stocks = fetch_us_stocks_direct(hot_stocks, date_str)
     for qd in stocks:
         print_global_stock(qd)
 
+    print("## 相关新闻\n")
     for sym in ["AAPL", "TSLA", "NVDA"]:
         news = futu_news_search(sym, size=5, lang="en")
         print_futu_news(news, sym)
@@ -1239,7 +1492,7 @@ def run_us_market(date_str: str) -> None:
 
 def run_hk_market(date_str: str) -> None:
     print("# 港股市场复盘\n")
-    print(f"数据来源: 东方财富 clist + 腾讯行情备用 | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
+    print(f"数据来源: 新浪财经 (主) + 东方财富 (备) | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
     print("=" * 60 + "\n")
 
     hk_indices_map = {
@@ -1247,16 +1500,21 @@ def run_hk_market(date_str: str) -> None:
         "^HSCE": "国企指数",
         "HSTECH.HK": "恒生科技指数",
     }
-    indices = fetch_em_indices(hk_indices_map, date_str, EM_FS["hk_index"])
+    indices = fetch_hk_indices_sina(hk_indices_map, date_str)
+    if not indices:
+        indices = fetch_indices_direct(hk_indices_map, date_str, EM_HK_INDEX_SECID)
     if indices:
         print_global_indices(indices, "港股")
 
     hot_stocks = ["0700.HK", "9988.HK", "3690.HK", "9618.HK", "1299.HK", "2318.HK", "0005.HK", "0388.HK"]
     print("## 重点个股行情\n")
-    stocks = fetch_em_stocks(hot_stocks, date_str, EM_FS["hk_stock"])
+    stocks = fetch_hk_stocks_sina(hot_stocks, date_str)
+    if not stocks:
+        stocks = fetch_hk_stocks_direct(hot_stocks, date_str)
     for qd in stocks:
         print_global_stock(qd)
 
+    print("## 相关新闻\n")
     for sym in ["0700", "9988", "3690"]:
         news = futu_news_search(sym, size=5, lang="zh-CN")
         print_futu_news(news, sym)
@@ -1276,7 +1534,7 @@ def run_hk_market(date_str: str) -> None:
 
 def run_global_market(date_str: str) -> None:
     print("# 全球市场概览\n")
-    print(f"数据来源: 东方财富 clist/API + 腾讯行情备用 | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
+    print(f"数据来源: 东方财富免登录 API | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
     print("=" * 60 + "\n")
 
     # 美股
@@ -1284,7 +1542,9 @@ def run_global_market(date_str: str) -> None:
         "^GSPC": "标普 500",
         "^IXIC": "纳斯达克",
     }
-    us_indices = fetch_em_indices(us_indices_map, date_str, EM_FS["us_index"])
+    us_indices = fetch_us_indices_sina(us_indices_map, date_str)
+    if not us_indices:
+        us_indices = fetch_indices_direct(us_indices_map, date_str, EM_US_INDEX_SECID)
     if us_indices:
         print_global_indices(us_indices, "美股")
 
@@ -1294,7 +1554,9 @@ def run_global_market(date_str: str) -> None:
         "^HSCE": "国企指数",
         "HSTECH.HK": "恒生科技指数",
     }
-    hk_indices = fetch_em_indices(hk_indices_map, date_str, EM_FS["hk_index"])
+    hk_indices = fetch_hk_indices_sina(hk_indices_map, date_str)
+    if not hk_indices:
+        hk_indices = fetch_indices_direct(hk_indices_map, date_str, EM_HK_INDEX_SECID)
     if hk_indices:
         print_global_indices(hk_indices, "港股")
 
