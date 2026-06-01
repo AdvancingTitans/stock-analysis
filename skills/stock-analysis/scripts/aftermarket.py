@@ -97,6 +97,7 @@ SINA_SECTOR_MONEY_FLOW_URL = (
     "https://money.finance.sina.com.cn/quotes_service/view/xml_money_flow_fc_hy.php"
     "?fenlei=0&format=json&callback=gotData0&_={ts}"
 )
+THS_CONCEPT_MONEY_FLOW_URL = "http://data.10jqka.com.cn/funds/gnzjl/"
 INDEX_URL = (
     "https://push2.eastmoney.com/api/qt/ulist.np/get"
     "?fltt=2&secids={secids}&fields={fields}&_={ts}"
@@ -570,6 +571,84 @@ def fetch_market_fund_flow_snapshot(date_str: str) -> dict[str, str]:
     if result["date"].replace("-", "") != date_str:
         result["_requested_date"] = _display_date(date_str)
         result["_date_note"] = "latest_available"
+    return result
+
+
+def _parse_ths_money_flow_table(raw_html: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    tbody_match = re.search(r"<tbody>(.*?)</tbody>", raw_html, re.DOTALL | re.IGNORECASE)
+    tbody = tbody_match.group(1) if tbody_match else raw_html
+    for row in re.findall(r"<tr[^>]*>(.*?)</tr>", tbody, re.DOTALL | re.IGNORECASE):
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", row, re.DOTALL | re.IGNORECASE)
+        if len(cells) < 11:
+            continue
+        text_cells = [_html_to_text(cell) for cell in cells]
+        concept = text_cells[1]
+        if not concept or concept in {"行业", "概念"}:
+            continue
+        rows.append(
+            {
+                "rank": _safe_int(text_cells[0]),
+                "name": concept,
+                "index": _safe_float(text_cells[2]),
+                "change_pct": _safe_number(text_cells[3]),
+                "buy": _safe_number(text_cells[4]),
+                "sell": _safe_number(text_cells[5]),
+                "net": _safe_number(text_cells[6]),
+                "companies": _safe_int(text_cells[7]),
+                "leader": text_cells[8],
+                "leader_change_pct": _safe_number(text_cells[9]),
+                "leader_price": _safe_number(text_cells[10]),
+            }
+        )
+    return rows
+
+
+def fetch_ths_concept_money_flow_snapshot(date_str: str) -> dict[str, str]:
+    """同花顺概念资金流。页面可直接返回表格，作为 young flow 的优先在线源。"""
+    cached = cache_load("fund_flow", date_str, "ths", ttl=CACHE_TTL_SECONDS)
+    if cached:
+        return cached
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Referer": "http://data.10jqka.com.cn/",
+    }
+    try:
+        req = urllib.request.Request(THS_CONCEPT_MONEY_FLOW_URL, headers=headers)
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(req, timeout=12) as resp:
+            raw = resp.read().decode("gbk", errors="ignore")
+    except Exception as e:
+        diag(f"THS concept money-flow snapshot: {e}")
+        return {}
+
+    if "Nginx forbidden" in raw or "Forbidden" in raw:
+        diag("THS concept money-flow snapshot: forbidden")
+        return {}
+    rows = _parse_ths_money_flow_table(raw)
+    if not rows:
+        diag("THS concept money-flow snapshot: empty table")
+        return {}
+    top_in_rows = sorted([row for row in rows if float(row.get("net") or 0) > 0], key=lambda item: float(item.get("net") or 0), reverse=True)[:5]
+    top_out_rows = sorted([row for row in rows if float(row.get("net") or 0) < 0], key=lambda item: float(item.get("net") or 0))[:5]
+    trade_date = _display_date(nearest_trade_date())
+    result = {
+        "date": trade_date,
+        "_source": "同花顺概念资金流",
+        "_scope": "A股",
+        "_fallback_indicator": "concept_money_flow",
+        "_indicator_note": "以下为同花顺概念板块资金流，反映概念方向净额，不等同于全市场主力资金净流入。",
+        "_concept_in": json.dumps(top_in_rows, ensure_ascii=False),
+        "_concept_out": json.dumps(top_out_rows, ensure_ascii=False),
+    }
+    if result["date"].replace("-", "") != date_str:
+        result["_requested_date"] = _display_date(date_str)
+        result["_date_note"] = "latest_available"
+    cache_save("fund_flow", date_str, "ths", result)
     return result
 
 
@@ -1591,6 +1670,10 @@ def get_zb_pool(date_str: str) -> dict[str, Any]:
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
 def get_fund_flow(date_str: str, *, strict_date: bool = True) -> dict[str, str]:
+    ths_snapshot = fetch_ths_concept_money_flow_snapshot(date_str)
+    if ths_snapshot:
+        return ths_snapshot
+
     cached = cache_load("fund_flow", date_str, "eastmoney")
     if cached:
         if cached.get("_unavailable"):
@@ -2282,7 +2365,12 @@ def print_zt_analysis(zt_data: dict, dt_data: dict, zb_data: dict) -> None:
 
 
 def print_fund_flow(flow_data: dict[str, str]) -> None:
-    print("## A股资金流向（上证指数口径）\n")
+    scope_title = "A股资金流向（上证指数口径）"
+    if flow_data.get("_fallback_indicator") == "concept_money_flow":
+        scope_title = "A股资金流向（概念板块口径）"
+    elif flow_data.get("_fallback_indicator") == "sector_money_flow":
+        scope_title = "A股资金流向（行业板块口径）"
+    print(f"## {scope_title}\n")
     if not flow_data or "_error" in flow_data:
         print("  暂不展示：当前没有拿到可核验交易日的免登录资金流数据。")
         print()
@@ -2308,6 +2396,33 @@ def print_fund_flow(flow_data: dict[str, str]) -> None:
         print("  提醒: 实时接口暂不可用，当前为本地最近一次可信数据")
     if flow_data.get("_source"):
         print(f"  来源: {flow_data['_source']}")
+    if flow_data.get("_fallback_indicator") == "concept_money_flow":
+        print(f"  说明: {flow_data.get('_indicator_note', '当前展示概念板块资金流参考，不等同于全市场主力资金净流入。')}")
+        try:
+            top_in = json.loads(flow_data.get("_concept_in", "[]"))
+            top_out = json.loads(flow_data.get("_concept_out", "[]"))
+        except json.JSONDecodeError:
+            top_in, top_out = [], []
+        if top_in:
+            print("  概念净流入靠前:")
+            for item in top_in[:5]:
+                name = item.get("name", "-")
+                net = float(item.get("net") or 0)
+                leader = item.get("leader") or "-"
+                leader_pct = fmt_pct(item.get("leader_change_pct"))
+                print(f"    {name}: {net:+.2f}亿，领涨股 {leader}（{leader_pct}）")
+        if top_out:
+            print("  概念净流出靠前:")
+            for item in top_out[:5]:
+                name = item.get("name", "-")
+                net = float(item.get("net") or 0)
+                leader = item.get("leader") or "-"
+                leader_pct = fmt_pct(item.get("leader_change_pct"))
+                print(f"    {name}: {net:+.2f}亿，领涨股 {leader}（{leader_pct}）")
+        else:
+            print("  概念净流出靠前: 当前页未返回净流出概念")
+        print()
+        return
     if flow_data.get("_fallback_indicator") == "sector_money_flow":
         print(f"  说明: {flow_data.get('_indicator_note', '当前展示行业资金流参考，不等同于全市场主力资金净流入。')}")
         try:
