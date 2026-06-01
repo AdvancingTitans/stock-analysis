@@ -1665,6 +1665,17 @@ def _clean_news_title(title: str) -> str:
     return html.unescape(title).strip()
 
 
+def _news_aliases(symbol: str, name: str = "") -> list[str]:
+    aliases = [symbol]
+    if symbol.upper().endswith(".HK"):
+        raw = symbol.upper().replace(".HK", "")
+        aliases.extend([raw, raw.lstrip("0"), raw.zfill(5)])
+    if name:
+        aliases.append(name)
+        aliases.append(re.split(r"[-－—（(]", name, maxsplit=1)[0].strip())
+    return [alias for alias in dict.fromkeys(a for a in aliases if a)]
+
+
 def _normalize_futu_feed(
     feed_data: dict[str, Any],
     size: int = 5,
@@ -1790,6 +1801,67 @@ def _parse_news_time(value: Any) -> int:
     return 0
 
 
+def _news_source_label(source: str) -> str:
+    return {
+        "futu_news": "富途资讯",
+        "futu_feed": "富途社区/资讯",
+        "sina_roll": "新浪财经",
+        "eastmoney_fast": "东方财富快讯",
+        "东方财富": "东方财富",
+        "新浪财经": "新浪财经",
+    }.get(source, source or "未知来源")
+
+
+def _normalize_news_url(item: dict[str, Any]) -> str:
+    for key in ("url", "jump_url", "link", "news_url", "article_url", "wapurl"):
+        value = item.get(key)
+        if value:
+            return str(value)
+    return ""
+
+
+def _select_diverse_news(items: list[dict[str, Any]], size: int) -> list[dict[str, Any]]:
+    """展示时尽量保留多来源；热度计算仍基于所有命中。"""
+    if len(items) <= size:
+        return items
+    buckets: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for item in items:
+        buckets[str(item.get("source", "news"))].append(item)
+    for bucket in buckets.values():
+        bucket.sort(key=lambda item: _parse_news_time(item.get("publish_time")), reverse=True)
+
+    selected: list[dict[str, Any]] = []
+    seen_titles: set[str] = set()
+    source_order = sorted(
+        buckets,
+        key=lambda source: (
+            -len(buckets[source]),
+            -max((_parse_news_time(item.get("publish_time")) for item in buckets[source]), default=0),
+        ),
+    )
+    while len(selected) < size and source_order:
+        progressed = False
+        for source in list(source_order):
+            bucket = buckets[source]
+            while bucket:
+                item = bucket.pop(0)
+                title = str(item.get("title", ""))
+                if title in seen_titles:
+                    continue
+                selected.append(item)
+                seen_titles.add(title)
+                progressed = True
+                break
+            if not bucket:
+                source_order.remove(source)
+            if len(selected) >= size:
+                break
+        if not progressed:
+            break
+    selected.sort(key=lambda item: _parse_news_time(item.get("publish_time")), reverse=True)
+    return selected[:size]
+
+
 def news_search_chain(keyword: str, size: int = 5, lang: str = "en", aliases: list[str] | None = None) -> dict[str, Any]:
     """资讯四段式：Futu 新闻 → Futu feed → 新浪财经 → 东方财富。"""
     news = futu_news_search(keyword, size=size, lang=lang)
@@ -1814,15 +1886,22 @@ def news_search_chain(keyword: str, size: int = 5, lang: str = "en", aliases: li
 
 def combined_news_search(keyword: str, size: int = 5, lang: str = "zh-CN", aliases: list[str] | None = None) -> dict[str, Any]:
     """聚合免登录新闻源，用于热度排序和展示。"""
+    per_source_size = max(size, 8)
     sources = [
-        futu_news_search(keyword, size=size, lang=lang),
-        _normalize_futu_feed(futu_stock_feed(keyword, size=size * 2), size=size, keyword=keyword, aliases=aliases),
-        sina_roll_news(keyword, size=size, aliases=aliases),
-        eastmoney_fast_news(keyword, size=size, aliases=aliases),
+        futu_news_search(keyword, size=per_source_size, lang=lang),
+        _normalize_futu_feed(
+            futu_stock_feed(keyword, size=per_source_size * 2),
+            size=per_source_size,
+            keyword=keyword,
+            aliases=aliases,
+        ),
+        sina_roll_news(keyword, size=per_source_size, aliases=aliases),
+        eastmoney_fast_news(keyword, size=per_source_size, aliases=aliases),
     ]
     seen: set[str] = set()
     items: list[dict[str, Any]] = []
     used_sources: list[str] = []
+    source_counts: Counter[str] = Counter()
     for idx, source in enumerate(sources):
         if not source.get("data"):
             continue
@@ -1836,10 +1915,19 @@ def combined_news_search(keyword: str, size: int = 5, lang: str = "zh-CN", alias
             seen.add(title)
             normalized = dict(item)
             normalized["title"] = title
+            normalized["url"] = _normalize_news_url(normalized)
             normalized.setdefault("source", source_name)
             items.append(normalized)
+            source_counts[source_name] += 1
     items.sort(key=lambda item: _parse_news_time(item.get("publish_time")), reverse=True)
-    return {"source": "+".join(s for s in used_sources if s) or "none", "data": items[:size]}
+    linked_items = [item for item in items if item.get("url")]
+    display_items = linked_items if len(linked_items) >= size else items
+    return {
+        "source": "+".join(s for s in used_sources if s) or "none",
+        "data": _select_diverse_news(display_items, size),
+        "all_count": len(items),
+        "source_counts": dict(source_counts),
+    }
 
 
 def rank_symbols_by_news_heat(
@@ -1859,9 +1947,10 @@ def rank_symbols_by_news_heat(
             aliases.append(names[symbol])
         keyword = names.get(symbol) or symbol
         news = combined_news_search(keyword, size=5, lang=lang, aliases=aliases)
-        score = 0.0
+        score = float(news.get("all_count", 0))
+        source_counts = news.get("source_counts") or {}
+        score += max(0, len(source_counts) - 1) * 0.8
         for item in news.get("data", []):
-            score += 1.0
             ts = _parse_news_time(item.get("publish_time"))
             if ts and now_ts - ts < 24 * 3600:
                 score += 0.5
@@ -2238,7 +2327,7 @@ def run_stock_quote(symbol: str, date_str: str, include_news: bool = True) -> No
     if include_news:
         keyword = qd.name if qd.market in ("cn_market", "hk_market") and qd.name else qd.symbol
         lang = "zh-CN" if qd.market in ("cn_market", "hk_market") else "en"
-        aliases = [qd.symbol, qd.name] if qd.name else [qd.symbol]
+        aliases = _news_aliases(qd.symbol, qd.name)
         print_futu_news(combined_news_search(keyword, size=5, lang=lang, aliases=aliases), keyword)
 
     if DIAGNOSTICS:
@@ -2246,24 +2335,48 @@ def run_stock_quote(symbol: str, date_str: str, include_news: bool = True) -> No
     print_report_footer()
 
 
-def print_futu_news(news_data: dict, keyword: str) -> None:
+def run_stock_news(symbol: str, date_str: str, size: int = 8) -> None:
+    DIAGNOSTICS.clear()
+    normalized = symbol
+    market = detect_market_type(symbol)
+    name = ""
+    try:
+        normalized, market = normalize_stock_symbol(symbol)
+        qd = get_single_stock_quote(normalized, date_str)
+        if qd:
+            name = qd.name
+            market = qd.market
+    except ValueError:
+        pass
+
+    keyword = name if market in ("cn_market", "hk_market") and name else normalized
+    lang = "zh-CN" if market in ("cn_market", "hk_market") else "en"
+    aliases = _news_aliases(normalized, name)
+    print(f"# 消息面速览：{name or normalized} ({normalized})\n")
+    print_stage_line(date_str)
+    news = combined_news_search(keyword, size=size, lang=lang, aliases=aliases)
+    print_futu_news(news, keyword, limit=size)
+    if not news.get("data"):
+        print("暂未从免登录来源拿到匹配新闻，可以稍后加 --refresh 重试。")
+    print_report_footer()
+
+
+def print_futu_news(news_data: dict, keyword: str, limit: int = 5) -> None:
     if "_error" in news_data:
         return
     data = news_data.get("data", [])
     if not data:
         return
     source = news_data.get("source", "futu_news")
-    if "+" in str(source):
-        source_label = "多源聚合"
-    else:
-        source_label = {
-            "futu_news": "富途资讯",
-            "futu_feed": "富途社区/资讯",
-            "sina_roll": "新浪财经",
-            "eastmoney_fast": "东方财富快讯",
-        }.get(source, str(source))
-    print(f"## {keyword} 相关新闻（{source_label}，前5条）\n")
-    for i, item in enumerate(data[:5], 1):
+    source_label = "多源聚合" if "+" in str(source) else _news_source_label(str(source))
+    shown = min(limit, len(data))
+    print(f"## {keyword} 相关新闻（{source_label}，前{shown}条）\n")
+    source_counts = news_data.get("source_counts") or {}
+    if source_counts:
+        parts = [f"{_news_source_label(str(k))} {v}条" for k, v in source_counts.items()]
+        print("  来源覆盖: " + " / ".join(parts))
+        print()
+    for i, item in enumerate(data[:limit], 1):
         ts = item.get("publish_time", 0)
         # 富途返回的 publish_time 是字符串，先转 int
         try:
@@ -2271,8 +2384,10 @@ def print_futu_news(news_data: dict, keyword: str) -> None:
             dt_str = datetime.fromtimestamp(ts_int).strftime("%m-%d %H:%M") if ts_int else ""
         except (TypeError, ValueError):
             dt_str = ""
+        item_source = _news_source_label(str(item.get("source") or source))
+        url = _normalize_news_url(item)
         print(f"{i}. [{dt_str}] {_clean_news_title(item.get('title', ''))}")
-        print(f"   {item.get('url', '')}")
+        print(f"   来源: {item_source} | 链接: {url or '暂无公开链接'}")
     print()
 
 
@@ -2650,7 +2765,8 @@ def main():
             i += 1
         elif args[i] in ("--stock", "--symbol") and i + 1 < len(args):
             stock_symbol = args[i + 1]
-            market = "stock"
+            if market != "news":
+                market = "stock"
             i += 2
         elif re.fullmatch(r"\d{8}", args[i]):
             date_str = args[i]
@@ -2658,11 +2774,11 @@ def main():
         else:
             i += 1
 
-    if market not in ("a", "hk", "us", "global", "stock"):
-        print("错误: --market 参数必须是 a、hk、us、global 或 stock", file=sys.stderr)
+    if market not in ("a", "hk", "us", "global", "stock", "news"):
+        print("错误: --market 参数必须是 a、hk、us、global、stock 或 news", file=sys.stderr)
         sys.exit(1)
-    if market == "stock" and not stock_symbol:
-        print("错误: --market stock 需要配合 --stock 600519 使用", file=sys.stderr)
+    if market in ("stock", "news") and not stock_symbol:
+        print(f"错误: --market {market} 需要配合 --stock 600519 使用", file=sys.stderr)
         sys.exit(1)
 
     # 清理过期缓存
@@ -2681,6 +2797,8 @@ def main():
         run_global_market(date_str)
     elif market == "stock" and stock_symbol:
         run_stock_quote(stock_symbol, date_str, include_news=include_news)
+    elif market == "news" and stock_symbol:
+        run_stock_news(stock_symbol, date_str)
 
 
 if __name__ == "__main__":

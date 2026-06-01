@@ -47,6 +47,7 @@ python scripts/aftermarket.py --market global
 python scripts/aftermarket.py --market stock --stock 600519
 python scripts/aftermarket.py --market stock --stock 0700.HK
 python scripts/aftermarket.py --market stock --stock AAPL --no-news
+python scripts/aftermarket.py --market news --stock 3690.HK  # 只看多源新闻、来源和链接
 python scripts/aftermarket.py --market hk --no-news
 
 # 指定日期（A股）
@@ -158,6 +159,7 @@ hermes skills install --repo AdvancingTitans/stock-analysis --path skills/stock-
 - 同步 young-stock-cli 0.1.5：资金流即使返回交易日与请求日不一致，也展示最新可用数据并明确标注来源交易日和请求日期。
 - 资金流实时接口临时不可用时，先尝试在线资金流页面指标接口，再尝试新浪/腾讯 A股指数活跃度指标；这些指标会明确标注“不等同于主力资金净流入”，在线源都不可用时才降级展示本地最近一次可信资金流缓存。
 - 港美股重点个股会基于富途、新浪财经、东方财富快讯等免登录来源做新闻热度 Top5 排序；雪球/同花顺若无稳定免登录接口，不作为默认硬依赖。
+- 新闻输出逐条显示来源和链接状态；热度排序基于所有来源命中数和新鲜度，展示时尽量保留多来源，不让单一来源自动挤掉其他有效来源。
 - 所有行情命令标注当前阶段：上午盘、午间、下午盘、盘后；若展示非请求日数据，会标注为该交易日盘后数据。
 - `--no-news` 可用于 `--market hk`、`--market us`、`--market stock`，只看行情时不会输出新闻链接。
 - 默认不再输出“数据源切换记录”；如需排查接口，可设置 `YOUNG_STOCK_DEBUG=1`。

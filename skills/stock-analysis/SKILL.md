@@ -1,6 +1,6 @@
 ---
 name: stock-analysis
-description: "Use when the user asks for current or after-market A股、港股、美股 or global stock-market review, single-stock lookup, index/sector/sentiment analysis,涨跌停池,港美股重点个股, or asks to verify market data with low 429/token overhead. v3.4.1 uses Tencent, Sina, and Eastmoney no-login quote/news sources with staged output and news-heat ranking."
+description: "Use when the user asks for current or after-market A股、港股、美股 or global stock-market review, single-stock lookup/news, index/sector/sentiment analysis,涨跌停池,港美股重点个股, or asks to verify market data with low 429/token overhead. v3.4.2 uses Tencent, Sina, and Eastmoney no-login quote/news sources with staged output and news-heat ranking."
 version: 3.3.0
 author: Hermes Agent + yjw
 tags: [stock-market, a-shares, hk-shares, us-shares, eastmoney, futu, sentiment, global-finance, data-quality, camofox]
@@ -47,7 +47,7 @@ v3.1.1 引入的缓存防污染机制必须保留，后续迭代不得弱化：
 
 三层获取：**缓存 → 稳定 API → 浏览器降级**。稳定 API 包括东方财富 A股接口、东财 `fflow` 最新 A股资金流、腾讯港股指数收盘口径、港美股新浪财经批量行情、腾讯美股指数补充、东财 `stock/get` 单只精确兜底、东财 clist 批量补充、富途资讯、新浪滚动新闻、东方财富快讯；浏览器降级用于东财板块榜、富途页面以及 API 连续失败、403、429 场景。
 
-单只股票速览：脚本支持 `python scripts/aftermarket.py --market stock --stock 600519`，也支持港股 `0700.HK` 和 best-effort 美股 `AAPL`。单票输出必须标注市场、来源、数据交易日、最新价、涨跌、成交量/额和完整度；若数据源交易日与请求日不一致，必须明确提醒，不把旧数据当成当天数据。`--market hk`、`--market us`、`--market stock` 都支持 `--no-news`，用户只想看行情时不要输出新闻链接。
+单只股票速览：脚本支持 `python scripts/aftermarket.py --market stock --stock 600519`，也支持港股 `0700.HK` 和 best-effort 美股 `AAPL`；若用户只想看消息面，使用 `python scripts/aftermarket.py --market news --stock 3690.HK`。单票输出必须标注市场、来源、数据交易日、最新价、涨跌、成交量/额和完整度；若数据源交易日与请求日不一致，必须明确提醒，不把旧数据当成当天数据。新闻逐条显示来源和链接状态，热度基于所有来源综合命中数和新鲜度。`--market hk`、`--market us`、`--market stock` 都支持 `--no-news`，用户只想看行情时不要输出新闻链接。
 
 ## 分析要求
 
@@ -71,7 +71,7 @@ v3.1.1 引入的缓存防污染机制必须保留，后续迭代不得弱化：
 - A股资金流采用东财 `fflow` 最新上证指数口径数据；如果来源交易日与请求日不一致，仍展示数值并明确标注两个日期；实时接口临时不可用时，先尝试在线资金流页面指标接口，在线源都不可用时才展示本地最近一次可信缓存并明确标注缓存兜底。`push2his` 历史资金流当前不视为稳定兜底。
 - 如果东财资金流实时接口 502/断连，先尝试东财资金流页面实时指标，再尝试新浪/腾讯 A股指数活跃度指标；新浪/腾讯指标必须明确标注为“行情活跃度参考，不等同于主力资金净流入”，最后才使用本地最近一次可信资金流缓存。
 - 每次运行都要标注阶段：上午盘、午间、下午盘、盘后；如果返回数据日期与请求日期不一致，注明展示的是返回交易日的盘后数据。
-- 新闻只采用稳定免登录源。当前默认使用富途、新浪财经、东方财富快讯；雪球/同花顺若没有稳定免登录接口，不作为默认硬依赖。港美股重点个股按多源新闻热度 Top5 展示。
+- 新闻只采用稳定免登录源。当前默认使用富途、新浪财经、东方财富快讯；雪球/同花顺若没有稳定免登录接口，不作为默认硬依赖。港美股重点个股按多源新闻热度 Top5 展示；展示时尽量保留多来源，不让单一来源自动挤掉其他有效来源。
 - 默认不要输出“数据源切换记录”等调试信息；只有设置 `YOUNG_STOCK_DEBUG=1` 时才展示接口诊断。
 - 富途 `publish_time` 是字符串，脚本会先转整数。
 - 指数成交量为 0 是 warning，不影响价格判断；个股成交量为 0 才影响质量评分。
