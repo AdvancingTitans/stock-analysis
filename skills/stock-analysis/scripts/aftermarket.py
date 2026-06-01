@@ -559,8 +559,10 @@ def _market_activity_snapshot(rows: list[dict[str, Any]], source: str, date_str:
     if not usable:
         return {}
     total_turnover = sum(float(r.get("f6") or 0) for r in usable)
+    source_dates = [str(r.get("_source_date") or "") for r in usable if r.get("_source_date")]
+    trade_date = source_dates[0] if source_dates else _display_date(nearest_trade_date())
     result: dict[str, str] = {
-        "date": _display_date(date_str),
+        "date": trade_date,
         "_source": source,
         "_scope": "A股",
         "_fallback_indicator": "market_activity",
@@ -575,6 +577,9 @@ def _market_activity_snapshot(rows: list[dict[str, Any]], source: str, date_str:
         result[f"{prefix}涨跌幅"] = str(row.get("f3") or "")
         result[f"{prefix}成交额"] = str(row.get("f6") or "")
         result[f"{prefix}名称"] = name
+    if result["date"].replace("-", "") != date_str:
+        result["_requested_date"] = _display_date(date_str)
+        result["_date_note"] = "latest_available"
     return result
 
 
@@ -624,8 +629,14 @@ def session_stage_label(dt: datetime | None = None, *, data_date: str | None = N
     return "盘后"
 
 
+def dated_stage_label(data_date: str | None = None, requested_date: str | None = None, dt: datetime | None = None) -> str:
+    stage = session_stage_label(dt, data_date=data_date, requested_date=requested_date)
+    date_part = data_date or (_display_date(requested_date) if requested_date else "")
+    return f"{date_part} {stage}".strip()
+
+
 def print_stage_line(requested_date: str, data_date: str | None = None) -> None:
-    stage = session_stage_label(data_date=data_date, requested_date=requested_date)
+    stage = dated_stage_label(data_date=data_date, requested_date=requested_date)
     if data_date and data_date.replace("-", "") != requested_date:
         print(f"当前阶段: {stage}（展示的是 {data_date} 数据，本次请求 {_display_date(requested_date)}）\n")
     else:
@@ -1288,6 +1299,7 @@ def _fetch_a_indices_tencent() -> list[dict[str, Any]]:
             "f4": _safe_float(fields[31]),
             "f3": _safe_float(fields[32]),
             "f6": raw_amount * 1e4 if raw_amount is not None else None,
+            "_source_date": _source_date(fields[30] if len(fields) > 30 else "") or "",
         })
     return result
 
@@ -1440,6 +1452,15 @@ _SINA_A_INDEX_MAP = {
 }
 
 
+def _a_index_source_date(raw_map: dict[str, list[str]]) -> str:
+    for fields in raw_map.values():
+        for value in reversed(fields):
+            date = _source_date(value)
+            if re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+                return date
+    return ""
+
+
 def _fetch_a_indices_sina() -> list[dict[str, Any]]:
     """从新浪拉 A 股主要指数，转成东财 diff 字段以复用 print_index。
     新浪格式: [名称, 价, 涨跌额, 涨跌幅%, 成交量(手), 成交额]
@@ -1465,6 +1486,7 @@ def _fetch_a_indices_sina() -> list[dict[str, Any]]:
             "f4": _safe_float(f[2]),
             "f3": _safe_float(f[3]),
             "f6": amount_yuan,
+            "_source_date": _a_index_source_date(raw_map),
         })
     return result
 
@@ -1801,6 +1823,13 @@ def _parse_news_time(value: Any) -> int:
     return 0
 
 
+def _news_date(value: Any) -> str:
+    ts = _parse_news_time(value)
+    if not ts:
+        return ""
+    return datetime.fromtimestamp(ts).strftime("%Y%m%d")
+
+
 def _news_source_label(source: str) -> str:
     return {
         "futu_news": "富途资讯",
@@ -1862,6 +1891,12 @@ def _select_diverse_news(items: list[dict[str, Any]], size: int) -> list[dict[st
     return selected[:size]
 
 
+def _news_matches_date(item: dict[str, Any], date_str: str | None) -> bool:
+    if not date_str:
+        return True
+    return _news_date(item.get("publish_time")) == date_str
+
+
 def news_search_chain(keyword: str, size: int = 5, lang: str = "en", aliases: list[str] | None = None) -> dict[str, Any]:
     """资讯四段式：Futu 新闻 → Futu feed → 新浪财经 → 东方财富。"""
     news = futu_news_search(keyword, size=size, lang=lang)
@@ -1884,7 +1919,13 @@ def news_search_chain(keyword: str, size: int = 5, lang: str = "en", aliases: li
     return news if "_error" in news else {"source": "none", "data": []}
 
 
-def combined_news_search(keyword: str, size: int = 5, lang: str = "zh-CN", aliases: list[str] | None = None) -> dict[str, Any]:
+def combined_news_search(
+    keyword: str,
+    size: int = 5,
+    lang: str = "zh-CN",
+    aliases: list[str] | None = None,
+    date_str: str | None = None,
+) -> dict[str, Any]:
     """聚合免登录新闻源，用于热度排序和展示。"""
     per_source_size = max(size, 8)
     sources = [
@@ -1917,6 +1958,8 @@ def combined_news_search(keyword: str, size: int = 5, lang: str = "zh-CN", alias
             normalized["title"] = title
             normalized["url"] = _normalize_news_url(normalized)
             normalized.setdefault("source", source_name)
+            if not _news_matches_date(normalized, date_str):
+                continue
             items.append(normalized)
             source_counts[source_name] += 1
     items.sort(key=lambda item: _parse_news_time(item.get("publish_time")), reverse=True)
@@ -1936,6 +1979,7 @@ def rank_symbols_by_news_heat(
     names: dict[str, str] | None = None,
     lang: str = "zh-CN",
     top_n: int = 5,
+    date_str: str | None = None,
 ) -> tuple[list[str], dict[str, dict[str, Any]]]:
     """按多源新闻命中数和新鲜度给股票排序，保持无新闻标的的原始顺序。"""
     heat: dict[str, dict[str, Any]] = {}
@@ -1946,7 +1990,7 @@ def rank_symbols_by_news_heat(
         if names.get(symbol):
             aliases.append(names[symbol])
         keyword = names.get(symbol) or symbol
-        news = combined_news_search(keyword, size=5, lang=lang, aliases=aliases)
+        news = combined_news_search(keyword, size=5, lang=lang, aliases=aliases, date_str=date_str)
         score = float(news.get("all_count", 0))
         source_counts = news.get("source_counts") or {}
         score += max(0, len(source_counts) - 1) * 0.8
@@ -1956,6 +2000,7 @@ def rank_symbols_by_news_heat(
                 score += 0.5
         heat[symbol] = {"score": score, "news": news}
     ranked = sorted(symbols, key=lambda s: (-heat.get(s, {}).get("score", 0), symbols.index(s)))
+    ranked = [symbol for symbol in ranked if heat.get(symbol, {}).get("score", 0) > 0]
     return ranked[:top_n], heat
 
 
@@ -2014,7 +2059,7 @@ def camofox_board_list(board_type: str = "industry") -> dict[str, Any]:
 # ------------------------------------------------------------------
 
 def print_index(data: list[dict[str, Any]]) -> None:
-    print("## 指数表现\n")
+    print("## A股指数表现\n")
     print(f"{'指数':<10} {'收盘':>10} {'涨跌':>10} {'涨跌幅':>10} {'成交额':>12}")
     print("-" * 60)
     if not data:
@@ -2049,7 +2094,7 @@ def print_zt_analysis(zt_data: dict, dt_data: dict, zb_data: dict) -> None:
     dt_total = dt_data.get("data", {}).get("tc", len(dt_pool)) if "_error" not in dt_data else 0
     zb_total = zb_data.get("data", {}).get("tc", len(zb_pool)) if "_error" not in zb_data else 0
 
-    print("## 涨跌停与连板梯队\n")
+    print("## A股涨跌停与连板梯队\n")
     print(f"涨停: {zt_total} 只 | 跌停: {dt_total} 只 | 炸板: {zb_total} 只")
     if zt_total + zb_total > 0:
         zb_rate = zb_total / (zt_total + zb_total) * 100
@@ -2106,7 +2151,7 @@ def print_fund_flow(flow_data: dict[str, str]) -> None:
         print(f"  交易日: {flow_data['date']}")
         requested = str(flow_data.get("_requested_date", "")).replace("-", "") or flow_data.get("date", "").replace("-", "")
         if requested:
-            print(f"  阶段: {session_stage_label(data_date=flow_data['date'], requested_date=requested)}")
+            print(f"  阶段: {dated_stage_label(data_date=flow_data['date'], requested_date=requested)}")
     if flow_data.get("_date_note") == "latest_available" and flow_data.get("_requested_date"):
         print(f"  提醒: 当前展示来源最新可用数据，本次请求日期为 {flow_data['_requested_date']}")
     if flow_data.get("_cache_note") == "last_known_good":
@@ -2285,7 +2330,7 @@ def print_single_stock_unavailable(symbol: str, reason: str) -> None:
 def print_single_stock_report(qd: QuoteData, requested_date: str) -> None:
     print(f"# 个股速览：{qd.name or qd.symbol} ({qd.symbol})\n")
     print(f"市场: {_market_label(qd.market)} | 来源: {_source_label(qd.source)} | 数据日期: {qd.date or '-'}")
-    print(f"当前阶段: {session_stage_label(data_date=qd.date, requested_date=requested_date)}")
+    print(f"当前阶段: {dated_stage_label(data_date=qd.date, requested_date=requested_date)}")
     if qd.date and qd.date.replace("-", "") != requested_date:
         print(f"提醒: 当前展示数据源最新可用交易日，本次请求日期为 {_display_date(requested_date)}")
     print()
@@ -2328,7 +2373,7 @@ def run_stock_quote(symbol: str, date_str: str, include_news: bool = True) -> No
         keyword = qd.name if qd.market in ("cn_market", "hk_market") and qd.name else qd.symbol
         lang = "zh-CN" if qd.market in ("cn_market", "hk_market") else "en"
         aliases = _news_aliases(qd.symbol, qd.name)
-        print_futu_news(combined_news_search(keyword, size=5, lang=lang, aliases=aliases), keyword)
+        print_futu_news(combined_news_search(keyword, size=5, lang=lang, aliases=aliases, date_str=date_str), keyword)
 
     if DIAGNOSTICS:
         print_diagnostic_summary()
@@ -2337,6 +2382,7 @@ def run_stock_quote(symbol: str, date_str: str, include_news: bool = True) -> No
 
 def run_stock_news(symbol: str, date_str: str, size: int = 8) -> None:
     DIAGNOSTICS.clear()
+    size = min(size, 5)
     normalized = symbol
     market = detect_market_type(symbol)
     name = ""
@@ -2353,11 +2399,10 @@ def run_stock_news(symbol: str, date_str: str, size: int = 8) -> None:
     lang = "zh-CN" if market in ("cn_market", "hk_market") else "en"
     aliases = _news_aliases(normalized, name)
     print(f"# 消息面速览：{name or normalized} ({normalized})\n")
+    print(f"市场: {_market_label(market)}")
     print_stage_line(date_str)
-    news = combined_news_search(keyword, size=size, lang=lang, aliases=aliases)
+    news = combined_news_search(keyword, size=size, lang=lang, aliases=aliases, date_str=date_str)
     print_futu_news(news, keyword, limit=size)
-    if not news.get("data"):
-        print("暂未从免登录来源拿到匹配新闻，可以稍后加 --refresh 重试。")
     print_report_footer()
 
 
@@ -2365,10 +2410,13 @@ def print_futu_news(news_data: dict, keyword: str, limit: int = 5) -> None:
     if "_error" in news_data:
         return
     data = news_data.get("data", [])
-    if not data:
-        return
     source = news_data.get("source", "futu_news")
     source_label = "多源聚合" if "+" in str(source) else _news_source_label(str(source))
+    if not data:
+        print(f"## {keyword} 相关新闻（{source_label}）\n")
+        print("  目前暂未获取到有效新闻信息。")
+        print()
+        return
     shown = min(limit, len(data))
     print(f"## {keyword} 相关新闻（{source_label}，前{shown}条）\n")
     source_counts = news_data.get("source_counts") or {}
@@ -2486,6 +2534,40 @@ def print_report_footer() -> None:
     print("\n复盘仅供参考，请结合公告、交易所披露和自身风险承受能力判断。")
 
 
+def print_a_share_news(date_str: str, zt_data: dict | None = None) -> None:
+    keywords = ["A股", "上证指数", "涨停"]
+    zt_pool = ((zt_data or {}).get("data", {}) or {}).get("pool", []) if zt_data and "_error" not in zt_data else []
+    for item in zt_pool[:2]:
+        name = item.get("n")
+        if name:
+            keywords.append(str(name))
+
+    seen_titles: set[str] = set()
+    all_items: list[dict[str, Any]] = []
+    source_counts: Counter[str] = Counter()
+    for keyword in dict.fromkeys(keywords):
+        news = combined_news_search(str(keyword), size=5, lang="zh-CN", aliases=[str(keyword)], date_str=date_str)
+        for source, count in (news.get("source_counts") or {}).items():
+            source_counts[str(source)] += int(count)
+        for item in news.get("data", []):
+            title = str(item.get("title", ""))
+            if not title or title in seen_titles:
+                continue
+            seen_titles.add(title)
+            all_items.append(item)
+
+    all_items.sort(key=lambda item: _parse_news_time(item.get("publish_time")), reverse=True)
+    print_futu_news(
+        {
+            "source": "+".join(source_counts.keys()) or "none",
+            "source_counts": dict(source_counts),
+            "data": _select_diverse_news(all_items, 5),
+        },
+        "A股市场",
+        limit=5,
+    )
+
+
 # ------------------------------------------------------------------
 # 复盘主体
 # ------------------------------------------------------------------
@@ -2508,7 +2590,7 @@ def _session_label() -> str:
     return session_stage_label()
 
 
-def run_a_share(date_str: str) -> None:
+def run_a_share(date_str: str, include_news: bool = True) -> None:
     DIAGNOSTICS.clear()
     display_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
     session = _session_label()
@@ -2529,6 +2611,9 @@ def run_a_share(date_str: str) -> None:
     print_fund_flow(flow)
 
     print_sentiment_summary(zt, dt, zb, flow)
+
+    if include_news:
+        print_a_share_news(date_str, zt)
 
     industry = camofox_board_list("industry")
     concept = camofox_board_list("concept")
@@ -2562,14 +2647,19 @@ def run_us_market(date_str: str, include_news: bool = True) -> None:
     if indices:
         print_global_indices(indices, "美股")
 
-    hot_stocks = ["AAPL", "TSLA", "NVDA", "MSFT", "AMZN", "GOOGL", "META", "BABA", "PDD", "JD"]
+    default_hot_stocks = ["AAPL", "TSLA", "NVDA", "MSFT", "AMZN", "GOOGL", "META", "BABA", "PDD", "JD"]
+    hot_stocks = default_hot_stocks
     heat: dict[str, dict[str, Any]] = {}
     if include_news:
-        hot_stocks, heat = rank_symbols_by_news_heat(hot_stocks, lang="en", top_n=5)
+        ranked_news, heat = rank_symbols_by_news_heat(default_hot_stocks, lang="en", top_n=5, date_str=date_str)
         print("## 新闻热度 Top5\n")
-        for i, sym in enumerate(hot_stocks, 1):
-            print(f"{i}. {sym}（新闻热度 {heat.get(sym, {}).get('score', 0):.1f}）")
+        if ranked_news:
+            for i, sym in enumerate(ranked_news, 1):
+                print(f"{i}. {sym}（新闻热度 {heat.get(sym, {}).get('score', 0):.1f}）")
+        else:
+            print("  目前暂未获取到有效新闻信息。")
         print()
+        hot_stocks = list(dict.fromkeys([*ranked_news, *default_hot_stocks]))[:5]
     print("## 重点个股行情\n")
     stocks = fetch_us_stocks_sina(hot_stocks, date_str)
     if not _has_all_quotes(stocks, hot_stocks):
@@ -2580,9 +2670,11 @@ def run_us_market(date_str: str, include_news: bool = True) -> None:
         print_global_stock(qd)
 
     if include_news:
-        print("## 相关新闻\n")
-        for sym in hot_stocks[:3]:
-            news = heat.get(sym, {}).get("news") or combined_news_search(sym, size=5, lang="en")
+        news_symbols = [s for s in hot_stocks[:3] if heat.get(s, {}).get("score", 0) > 0]
+        if news_symbols:
+            print("## 相关新闻\n")
+        for sym in news_symbols:
+            news = heat.get(sym, {}).get("news") or combined_news_search(sym, size=5, lang="en", date_str=date_str)
             print_futu_news(news, sym)
 
     printed_quality = False
@@ -2621,7 +2713,8 @@ def run_hk_market(date_str: str, include_news: bool = True) -> None:
     if indices:
         print_global_indices(indices, "港股")
 
-    hot_stocks = ["0700.HK", "9988.HK", "3690.HK", "9618.HK", "1299.HK", "2318.HK", "0005.HK", "0388.HK"]
+    default_hot_stocks = ["0700.HK", "9988.HK", "3690.HK", "9618.HK", "1299.HK", "2318.HK", "0005.HK", "0388.HK"]
+    hot_stocks = default_hot_stocks
     hk_names = {
         "0700.HK": "腾讯控股",
         "9988.HK": "阿里巴巴",
@@ -2634,11 +2727,15 @@ def run_hk_market(date_str: str, include_news: bool = True) -> None:
     }
     heat: dict[str, dict[str, Any]] = {}
     if include_news:
-        hot_stocks, heat = rank_symbols_by_news_heat(hot_stocks, names=hk_names, lang="zh-CN", top_n=5)
+        ranked_news, heat = rank_symbols_by_news_heat(default_hot_stocks, names=hk_names, lang="zh-CN", top_n=5, date_str=date_str)
         print("## 新闻热度 Top5\n")
-        for i, sym in enumerate(hot_stocks, 1):
-            print(f"{i}. {hk_names.get(sym, sym)}（{sym}，新闻热度 {heat.get(sym, {}).get('score', 0):.1f}）")
+        if ranked_news:
+            for i, sym in enumerate(ranked_news, 1):
+                print(f"{i}. {hk_names.get(sym, sym)}（{sym}，新闻热度 {heat.get(sym, {}).get('score', 0):.1f}）")
+        else:
+            print("  目前暂未获取到有效新闻信息。")
         print()
+        hot_stocks = list(dict.fromkeys([*ranked_news, *default_hot_stocks]))[:5]
     print("## 重点个股行情\n")
     stocks = fetch_hk_stocks_sina(hot_stocks, date_str)
     if not _has_all_quotes(stocks, hot_stocks):
@@ -2649,9 +2746,11 @@ def run_hk_market(date_str: str, include_news: bool = True) -> None:
         print_global_stock(qd)
 
     if include_news:
-        print("## 相关新闻\n")
-        for sym in hot_stocks[:3]:
-            news = heat.get(sym, {}).get("news") or combined_news_search(hk_names.get(sym, sym), size=5, lang="zh-CN")
+        news_symbols = [s for s in hot_stocks[:3] if heat.get(s, {}).get("score", 0) > 0]
+        if news_symbols:
+            print("## 相关新闻\n")
+        for sym in news_symbols:
+            news = heat.get(sym, {}).get("news") or combined_news_search(hk_names.get(sym, sym), size=5, lang="zh-CN", date_str=date_str)
             print_futu_news(news, hk_names.get(sym, sym))
 
     printed_quality = False
@@ -2788,7 +2887,7 @@ def main():
         date_str = nearest_trade_date()
 
     if market == "a":
-        run_a_share(date_str)
+        run_a_share(date_str, include_news=include_news)
     elif market == "us":
         run_us_market(date_str, include_news=include_news)
     elif market == "hk":

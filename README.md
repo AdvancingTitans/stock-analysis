@@ -33,6 +33,7 @@ git clone https://github.com/AdvancingTitans/stock-analysis.git ~/.hermes/skills
 ```bash
 # A股复盘（自动检测交易日）
 python scripts/aftermarket.py --market a
+python scripts/aftermarket.py --market a --no-news
 
 # 美股复盘
 python scripts/aftermarket.py --market us
@@ -160,8 +161,10 @@ hermes skills install --repo AdvancingTitans/stock-analysis --path skills/stock-
 - 资金流实时接口临时不可用时，先尝试在线资金流页面指标接口，再尝试新浪/腾讯 A股指数活跃度指标；这些指标会明确标注“不等同于主力资金净流入”，在线源都不可用时才降级展示本地最近一次可信资金流缓存。
 - 港美股重点个股会基于富途、新浪财经、东方财富快讯等免登录来源做新闻热度 Top5 排序；雪球/同花顺若无稳定免登录接口，不作为默认硬依赖。
 - 新闻输出逐条显示来源和链接状态；热度排序基于所有来源命中数和新鲜度，展示时尽量保留多来源，不让单一来源自动挤掉其他有效来源。
-- 所有行情命令标注当前阶段：上午盘、午间、下午盘、盘后；若展示非请求日数据，会标注为该交易日盘后数据。
-- `--no-news` 可用于 `--market hk`、`--market us`、`--market stock`，只看行情时不会输出新闻链接。
+- 新闻只展示请求交易日当天发布的有效内容，最多 5 条；不足 5 条则按实际数量展示，没有则明确提示暂未获取到有效新闻信息。
+- A股复盘默认带市场新闻，`--no-news` 可跳过。
+- 所有行情命令标注当前阶段：上午盘、午间、下午盘、盘后；若展示非请求日数据，会标注为该交易日盘后数据，阶段字段包含数据日期。
+- `--no-news` 可用于 `--market a`、`--market hk`、`--market us`、`--market stock`，只看行情时不会输出新闻链接。
 - 默认不再输出“数据源切换记录”；如需排查接口，可设置 `YOUNG_STOCK_DEBUG=1`。
 
 ### v3.2.0
