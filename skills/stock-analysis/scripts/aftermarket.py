@@ -26,7 +26,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
@@ -87,6 +87,12 @@ FFLOW_HIS_URL = (
     "&klt=101&lmt=1&_={ts}"
 )
 FUND_FLOW_COLS = "date,主力净流入,小单净流入,中单净流入,大单净流入,超大单净流入,主力净流入占比,小单净流入占比,中单净流入占比,大单净流入占比,超大单净流入占比,收盘价,涨跌幅,总成交额".split(",")
+FFLOW_MARKET_FIELDS = "f62,f184,f66,f69,f72,f75,f78,f81,f84,f87,f124,f6"
+FFLOW_MARKET_URL = (
+    "https://push2.eastmoney.com/api/qt/ulist.np/get"
+    "?fltt=2&secids=1.000001,0.399001&fields={fields}"
+    "&ut=b2884a393a59ad64002292a3e90d46a5&_={ts}"
+)
 INDEX_URL = (
     "https://push2.eastmoney.com/api/qt/ulist.np/get"
     "?fltt=2&secids={secids}&fields={fields}&_={ts}"
@@ -157,6 +163,7 @@ INDEX_NAME_MAP = {
 FUTU_NEWS_URL = "https://ai-news-search.futunn.com/news_search"
 FUTU_FEED_URL = "https://ai-news-search.futunn.com/stock_feed"
 SINA_ROLL_NEWS_URL = "https://feed.mix.sina.com.cn/api/roll/get"
+EASTMONEY_FAST_NEWS_URL = "https://np-listapi.eastmoney.com/comm/web/getFastNewsList"
 
 # 新浪财经（免登录、GBK 编码、对美股/港股最稳，作为 stock/get 之外的主路径）
 SINA_HQ_URL = "https://hq.sinajs.cn/list={codes}"
@@ -245,6 +252,38 @@ def cache_save(symbol: str, date_str: str, source: str, data: dict[str, Any]) ->
             json.dump(data, f, ensure_ascii=False, default=str)
     except Exception:
         pass
+
+
+def load_latest_fund_flow_cache(date_str: str) -> dict[str, str] | None:
+    """读取最近一次可信资金流缓存，用作接口临时不可用时的兜底。"""
+    if not CACHE_DIR.exists():
+        return None
+    try:
+        dirs = sorted(
+            [d for d in CACHE_DIR.iterdir() if d.is_dir() and re.fullmatch(r"\d{8}", d.name)],
+            key=lambda d: d.name,
+            reverse=True,
+        )
+    except Exception:
+        return None
+    for d in dirs:
+        p = d / _cache_key("fund_flow", d.name, "eastmoney")
+        if not p.exists():
+            continue
+        try:
+            with open(p, encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            continue
+        if not data or data.get("_unavailable") or not data.get("主力净流入") or not data.get("date"):
+            continue
+        data["_requested_date"] = _display_date(date_str)
+        if data.get("date", "").replace("-", "") != date_str:
+            data["_date_note"] = "latest_available"
+        data.setdefault("_source", "本地最近可用资金流缓存")
+        data.setdefault("_scope", "A股")
+        return data
+    return None
 
 
 def cache_clear_old(days: int = 7) -> None:
@@ -461,6 +500,102 @@ def fetch_fund_flow_json(url: str) -> dict[str, Any]:
     return {"_error": " | ".join(e for e in errors if e)}
 
 
+def fetch_market_fund_flow_snapshot(date_str: str) -> dict[str, str]:
+    """东财资金流页面的实时资金指标。fflow 断连时作为在线替代源。"""
+    url = FFLOW_MARKET_URL.format(fields=FFLOW_MARKET_FIELDS, ts=int(datetime.now().timestamp() * 1000))
+    data = fetch_json(url, {"Referer": "https://data.eastmoney.com/zjlx/default.html"})
+    if "_error" in data:
+        diag(f"Eastmoney market fund-flow snapshot: {data['_error']}")
+        return {}
+
+    rows = _normalize_diff((data.get("data") or {}).get("diff"))
+    if not rows:
+        diag("Eastmoney market fund-flow snapshot: empty diff")
+        return {}
+
+    totals: dict[str, float] = defaultdict(float)
+    latest_ts = 0
+    for row in rows:
+        for key in ("f62", "f66", "f72", "f78", "f84", "f6"):
+            value = _safe_float(row.get(key))
+            if value is not None:
+                totals[key] += value
+        ts = _safe_int(row.get("f124")) or 0
+        latest_ts = max(latest_ts, ts)
+
+    turnover = totals.get("f6") or 0
+
+    def pct(amount: float) -> str:
+        return str(amount / turnover * 100) if turnover else ""
+
+    trade_date = _display_date(date_str)
+    if latest_ts:
+        trade_date = datetime.fromtimestamp(latest_ts).strftime("%Y-%m-%d")
+
+    result = {
+        "date": trade_date,
+        "主力净流入": str(totals.get("f62", 0)),
+        "小单净流入": str(totals.get("f84", 0)),
+        "中单净流入": str(totals.get("f78", 0)),
+        "大单净流入": str(totals.get("f72", 0)),
+        "超大单净流入": str(totals.get("f66", 0)),
+        "主力净流入占比": pct(totals.get("f62", 0)),
+        "小单净流入占比": pct(totals.get("f84", 0)),
+        "中单净流入占比": pct(totals.get("f78", 0)),
+        "大单净流入占比": pct(totals.get("f72", 0)),
+        "超大单净流入占比": pct(totals.get("f66", 0)),
+        "总成交额": str(turnover),
+        "_source": "东财资金流页面实时指标",
+        "_scope": "A股",
+    }
+    if result["date"].replace("-", "") != date_str:
+        result["_requested_date"] = _display_date(date_str)
+        result["_date_note"] = "latest_available"
+    return result
+
+
+def _market_activity_snapshot(rows: list[dict[str, Any]], source: str, date_str: str) -> dict[str, str]:
+    usable = [r for r in rows if r.get("f12") in {"000001", "399001"}]
+    if not usable:
+        return {}
+    total_turnover = sum(float(r.get("f6") or 0) for r in usable)
+    result: dict[str, str] = {
+        "date": _display_date(date_str),
+        "_source": source,
+        "_scope": "A股",
+        "_fallback_indicator": "market_activity",
+        "_indicator_note": "当前在线资金流接口不可用，以下为A股指数行情活跃度参考，不等同于主力资金净流入。",
+        "总成交额": str(total_turnover),
+    }
+    for row in usable:
+        name = str(row.get("f14") or row.get("f12") or "")
+        code = str(row.get("f12") or "")
+        prefix = "上证指数" if code == "000001" else "深证成指"
+        result[f"{prefix}点位"] = str(row.get("f2") or "")
+        result[f"{prefix}涨跌幅"] = str(row.get("f3") or "")
+        result[f"{prefix}成交额"] = str(row.get("f6") or "")
+        result[f"{prefix}名称"] = name
+    return result
+
+
+def fetch_sina_market_activity_snapshot(date_str: str) -> dict[str, str]:
+    """新浪A股指数行情：仅作为资金流接口失效时的在线活跃度参考。"""
+    rows = _fetch_a_indices_sina()
+    if not rows:
+        diag("Sina market activity: empty indices")
+        return {}
+    return _market_activity_snapshot(rows, "新浪财经A股指数行情", date_str)
+
+
+def fetch_tencent_market_activity_snapshot(date_str: str) -> dict[str, str]:
+    """腾讯A股指数行情：仅作为资金流接口失效时的在线活跃度参考。"""
+    rows = _fetch_a_indices_tencent()
+    if not rows:
+        diag("Tencent market activity: empty indices")
+        return {}
+    return _market_activity_snapshot(rows, "腾讯财经A股指数行情", date_str)
+
+
 def _display_date(date_str: str) -> str:
     return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
 
@@ -471,6 +606,30 @@ def _source_date(value: str | None) -> str:
     value = str(value).strip().replace("/", "-")
     m = re.match(r"(\d{4}-\d{2}-\d{2})", value)
     return m.group(1) if m else value
+
+
+def session_stage_label(dt: datetime | None = None, *, data_date: str | None = None, requested_date: str | None = None) -> str:
+    """返回股民更容易理解的行情阶段。历史/非请求日数据按盘后展示。"""
+    if data_date and requested_date and data_date.replace("-", "") != requested_date:
+        return "交易日盘后"
+    if dt is None:
+        dt = datetime.now()
+    minutes = dt.hour * 60 + dt.minute
+    if 9 * 60 + 30 <= minutes < 11 * 60 + 30:
+        return "上午盘"
+    if 11 * 60 + 30 <= minutes < 13 * 60:
+        return "午间"
+    if 13 * 60 <= minutes < 15 * 60:
+        return "下午盘"
+    return "盘后"
+
+
+def print_stage_line(requested_date: str, data_date: str | None = None) -> None:
+    stage = session_stage_label(data_date=data_date, requested_date=requested_date)
+    if data_date and data_date.replace("-", "") != requested_date:
+        print(f"当前阶段: {stage}（展示的是 {data_date} 数据，本次请求 {_display_date(requested_date)}）\n")
+    else:
+        print(f"当前阶段: {stage}\n")
 
 
 # ------------------------------------------------------------------
@@ -1353,7 +1512,13 @@ def get_zb_pool(date_str: str) -> dict[str, Any]:
 def get_fund_flow(date_str: str, *, strict_date: bool = True) -> dict[str, str]:
     cached = cache_load("fund_flow", date_str, "eastmoney")
     if cached:
-        if cached.get("_unavailable") or cached.get("date", "").replace("-", "") == date_str:
+        if cached.get("_unavailable"):
+            diag("Ignored stale unavailable fund-flow cache")
+        elif cached.get("date", "").replace("-", "") == date_str:
+            return cached
+        elif cached.get("date"):
+            cached["_requested_date"] = _display_date(date_str)
+            cached["_date_note"] = "latest_available"
             return cached
         diag(
             "Ignored cached fund flow because the returned trading date "
@@ -1366,7 +1531,6 @@ def get_fund_flow(date_str: str, *, strict_date: bool = True) -> dict[str, str]:
     latest_result: dict[str, str] | None = None
     for source_name, url_template, display_source in (
         ("Eastmoney fflow realtime", FFLOW_URL, "东财实时资金流"),
-        ("Eastmoney fflow history", FFLOW_HIS_URL, "东财历史日线资金流"),
     ):
         url = url_template.format(ts=int(datetime.now().timestamp() * 1000))
         data = fetch_fund_flow_json(url)
@@ -1388,24 +1552,65 @@ def get_fund_flow(date_str: str, *, strict_date: bool = True) -> dict[str, str]:
                         diag("Fund flow fell back to Eastmoney push2his")
                     cache_save("fund_flow", date_str, "eastmoney", result)
                     return result
-                if not strict_date:
-                    result["_requested_date"] = _display_date(date_str)
-                    result["_date_note"] = "latest_available"
-                    return result
+                result["_requested_date"] = _display_date(date_str)
+                result["_date_note"] = "latest_available"
+                cache_save("fund_flow", date_str, "eastmoney", result)
+                return result
             latest_date = latest_result.get("date") if latest_result else "unknown"
             last_error = f"{source_name}: latest flow date {latest_date} != requested {date_str}"
             continue
         last_error = f"{source_name}: empty klines"
 
+    snapshot = fetch_market_fund_flow_snapshot(date_str)
+    if snapshot:
+        cache_save("fund_flow", date_str, "eastmoney", snapshot)
+        return snapshot
+
+    url = FFLOW_HIS_URL.format(ts=int(datetime.now().timestamp() * 1000))
+    data = fetch_fund_flow_json(url)
+    if "_error" in data:
+        last_error = f"Eastmoney fflow history: {data['_error']}"
+    else:
+        klines = (data.get("data") or {}).get("klines", [])
+        if klines:
+            for row in klines:
+                vals = row.split(",")
+                result = dict(zip(FUND_FLOW_COLS, vals, strict=False))
+                result["_source"] = "东财历史日线资金流"
+                result["_scope"] = "A股"
+                if latest_result is None:
+                    latest_result = result
+                if result.get("date", "").replace("-", "") == date_str:
+                    diag("Fund flow fell back to Eastmoney push2his")
+                    cache_save("fund_flow", date_str, "eastmoney", result)
+                    return result
+                result["_requested_date"] = _display_date(date_str)
+                result["_date_note"] = "latest_available"
+                cache_save("fund_flow", date_str, "eastmoney", result)
+                return result
+        else:
+            last_error = "Eastmoney fflow history: empty klines"
+
     if last_error:
         diag(last_error)
-    latest_date = latest_result.get("date") if latest_result else ""
+    if latest_result:
+        latest_result["_requested_date"] = _display_date(date_str)
+        latest_result["_date_note"] = "latest_available"
+        cache_save("fund_flow", date_str, "eastmoney", latest_result)
+        return latest_result
+    for fallback in (fetch_sina_market_activity_snapshot, fetch_tencent_market_activity_snapshot):
+        activity = fallback(date_str)
+        if activity:
+            return activity
+    cached_latest = load_latest_fund_flow_cache(date_str)
+    if cached_latest:
+        cached_latest["_cache_note"] = "last_known_good"
+        return cached_latest
     return {
-        "_unavailable": "资金流数据日期和请求日期不一致，已避免展示可能滞后的数据",
+        "_unavailable": "当前没有拿到可核验交易日的免登录资金流数据",
         "_scope": "A股",
         "_requested_date": _display_date(date_str),
-        "_latest_date": latest_date,
-        "_source": flow_source or (latest_result or {}).get("_source", "东财资金流"),
+        "_source": flow_source or "东财资金流",
     }
 
 
@@ -1460,16 +1665,26 @@ def _clean_news_title(title: str) -> str:
     return html.unescape(title).strip()
 
 
-def _normalize_futu_feed(feed_data: dict[str, Any], size: int = 5) -> dict[str, Any]:
+def _normalize_futu_feed(
+    feed_data: dict[str, Any],
+    size: int = 5,
+    *,
+    keyword: str | None = None,
+    aliases: list[str] | None = None,
+) -> dict[str, Any]:
     if "_error" in feed_data:
         return feed_data
     raw_items = feed_data.get("data", [])
     if isinstance(raw_items, dict):
         raw_items = raw_items.get("list") or raw_items.get("items") or []
+    candidates = [keyword or "", *(aliases or SINA_NEWS_ALIASES.get((keyword or "").upper(), []))]
+    candidates = [c.lower() for c in candidates if c]
     items = []
-    for item in raw_items[:size]:
+    for item in raw_items:
         title = _clean_news_title(str(item.get("title") or item.get("content") or ""))
         if not title:
+            continue
+        if candidates and not any(alias in title.lower() for alias in candidates):
             continue
         items.append({
             "title": title,
@@ -1477,6 +1692,8 @@ def _normalize_futu_feed(feed_data: dict[str, Any], size: int = 5) -> dict[str, 
             "publish_time": item.get("publish_time") or item.get("time") or 0,
             "source": "futu_feed",
         })
+        if len(items) >= size:
+            break
     return {"source": "futu_feed", "data": items}
 
 
@@ -1519,14 +1736,68 @@ def sina_roll_news(keyword: str, size: int = 5, aliases: list[str] | None = None
     return {"source": "sina_roll", "data": items}
 
 
+@retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
+def eastmoney_fast_news(keyword: str, size: int = 5, aliases: list[str] | None = None) -> dict[str, Any]:
+    """东方财富7x24快讯。免登录，按关键词/别名做本地过滤。"""
+    params = urllib.parse.urlencode({
+        "client": "web",
+        "biz": "web_724",
+        "fastColumn": "102",
+        "sortEnd": "",
+        "req_trace": str(int(time.time() * 1000)),
+        "pageSize": 80,
+    })
+    url = f"{EASTMONEY_FAST_NEWS_URL}?{params}"
+    data = fetch_json(url, {"Referer": "https://kuaixun.eastmoney.com/"})
+    if "_error" in data:
+        diag(f"Eastmoney fast news {keyword}: {data['_error']}")
+        return data
+
+    candidates = [keyword, *(aliases or SINA_NEWS_ALIASES.get(keyword.upper(), []))]
+    candidates = [c.lower() for c in candidates if c]
+    raw_items = ((data.get("data") or {}).get("fastNewsList") or [])
+    items = []
+    for item in raw_items:
+        title = _clean_news_title(str(item.get("title", "")))
+        summary = _clean_news_title(str(item.get("summary", "")))
+        text = f"{title} {summary}".lower()
+        if candidates and not any(alias in text for alias in candidates):
+            continue
+        items.append({
+            "title": title,
+            "url": f"https://kuaixun.eastmoney.com/detail.html?newsid={item.get('code', '')}",
+            "publish_time": _parse_news_time(item.get("showTime")),
+            "source": "东方财富",
+        })
+        if len(items) >= size:
+            break
+    return {"source": "eastmoney_fast", "data": items}
+
+
+def _parse_news_time(value: Any) -> int:
+    if not value:
+        return 0
+    if isinstance(value, (int, float)):
+        return int(value)
+    text = str(value).strip()
+    if text.isdigit():
+        return int(text)
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S"):
+        try:
+            return int(datetime.strptime(text, fmt).timestamp())
+        except ValueError:
+            continue
+    return 0
+
+
 def news_search_chain(keyword: str, size: int = 5, lang: str = "en", aliases: list[str] | None = None) -> dict[str, Any]:
-    """资讯三段式：Futu 新闻 → Futu feed → 新浪财经滚动新闻。"""
+    """资讯四段式：Futu 新闻 → Futu feed → 新浪财经 → 东方财富。"""
     news = futu_news_search(keyword, size=size, lang=lang)
     if news.get("data"):
         news.setdefault("source", "futu_news")
         return news
 
-    feed = _normalize_futu_feed(futu_stock_feed(keyword, size=size * 2), size=size)
+    feed = _normalize_futu_feed(futu_stock_feed(keyword, size=size * 2), size=size, keyword=keyword, aliases=aliases)
     if feed.get("data"):
         return feed
 
@@ -1534,7 +1805,69 @@ def news_search_chain(keyword: str, size: int = 5, lang: str = "en", aliases: li
     if fallback.get("data"):
         return fallback
 
+    em_news = eastmoney_fast_news(keyword, size=size, aliases=aliases)
+    if em_news.get("data"):
+        return em_news
+
     return news if "_error" in news else {"source": "none", "data": []}
+
+
+def combined_news_search(keyword: str, size: int = 5, lang: str = "zh-CN", aliases: list[str] | None = None) -> dict[str, Any]:
+    """聚合免登录新闻源，用于热度排序和展示。"""
+    sources = [
+        futu_news_search(keyword, size=size, lang=lang),
+        _normalize_futu_feed(futu_stock_feed(keyword, size=size * 2), size=size, keyword=keyword, aliases=aliases),
+        sina_roll_news(keyword, size=size, aliases=aliases),
+        eastmoney_fast_news(keyword, size=size, aliases=aliases),
+    ]
+    seen: set[str] = set()
+    items: list[dict[str, Any]] = []
+    used_sources: list[str] = []
+    for idx, source in enumerate(sources):
+        if not source.get("data"):
+            continue
+        fallback_name = ("futu_news", "futu_feed", "sina_roll", "eastmoney_fast")[idx]
+        source_name = str(source.get("source") or fallback_name)
+        used_sources.append(source_name)
+        for item in source.get("data", []):
+            title = _clean_news_title(str(item.get("title", "")))
+            if not title or title in seen:
+                continue
+            seen.add(title)
+            normalized = dict(item)
+            normalized["title"] = title
+            normalized.setdefault("source", source_name)
+            items.append(normalized)
+    items.sort(key=lambda item: _parse_news_time(item.get("publish_time")), reverse=True)
+    return {"source": "+".join(s for s in used_sources if s) or "none", "data": items[:size]}
+
+
+def rank_symbols_by_news_heat(
+    symbols: list[str],
+    *,
+    names: dict[str, str] | None = None,
+    lang: str = "zh-CN",
+    top_n: int = 5,
+) -> tuple[list[str], dict[str, dict[str, Any]]]:
+    """按多源新闻命中数和新鲜度给股票排序，保持无新闻标的的原始顺序。"""
+    heat: dict[str, dict[str, Any]] = {}
+    names = names or {}
+    now_ts = int(time.time())
+    for symbol in symbols:
+        aliases = [symbol]
+        if names.get(symbol):
+            aliases.append(names[symbol])
+        keyword = names.get(symbol) or symbol
+        news = combined_news_search(keyword, size=5, lang=lang, aliases=aliases)
+        score = 0.0
+        for item in news.get("data", []):
+            score += 1.0
+            ts = _parse_news_time(item.get("publish_time"))
+            if ts and now_ts - ts < 24 * 3600:
+                score += 0.5
+        heat[symbol] = {"score": score, "news": news}
+    ranked = sorted(symbols, key=lambda s: (-heat.get(s, {}).get("score", 0), symbols.index(s)))
+    return ranked[:top_n], heat
 
 
 # ------------------------------------------------------------------
@@ -1671,7 +2004,7 @@ def print_fund_flow(flow_data: dict[str, str]) -> None:
         print()
         return
     if flow_data.get("_unavailable"):
-        print("  暂不展示：资金流来源返回的交易日与本次复盘日期不一致。")
+        print("  当前没有拿到可核验交易日的免登录资金流数据。")
         if flow_data.get("_requested_date"):
             print(f"  本次复盘: {flow_data['_requested_date']}")
         if flow_data.get("_latest_date"):
@@ -1682,10 +2015,26 @@ def print_fund_flow(flow_data: dict[str, str]) -> None:
         return
     if flow_data.get("date"):
         print(f"  交易日: {flow_data['date']}")
+        requested = str(flow_data.get("_requested_date", "")).replace("-", "") or flow_data.get("date", "").replace("-", "")
+        if requested:
+            print(f"  阶段: {session_stage_label(data_date=flow_data['date'], requested_date=requested)}")
     if flow_data.get("_date_note") == "latest_available" and flow_data.get("_requested_date"):
         print(f"  提醒: 当前展示来源最新可用数据，本次请求日期为 {flow_data['_requested_date']}")
+    if flow_data.get("_cache_note") == "last_known_good":
+        print("  提醒: 实时接口暂不可用，当前为本地最近一次可信数据")
     if flow_data.get("_source"):
         print(f"  来源: {flow_data['_source']}")
+    if flow_data.get("_fallback_indicator") == "market_activity":
+        print(f"  说明: {flow_data.get('_indicator_note', '当前展示行情活跃度参考，不等同于主力资金净流入。')}")
+        print(f"  合计成交额: {fmt_amount(flow_data.get('总成交额'))}")
+        for name in ("上证指数", "深证成指"):
+            if flow_data.get(f"{name}点位"):
+                print(
+                    f"  {name}: {fmt_price(flow_data.get(f'{name}点位'))} "
+                    f"({fmt_pct(flow_data.get(f'{name}涨跌幅'))})，成交额 {fmt_amount(flow_data.get(f'{name}成交额'))}"
+                )
+        print()
+        return
     print(f"  主力净流入: {fmt_amount(flow_data.get('主力净流入'))}")
     print(f"  超大单:     {fmt_amount(flow_data.get('超大单净流入'))}")
     print(f"  大单:       {fmt_amount(flow_data.get('大单净流入'))}")
@@ -1847,6 +2196,7 @@ def print_single_stock_unavailable(symbol: str, reason: str) -> None:
 def print_single_stock_report(qd: QuoteData, requested_date: str) -> None:
     print(f"# 个股速览：{qd.name or qd.symbol} ({qd.symbol})\n")
     print(f"市场: {_market_label(qd.market)} | 来源: {_source_label(qd.source)} | 数据日期: {qd.date or '-'}")
+    print(f"当前阶段: {session_stage_label(data_date=qd.date, requested_date=requested_date)}")
     if qd.date and qd.date.replace("-", "") != requested_date:
         print(f"提醒: 当前展示数据源最新可用交易日，本次请求日期为 {_display_date(requested_date)}")
     print()
@@ -1889,7 +2239,7 @@ def run_stock_quote(symbol: str, date_str: str, include_news: bool = True) -> No
         keyword = qd.name if qd.market in ("cn_market", "hk_market") and qd.name else qd.symbol
         lang = "zh-CN" if qd.market in ("cn_market", "hk_market") else "en"
         aliases = [qd.symbol, qd.name] if qd.name else [qd.symbol]
-        print_futu_news(news_search_chain(keyword, size=5, lang=lang, aliases=aliases), keyword)
+        print_futu_news(combined_news_search(keyword, size=5, lang=lang, aliases=aliases), keyword)
 
     if DIAGNOSTICS:
         print_diagnostic_summary()
@@ -1903,11 +2253,15 @@ def print_futu_news(news_data: dict, keyword: str) -> None:
     if not data:
         return
     source = news_data.get("source", "futu_news")
-    source_label = {
-        "futu_news": "富途资讯",
-        "futu_feed": "富途社区/资讯",
-        "sina_roll": "新浪财经",
-    }.get(source, str(source))
+    if "+" in str(source):
+        source_label = "多源聚合"
+    else:
+        source_label = {
+            "futu_news": "富途资讯",
+            "futu_feed": "富途社区/资讯",
+            "sina_roll": "新浪财经",
+            "eastmoney_fast": "东方财富快讯",
+        }.get(source, str(source))
     print(f"## {keyword} 相关新闻（{source_label}，前5条）\n")
     for i, item in enumerate(data[:5], 1):
         ts = item.get("publish_time", 0)
@@ -2003,6 +2357,8 @@ def print_data_quality_report(results: list[QuoteData]) -> None:
 
 
 def print_diagnostic_summary() -> None:
+    if os.environ.get("YOUNG_STOCK_DEBUG") != "1":
+        return
     if DIAGNOSTICS:
         print("\n" + "=" * 60)
         print("数据源切换记录")
@@ -2034,16 +2390,7 @@ def nearest_trade_date(dt: datetime | None = None) -> str:
 
 def _session_label() -> str:
     """根据当前时间返回场次标签"""
-    now = datetime.now()
-    t = now.hour * 60 + now.minute
-    if 570 <= t < 690:      # 09:30 - 11:30
-        return "上午盘"
-    elif 690 <= t < 780:    # 11:30 - 13:00
-        return "午间"
-    elif 780 <= t < 900:    # 13:00 - 15:00
-        return "下午盘"
-    else:
-        return "盘后"
+    return session_stage_label()
 
 
 def run_a_share(date_str: str) -> None:
@@ -2079,9 +2426,10 @@ def run_a_share(date_str: str) -> None:
     print_report_footer()
 
 
-def run_us_market(date_str: str) -> None:
+def run_us_market(date_str: str, include_news: bool = True) -> None:
     DIAGNOSTICS.clear()
     print("# 美股市场复盘\n")
+    print_stage_line(date_str)
     print(f"数据来源: 新浪财经 + 腾讯财经 + 东方财富，多源自动切换 | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
     print("=" * 60 + "\n")
 
@@ -2100,6 +2448,13 @@ def run_us_market(date_str: str) -> None:
         print_global_indices(indices, "美股")
 
     hot_stocks = ["AAPL", "TSLA", "NVDA", "MSFT", "AMZN", "GOOGL", "META", "BABA", "PDD", "JD"]
+    heat: dict[str, dict[str, Any]] = {}
+    if include_news:
+        hot_stocks, heat = rank_symbols_by_news_heat(hot_stocks, lang="en", top_n=5)
+        print("## 新闻热度 Top5\n")
+        for i, sym in enumerate(hot_stocks, 1):
+            print(f"{i}. {sym}（新闻热度 {heat.get(sym, {}).get('score', 0):.1f}）")
+        print()
     print("## 重点个股行情\n")
     stocks = fetch_us_stocks_sina(hot_stocks, date_str)
     if not _has_all_quotes(stocks, hot_stocks):
@@ -2109,10 +2464,11 @@ def run_us_market(date_str: str) -> None:
     for qd in stocks:
         print_global_stock(qd)
 
-    print("## 相关新闻\n")
-    for sym in ["AAPL", "TSLA", "NVDA"]:
-        news = news_search_chain(sym, size=5, lang="en")
-        print_futu_news(news, sym)
+    if include_news:
+        print("## 相关新闻\n")
+        for sym in hot_stocks[:3]:
+            news = heat.get(sym, {}).get("news") or combined_news_search(sym, size=5, lang="en")
+            print_futu_news(news, sym)
 
     printed_quality = False
     if indices:
@@ -2129,9 +2485,10 @@ def run_us_market(date_str: str) -> None:
     print_report_footer()
 
 
-def run_hk_market(date_str: str) -> None:
+def run_hk_market(date_str: str, include_news: bool = True) -> None:
     DIAGNOSTICS.clear()
     print("# 港股市场复盘\n")
+    print_stage_line(date_str)
     print(f"数据来源: 腾讯财经 + 新浪财经 + 东方财富，多源自动切换 | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
     print("=" * 60 + "\n")
 
@@ -2150,6 +2507,23 @@ def run_hk_market(date_str: str) -> None:
         print_global_indices(indices, "港股")
 
     hot_stocks = ["0700.HK", "9988.HK", "3690.HK", "9618.HK", "1299.HK", "2318.HK", "0005.HK", "0388.HK"]
+    hk_names = {
+        "0700.HK": "腾讯控股",
+        "9988.HK": "阿里巴巴",
+        "3690.HK": "美团",
+        "9618.HK": "京东集团",
+        "1299.HK": "友邦保险",
+        "2318.HK": "中国平安",
+        "0005.HK": "汇丰控股",
+        "0388.HK": "香港交易所",
+    }
+    heat: dict[str, dict[str, Any]] = {}
+    if include_news:
+        hot_stocks, heat = rank_symbols_by_news_heat(hot_stocks, names=hk_names, lang="zh-CN", top_n=5)
+        print("## 新闻热度 Top5\n")
+        for i, sym in enumerate(hot_stocks, 1):
+            print(f"{i}. {hk_names.get(sym, sym)}（{sym}，新闻热度 {heat.get(sym, {}).get('score', 0):.1f}）")
+        print()
     print("## 重点个股行情\n")
     stocks = fetch_hk_stocks_sina(hot_stocks, date_str)
     if not _has_all_quotes(stocks, hot_stocks):
@@ -2159,10 +2533,11 @@ def run_hk_market(date_str: str) -> None:
     for qd in stocks:
         print_global_stock(qd)
 
-    print("## 相关新闻\n")
-    for sym in ["0700", "9988", "3690"]:
-        news = news_search_chain(sym, size=5, lang="zh-CN")
-        print_futu_news(news, sym)
+    if include_news:
+        print("## 相关新闻\n")
+        for sym in hot_stocks[:3]:
+            news = heat.get(sym, {}).get("news") or combined_news_search(hk_names.get(sym, sym), size=5, lang="zh-CN")
+            print_futu_news(news, hk_names.get(sym, sym))
 
     printed_quality = False
     if indices:
@@ -2182,6 +2557,7 @@ def run_hk_market(date_str: str) -> None:
 def run_global_market(date_str: str) -> None:
     DIAGNOSTICS.clear()
     print("# 全球市场概览\n")
+    print_stage_line(date_str)
     print(f"数据来源: 腾讯财经 + 新浪财经 + 东方财富，多源自动切换 | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
     print("=" * 60 + "\n")
 
@@ -2255,6 +2631,7 @@ def main():
     market = "a"
     date_str = None
     stock_symbol = None
+    include_news = True
 
     args = sys.argv[1:]
     i = 0
@@ -2267,6 +2644,9 @@ def main():
             i += 1
         elif args[i] == "--no-cache" or args[i] == "--refresh":
             NO_CACHE = True
+            i += 1
+        elif args[i] == "--no-news":
+            include_news = False
             i += 1
         elif args[i] in ("--stock", "--symbol") and i + 1 < len(args):
             stock_symbol = args[i + 1]
@@ -2294,13 +2674,13 @@ def main():
     if market == "a":
         run_a_share(date_str)
     elif market == "us":
-        run_us_market(date_str)
+        run_us_market(date_str, include_news=include_news)
     elif market == "hk":
-        run_hk_market(date_str)
+        run_hk_market(date_str, include_news=include_news)
     elif market == "global":
         run_global_market(date_str)
     elif market == "stock" and stock_symbol:
-        run_stock_quote(stock_symbol, date_str)
+        run_stock_quote(stock_symbol, date_str, include_news=include_news)
 
 
 if __name__ == "__main__":

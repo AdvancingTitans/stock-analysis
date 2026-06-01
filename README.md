@@ -46,6 +46,8 @@ python scripts/aftermarket.py --market global
 # 单只股票速览（A股/港股/美股，自动标注来源交易日）
 python scripts/aftermarket.py --market stock --stock 600519
 python scripts/aftermarket.py --market stock --stock 0700.HK
+python scripts/aftermarket.py --market stock --stock AAPL --no-news
+python scripts/aftermarket.py --market hk --no-news
 
 # 指定日期（A股）
 python scripts/aftermarket.py --market a 20260526
@@ -92,7 +94,7 @@ hermes skills install --repo AdvancingTitans/stock-analysis --path skills/stock-
 
 | 来源 | 市场 | 类型 | 登录需求 | 优势 |
 |---|---|---|---|---|
-| push2.eastmoney.com | **A股** | 指数行情、最新 A股资金流、涨跌停数据 | **不需要** | 免登录，资金流输出会标注实际交易日 |
+| push2.eastmoney.com / np-listapi.eastmoney.com | **A股/新闻** | 指数行情、最新 A股资金流、涨跌停数据、东方财富快讯 | **不需要** | 免登录，资金流输出会标注实际交易日 |
 | push2ex.eastmoney.com | **A股** | 涨跌停/炸板池 | **不需要** | 同上 |
 | qt.gtimg.cn | **港美股/A股指数降级** | 指数行情、港股收盘口径 | **不需要** | 港股指数收盘点位更接近交易所/新闻稿口径 |
 | hq.sinajs.cn | **A股/港美股** | 单只股票、指数、重点个股实时行情 | **不需要** | 批量、免登录，单票查询主路径 |
@@ -100,7 +102,7 @@ hermes skills install --repo AdvancingTitans/stock-analysis --path skills/stock-
 | push2.eastmoney.com/api/qt/clist/get | **港美股** | 指数+部分榜单行情 | **不需要** | 批量补充路径 |
 | quote.eastmoney.com | A股 | 行业/概念板块页面 | 不需要（浏览器抓取） | |
 | ai-news-search.futunn.com | 全球 | 新闻、公告、研报、社区 | 不需要 | |
-| feed.mix.sina.com.cn | 全球 | 新浪财经滚动新闻 | 不需要 | 富途资讯不可用时兜底 |
+| feed.mix.sina.com.cn | 全球 | 新浪财经滚动新闻 | 不需要 | 与富途、东财快讯一起做新闻 fallback/热度参考 |
 
 ### 为什么用腾讯/新浪财经 + 东财补充源
 
@@ -151,6 +153,14 @@ hermes skills install --repo AdvancingTitans/stock-analysis --path skills/stock-
 - 同步 young-stock-cli 0.1.4：`young flow`/脚本资金流输出明确标注为 A股上证指数口径，并显示数据源实际交易日。
 - 默认交易日选择在工作日 15:00 前仍使用上一交易日，避免早盘/午间把尚未结算的当天数据写入复盘。
 - 东财 `push2his` 历史资金流当前不再作为稳定兜底；A股复盘仅在资金流返回日期与复盘日期一致时使用，否则给出清晰提示。
+
+### v3.4.1
+- 同步 young-stock-cli 0.1.5：资金流即使返回交易日与请求日不一致，也展示最新可用数据并明确标注来源交易日和请求日期。
+- 资金流实时接口临时不可用时，先尝试在线资金流页面指标接口，再尝试新浪/腾讯 A股指数活跃度指标；这些指标会明确标注“不等同于主力资金净流入”，在线源都不可用时才降级展示本地最近一次可信资金流缓存。
+- 港美股重点个股会基于富途、新浪财经、东方财富快讯等免登录来源做新闻热度 Top5 排序；雪球/同花顺若无稳定免登录接口，不作为默认硬依赖。
+- 所有行情命令标注当前阶段：上午盘、午间、下午盘、盘后；若展示非请求日数据，会标注为该交易日盘后数据。
+- `--no-news` 可用于 `--market hk`、`--market us`、`--market stock`，只看行情时不会输出新闻链接。
+- 默认不再输出“数据源切换记录”；如需排查接口，可设置 `YOUNG_STOCK_DEBUG=1`。
 
 ### v3.2.0
 - **同步 young-stock-cli 核心实现**：港美股主路径改为新浪财经批量行情，东财 `stock/get` 单只精确兜底，clist 作为补充。
