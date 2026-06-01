@@ -608,7 +608,14 @@ def fetch_ths_concept_money_flow_snapshot(date_str: str) -> dict[str, str]:
     """同花顺概念资金流。页面可直接返回表格，作为 young flow 的优先在线源。"""
     cached = cache_load("fund_flow", date_str, "ths", ttl=CACHE_TTL_SECONDS)
     if cached:
-        return cached
+        try:
+            cached_in = json.loads(cached.get("_concept_in", "[]"))
+            cached_out = json.loads(cached.get("_concept_out", "[]"))
+        except json.JSONDecodeError:
+            cached_in, cached_out = [], []
+        if cached_in and cached_out:
+            return cached
+        diag("Ignored THS concept flow cache without two-sided net flow")
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -635,6 +642,9 @@ def fetch_ths_concept_money_flow_snapshot(date_str: str) -> dict[str, str]:
         return {}
     top_in_rows = sorted([row for row in rows if float(row.get("net") or 0) > 0], key=lambda item: float(item.get("net") or 0), reverse=True)[:5]
     top_out_rows = sorted([row for row in rows if float(row.get("net") or 0) < 0], key=lambda item: float(item.get("net") or 0))[:5]
+    if not top_in_rows or not top_out_rows:
+        diag("THS concept money-flow snapshot: missing two-sided net flow")
+        return {}
     trade_date = _display_date(nearest_trade_date())
     result = {
         "date": trade_date,
@@ -2370,6 +2380,8 @@ def print_fund_flow(flow_data: dict[str, str]) -> None:
         scope_title = "A股资金流向（概念板块口径）"
     elif flow_data.get("_fallback_indicator") == "sector_money_flow":
         scope_title = "A股资金流向（行业板块口径）"
+    elif flow_data.get("_fallback_indicator") == "market_activity":
+        scope_title = "A股资金流向（指数活跃度参考）"
     print(f"## {scope_title}\n")
     if not flow_data or "_error" in flow_data:
         print("  暂不展示：当前没有拿到可核验交易日的免登录资金流数据。")
@@ -2501,8 +2513,8 @@ def print_sentiment_summary(zt_data: dict, dt_data: dict, zb_data: dict, flow_da
 def print_global_indices(indices: list[QuoteData], market_name: str) -> None:
     print(f"## {market_name} 大盘指数\n")
     activity_label = "成交额" if any(q.turnover is not None for q in indices) else "成交量"
-    print(f"{'指数':<15} {'点位':>12} {'涨跌幅':>10} {activity_label:>14} {'来源':>8} {'完整度':>8}")
-    print("-" * 82)
+    print(f"{'指数':<15} {'点位':>12} {'涨跌幅':>10} {activity_label:>14} {'来源':>8}")
+    print("-" * 72)
     for qd in indices:
         name = qd.name or qd.symbol
         price_str = fmt_price(qd.price)
@@ -2516,8 +2528,7 @@ def print_global_indices(indices: list[QuoteData], market_name: str) -> None:
             "eastmoney_stock_get": "东财",
             "eastmoney_clist": "东财",
         }.get(qd.source, qd.source or "-")
-        quality_str = f"{qd.completeness:.0f}%"
-        print(f"{name:<15} {price_str:>12} {pct_str:>10} {vol_str:>14} {source_str:>8} {quality_str:>8}")
+        print(f"{name:<15} {price_str:>12} {pct_str:>10} {vol_str:>14} {source_str:>8}")
     print()
 
 
@@ -2742,7 +2753,6 @@ def print_single_stock_report(qd: QuoteData, requested_date: str) -> None:
     if qd.turnover is not None:
         print(f"  成交额: {fmt_amount(qd.turnover)}")
     print(f"  成交量: {fmt_volume(qd.volume)}")
-    print(f"  完整度: {qd.completeness:.0f}%")
     if qd.notes:
         print(f"  提醒:   {'；'.join(qd.notes)}")
     print()
@@ -3001,6 +3011,8 @@ def print_global_sentiment(indices: list[QuoteData]) -> None:
 
 
 def print_data_quality_report(results: list[QuoteData]) -> None:
+    if os.environ.get("YOUNG_STOCK_DEBUG") != "1":
+        return
     warnings = []
     source_notes = []
     recommendations = []
