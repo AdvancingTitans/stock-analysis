@@ -93,6 +93,10 @@ FFLOW_MARKET_URL = (
     "?fltt=2&secids=1.000001,0.399001&fields={fields}"
     "&ut=b2884a393a59ad64002292a3e90d46a5&_={ts}"
 )
+SINA_SECTOR_MONEY_FLOW_URL = (
+    "https://money.finance.sina.com.cn/quotes_service/view/xml_money_flow_fc_hy.php"
+    "?fenlei=0&format=json&callback=gotData0&_={ts}"
+)
 INDEX_URL = (
     "https://push2.eastmoney.com/api/qt/ulist.np/get"
     "?fltt=2&secids={secids}&fields={fields}&_={ts}"
@@ -164,6 +168,11 @@ FUTU_NEWS_URL = "https://ai-news-search.futunn.com/news_search"
 FUTU_FEED_URL = "https://ai-news-search.futunn.com/stock_feed"
 SINA_ROLL_NEWS_URL = "https://feed.mix.sina.com.cn/api/roll/get"
 EASTMONEY_FAST_NEWS_URL = "https://np-listapi.eastmoney.com/comm/web/getFastNewsList"
+FUND_ESTIMATE_URL = "https://fundgz.1234567.com.cn/js/{code}.js?rt={ts}"
+FUND_HOLDINGS_URL = (
+    "https://fundf10.eastmoney.com/FundArchivesDatas.aspx"
+    "?type=jjcc&code={code}&topline={topline}&year=&month=&rt={ts}"
+)
 
 # 新浪财经（免登录、GBK 编码、对美股/港股最稳，作为 stock/get 之外的主路径）
 SINA_HQ_URL = "https://hq.sinajs.cn/list={codes}"
@@ -173,6 +182,7 @@ TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q={codes}"
 
 # 诊断记录
 DIAGNOSTICS: list[str] = []
+NEWS_URL_VALIDATION_CACHE: dict[str, bool] = {}
 
 
 def diag(msg: str) -> None:
@@ -206,6 +216,15 @@ class QuoteData:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass
+class FundHolding:
+    code: str
+    name: str
+    weight_pct: float | None = None
+    shares_10k: float | None = None
+    market_value_10k: float | None = None
 
 
 # ------------------------------------------------------------------
@@ -599,6 +618,46 @@ def fetch_tencent_market_activity_snapshot(date_str: str) -> dict[str, str]:
         diag("Tencent market activity: empty indices")
         return {}
     return _market_activity_snapshot(rows, "腾讯财经A股指数行情", date_str)
+
+
+def fetch_sina_sector_money_flow_snapshot(date_str: str) -> dict[str, str]:
+    """新浪资金流页面行业流向：在线参考源，不等同于全市场主力净流入。"""
+    url = SINA_SECTOR_MONEY_FLOW_URL.format(ts=int(time.time() * 1000))
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://money.finance.sina.com.cn/moneyflow/"})
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(req, timeout=10) as resp:
+            raw = resp.read().decode("gbk", errors="ignore")
+    except Exception as e:
+        diag(f"Sina sector money-flow snapshot: {e}")
+        return {}
+    data = _parse_json_text(raw)
+    if "_error" in data:
+        diag(f"Sina sector money-flow snapshot: {data['_error']}")
+        return {}
+    xml = str(data.get("xml") or "")
+    labels = re.findall(r"<category label='([^']+)'", xml)
+    values = [_safe_float(v) for v in re.findall(r"<set value='([^']+)'", xml)]
+    pairs = [(label, value) for label, value in zip(labels, values, strict=False) if value is not None]
+    if not pairs:
+        diag("Sina sector money-flow snapshot: empty sector values")
+        return {}
+    top_in = sorted(pairs, key=lambda x: x[1], reverse=True)[:5]
+    top_out = sorted(pairs, key=lambda x: x[1])[:5]
+    trade_date = _display_date(nearest_trade_date())
+    result = {
+        "date": trade_date,
+        "_source": "新浪财经资金流页面行业流向",
+        "_scope": "A股",
+        "_fallback_indicator": "sector_money_flow",
+        "_indicator_note": "东财全市场资金流暂不可用，以下为新浪行业资金流参考，不等同于全市场主力资金净流入。",
+        "_sector_in": json.dumps(top_in, ensure_ascii=False),
+        "_sector_out": json.dumps(top_out, ensure_ascii=False),
+    }
+    if result["date"].replace("-", "") != date_str:
+        result["_requested_date"] = _display_date(date_str)
+        result["_date_note"] = "latest_available"
+    return result
 
 
 def _display_date(date_str: str) -> str:
@@ -1620,7 +1679,7 @@ def get_fund_flow(date_str: str, *, strict_date: bool = True) -> dict[str, str]:
         latest_result["_date_note"] = "latest_available"
         cache_save("fund_flow", date_str, "eastmoney", latest_result)
         return latest_result
-    for fallback in (fetch_sina_market_activity_snapshot, fetch_tencent_market_activity_snapshot):
+    for fallback in (fetch_sina_sector_money_flow_snapshot, fetch_sina_market_activity_snapshot, fetch_tencent_market_activity_snapshot):
         activity = fallback(date_str)
         if activity:
             return activity
@@ -1849,6 +1908,91 @@ def _normalize_news_url(item: dict[str, Any]) -> str:
     return ""
 
 
+def _news_url_has_readable_content(url: str) -> bool:
+    """剔除明显无内容的新闻页；网络临时失败时不误杀。"""
+    if not url:
+        return False
+    if url in NEWS_URL_VALIDATION_CACHE:
+        return NEWS_URL_VALIDATION_CACHE[url]
+    parsed = urllib.parse.urlparse(url)
+    host = parsed.netloc.lower()
+    if host.endswith(".example") or host == "example.com":
+        NEWS_URL_VALIDATION_CACHE[url] = True
+        return True
+    if parsed.scheme not in {"http", "https"}:
+        NEWS_URL_VALIDATION_CACHE[url] = False
+        return False
+
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                ),
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            },
+        )
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(req, timeout=5) as resp:
+            status = getattr(resp, "status", 200)
+            content_type = resp.headers.get("Content-Type", "")
+            raw = resp.read(65536)
+    except urllib.error.HTTPError as e:
+        NEWS_URL_VALIDATION_CACHE[url] = e.code not in (404, 410)
+        return NEWS_URL_VALIDATION_CACHE[url]
+    except Exception as e:
+        diag(f"News URL validation skipped {url}: {e}")
+        return True
+
+    if status in (404, 410):
+        NEWS_URL_VALIDATION_CACHE[url] = False
+        return False
+    if content_type and "html" not in content_type and "text" not in content_type:
+        NEWS_URL_VALIDATION_CACHE[url] = True
+        return True
+
+    text = raw.decode("utf-8", errors="ignore")
+    compact = re.sub(r"\s+", "", re.sub(r"<[^>]+>", "", text)).lower()
+    invalid_markers = (
+        "页面不存在",
+        "内容不存在",
+        "暂无内容",
+        "新闻不存在",
+        "文章不存在",
+        "404notfound",
+        "notfound",
+    )
+    valid = bool(len(compact) >= 80 and not any(marker in compact for marker in invalid_markers))
+    NEWS_URL_VALIDATION_CACHE[url] = valid
+    return valid
+
+
+def _filter_readable_news(items: list[dict[str, Any]], size: int) -> list[dict[str, Any]]:
+    if not items:
+        return []
+    selected: list[dict[str, Any]] = []
+    pending_without_url: list[dict[str, Any]] = []
+    max_checks = max(size * 4, size)
+    checked = 0
+    for item in items:
+        url = _normalize_news_url(item)
+        if not url:
+            pending_without_url.append(item)
+            continue
+        if checked >= max_checks:
+            selected.append(item)
+        elif _news_url_has_readable_content(url):
+            selected.append(item)
+        checked += 1
+        if len(selected) >= size:
+            break
+    if len(selected) < size:
+        selected.extend(pending_without_url[: size - len(selected)])
+    return selected[:size]
+
+
 def _select_diverse_news(items: list[dict[str, Any]], size: int) -> list[dict[str, Any]]:
     """展示时尽量保留多来源；热度计算仍基于所有命中。"""
     if len(items) <= size:
@@ -1927,7 +2071,7 @@ def combined_news_search(
     date_str: str | None = None,
 ) -> dict[str, Any]:
     """聚合免登录新闻源，用于热度排序和展示。"""
-    per_source_size = max(size, 8)
+    per_source_size = max(size, 5)
     sources = [
         futu_news_search(keyword, size=per_source_size, lang=lang),
         _normalize_futu_feed(
@@ -1964,7 +2108,13 @@ def combined_news_search(
             source_counts[source_name] += 1
     items.sort(key=lambda item: _parse_news_time(item.get("publish_time")), reverse=True)
     linked_items = [item for item in items if item.get("url")]
-    display_items = linked_items if len(linked_items) >= size else items
+    display_items = _filter_readable_news(linked_items, size) if linked_items else []
+    if len(display_items) < size:
+        seen_titles = {str(item.get("title", "")) for item in display_items}
+        display_items.extend([
+            item for item in items
+            if not item.get("url") and str(item.get("title", "")) not in seen_titles
+        ][: size - len(display_items)])
     return {
         "source": "+".join(s for s in used_sources if s) or "none",
         "data": _select_diverse_news(display_items, size),
@@ -2158,6 +2308,23 @@ def print_fund_flow(flow_data: dict[str, str]) -> None:
         print("  提醒: 实时接口暂不可用，当前为本地最近一次可信数据")
     if flow_data.get("_source"):
         print(f"  来源: {flow_data['_source']}")
+    if flow_data.get("_fallback_indicator") == "sector_money_flow":
+        print(f"  说明: {flow_data.get('_indicator_note', '当前展示行业资金流参考，不等同于全市场主力资金净流入。')}")
+        try:
+            top_in = json.loads(flow_data.get("_sector_in", "[]"))
+            top_out = json.loads(flow_data.get("_sector_out", "[]"))
+        except json.JSONDecodeError:
+            top_in, top_out = [], []
+        if top_in:
+            print("  行业净流入靠前:")
+            for name, value in top_in[:5]:
+                print(f"    {name}: {value:+.2f}亿")
+        if top_out:
+            print("  行业净流出靠前:")
+            for name, value in top_out[:5]:
+                print(f"    {name}: {value:+.2f}亿")
+        print()
+        return
     if flow_data.get("_fallback_indicator") == "market_activity":
         print(f"  说明: {flow_data.get('_indicator_note', '当前展示行情活跃度参考，不等同于主力资金净流入。')}")
         print(f"  合计成交额: {fmt_amount(flow_data.get('总成交额'))}")
@@ -2288,6 +2455,121 @@ def _quote_from_cache(data: dict[str, Any] | None) -> QuoteData | None:
         return None
 
 
+def normalize_fund_code(code: str) -> str:
+    code = str(code).strip()
+    if not re.fullmatch(r"\d{6}", code):
+        raise ValueError("基金代码应为 6 位数字，例如 161725")
+    return code
+
+
+def fetch_fund_estimate(fund_code: str, date_str: str) -> dict[str, Any]:
+    fund_code = normalize_fund_code(fund_code)
+    cached = cache_load(f"fund_estimate_{fund_code}", date_str, "eastmoney_fund")
+    if cached:
+        return cached
+
+    url = FUND_ESTIMATE_URL.format(code=fund_code, ts=int(time.time() * 1000))
+    data = fetch_json(url, {"Referer": f"https://fund.eastmoney.com/{fund_code}.html"})
+    if "_error" in data:
+        diag(f"Fund estimate {fund_code}: {data['_error']}")
+        return data
+
+    gztime = str(data.get("gztime") or "")
+    estimate_date = _source_date(gztime) or _source_date(str(data.get("jzrq") or ""))
+    result = {
+        "fundcode": fund_code,
+        "name": data.get("name") or fund_code,
+        "nav_date": data.get("jzrq") or "",
+        "nav": data.get("dwjz") or "",
+        "estimate_nav": data.get("gsz") or "",
+        "estimate_change_pct": data.get("gszzl") or "",
+        "estimate_time": gztime,
+        "date": estimate_date,
+        "_source": "天天基金实时估值",
+    }
+    if estimate_date and estimate_date.replace("-", "") != date_str:
+        result["_requested_date"] = _display_date(date_str)
+        result["_date_note"] = "latest_available"
+    cache_save(f"fund_estimate_{fund_code}", date_str, "eastmoney_fund", result)
+    return result
+
+
+def _html_to_text(value: str) -> str:
+    return html.unescape(re.sub(r"<[^>]+>", "", value or "")).strip()
+
+
+def _safe_number(value: str) -> float | None:
+    value = str(value or "").replace(",", "").replace("%", "").strip()
+    if not value or value in {"-", "--"}:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def fetch_fund_holdings(fund_code: str, date_str: str, limit: int = 10) -> dict[str, Any]:
+    fund_code = normalize_fund_code(fund_code)
+    cached = cache_load(f"fund_holdings_{fund_code}", date_str, "eastmoney_fund", ttl=24 * 3600)
+    if cached:
+        return cached
+
+    url = FUND_HOLDINGS_URL.format(code=fund_code, topline=limit, ts=f"{time.time():.3f}")
+    try:
+        raw = _fetch_raw(url, {"Referer": f"https://fundf10.eastmoney.com/ccmx_{fund_code}.html"}, timeout=15)
+    except Exception as e:
+        diag(f"Fund holdings {fund_code}: {e}")
+        return {"_error": str(e)}
+
+    title_match = re.search(r"<h4[^>]*class='t'.*?<label[^>]*class='left'>(.*?)</label>", raw, re.DOTALL)
+    title = _html_to_text(title_match.group(1)) if title_match else ""
+    asof_match = re.search(r"截止至：<font[^>]*>(.*?)</font>", raw)
+    asof = _html_to_text(asof_match.group(1)) if asof_match else ""
+    row_matches = re.findall(r"<tr>(.*?)</tr>", raw, re.DOTALL)
+    holdings: list[dict[str, Any]] = []
+    for row in row_matches:
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", row, re.DOTALL)
+        if len(cells) < 9:
+            continue
+        code = _html_to_text(cells[1])
+        name = _html_to_text(cells[2])
+        if not re.fullmatch(r"\d{6}", code) or not name:
+            continue
+        holdings.append(
+            asdict(
+                FundHolding(
+                    code=code,
+                    name=name,
+                    weight_pct=_safe_number(_html_to_text(cells[6])),
+                    shares_10k=_safe_number(_html_to_text(cells[7])),
+                    market_value_10k=_safe_number(_html_to_text(cells[8])),
+                )
+            )
+        )
+        if len(holdings) >= limit:
+            break
+
+    result = {
+        "fundcode": fund_code,
+        "title": title,
+        "asof": asof,
+        "holdings": holdings,
+        "_source": "天天基金持仓明细",
+    }
+    cache_save(f"fund_holdings_{fund_code}", date_str, "eastmoney_fund", result)
+    return result
+
+
+def fetch_fund_holding_quotes(holdings: list[dict[str, Any]], date_str: str) -> dict[str, QuoteData]:
+    codes = [str(item.get("code") or "") for item in holdings if item.get("code")]
+    if not codes:
+        return {}
+    quotes = fetch_cn_stocks_sina(codes, date_str)
+    if not _has_all_quotes(quotes, codes):
+        quotes = merge_quotes_by_symbol(quotes, fetch_cn_stocks_direct(codes, date_str), codes)
+    return {q.symbol: q for q in quotes if _is_usable_quote(q)}
+
+
 def get_single_stock_quote(symbol: str, date_str: str) -> QuoteData | None:
     normalized, market = normalize_stock_symbol(symbol)
     cached = _quote_from_cache(cache_load(normalized, date_str, "single_stock"))
@@ -2349,6 +2631,143 @@ def print_single_stock_report(qd: QuoteData, requested_date: str) -> None:
     if qd.notes:
         print(f"  提醒:   {'；'.join(qd.notes)}")
     print()
+
+
+def print_fund_report(
+    fund: dict[str, Any],
+    holdings_data: dict[str, Any],
+    quotes_by_code: dict[str, QuoteData],
+    requested_date: str,
+) -> None:
+    fund_code = str(fund.get("fundcode") or holdings_data.get("fundcode") or "")
+    fund_name = str(fund.get("name") or holdings_data.get("title") or fund_code)
+    print(f"# 基金持仓速览：{fund_name} ({fund_code})\n")
+    print("市场: A股基金持仓")
+    if fund.get("date"):
+        print(f"当前阶段: {dated_stage_label(data_date=str(fund.get('date')), requested_date=requested_date)}")
+    else:
+        print_stage_line(requested_date)
+    if fund.get("_date_note") == "latest_available" and fund.get("_requested_date"):
+        print(f"提醒: 当前展示来源最新可用估值，本次请求日期为 {fund['_requested_date']}")
+    print(f"基金数据源: {fund.get('_source', '-')}")
+    if fund.get("nav_date") or fund.get("nav"):
+        print(f"上一净值: {fund.get('nav', '-')}（{fund.get('nav_date', '-')}）")
+    if fund.get("estimate_change_pct") or fund.get("estimate_nav"):
+        print(
+            "当日估算: "
+            f"{fund.get('estimate_nav', '-')}（{fmt_pct(fund.get('estimate_change_pct'))}，{fund.get('estimate_time', '-')}）"
+        )
+        print("说明: 基金正式净值通常晚间更新，此处为天天基金盘中/收盘估算。")
+    print()
+
+    holdings = holdings_data.get("holdings", [])
+    if not holdings:
+        print("## 持仓股行情\n")
+        print("  暂未获取到该基金的公开持仓明细。")
+        print()
+        return
+
+    asof = holdings_data.get("asof") or "-"
+    print(f"## 持仓股行情（前{min(len(holdings), 10)}，持仓截止 {asof}）\n")
+    print(f"{'股票':<14} {'占净值':>8} {'最新价':>10} {'涨跌幅':>10} {'估算贡献':>10} {'来源':>8}")
+    print("-" * 72)
+    contribution = 0.0
+    contribution_count = 0
+    for item in holdings[:10]:
+        code = str(item.get("code") or "")
+        qd = quotes_by_code.get(code)
+        weight = item.get("weight_pct")
+        pct = qd.change_pct if qd else None
+        contrib = None
+        if weight is not None and pct is not None:
+            contrib = float(weight) * float(pct) / 100
+            contribution += contrib
+            contribution_count += 1
+        name = str(item.get("name") or code)
+        stock_label = f"{name}({code})"
+        print(
+            f"{stock_label:<14} "
+            f"{fmt_pct(weight).replace('+', ''):>8} "
+            f"{fmt_price(qd.price if qd else None):>10} "
+            f"{fmt_pct(pct):>10} "
+            f"{fmt_pct(contrib):>10} "
+            f"{_source_label(qd.source) if qd else '-':>8}"
+        )
+    print()
+    if contribution_count:
+        print(f"前{contribution_count}只可取行情持仓股对净值的估算贡献: {contribution:+.2f}%")
+        print("说明: 该贡献只按公开季报持仓和当日股价粗略估算，未包含调仓、仓位变化、现金、债券等影响。")
+        print()
+
+
+def print_fund_holding_news(
+    holdings: list[dict[str, Any]],
+    heat: dict[str, dict[str, Any]],
+    ranked_symbols: list[str],
+    limit: int = 5,
+) -> None:
+    print(f"## 持仓股相关新闻（当天多源热度 Top{limit}）\n")
+    if not ranked_symbols:
+        print("  目前暂未获取到有效新闻信息。")
+        print()
+        return
+
+    name_map = {str(item.get("code")): str(item.get("name") or item.get("code")) for item in holdings}
+    shown = 0
+    seen_titles: set[str] = set()
+    for code in ranked_symbols:
+        news = heat.get(code, {}).get("news") or {}
+        for item in news.get("data", []):
+            title = _clean_news_title(str(item.get("title") or ""))
+            if not title or title in seen_titles:
+                continue
+            seen_titles.add(title)
+            ts = _parse_news_time(item.get("publish_time"))
+            dt_str = datetime.fromtimestamp(ts).strftime("%m-%d %H:%M") if ts else ""
+            source = _news_source_label(str(item.get("source") or news.get("source") or ""))
+            url = _normalize_news_url(item)
+            shown += 1
+            print(f"{shown}. {name_map.get(code, code)}({code}) [{dt_str}] {title}")
+            print(f"   来源: {source} | 链接: {url or '暂无公开链接'}")
+            break
+        if shown >= limit:
+            break
+    if shown == 0:
+        print("  目前暂未获取到有效新闻信息。")
+    print()
+
+
+def run_fund_report(fund_code: str, date_str: str, include_news: bool = True) -> None:
+    DIAGNOSTICS.clear()
+    try:
+        fund_code = normalize_fund_code(fund_code)
+    except ValueError as e:
+        print(f"# 基金持仓速览：{fund_code}\n")
+        print(f"暂未拿到可核验基金数据：{e}")
+        print_report_footer()
+        return
+
+    fund = fetch_fund_estimate(fund_code, date_str)
+    holdings_data = fetch_fund_holdings(fund_code, date_str, limit=10)
+    if "_error" in fund and "_error" in holdings_data:
+        print(f"# 基金持仓速览：{fund_code}\n")
+        print("暂未拿到可核验基金数据，可以稍后加 --refresh 重试。")
+        print_report_footer()
+        return
+
+    holdings = holdings_data.get("holdings", []) if "_error" not in holdings_data else []
+    quotes_by_code = fetch_fund_holding_quotes(holdings, date_str)
+    print_fund_report(fund if "_error" not in fund else {"fundcode": fund_code}, holdings_data, quotes_by_code, date_str)
+
+    if include_news and holdings:
+        news_holdings = holdings[:5]
+        names = {str(item.get("code")): str(item.get("name") or item.get("code")) for item in news_holdings}
+        ranked, heat = rank_symbols_by_news_heat(list(names.keys()), names=names, lang="zh-CN", top_n=5, date_str=date_str)
+        print_fund_holding_news(holdings, heat, ranked, limit=5)
+
+    if DIAGNOSTICS:
+        print_diagnostic_summary()
+    print_report_footer()
 
 
 def run_stock_quote(symbol: str, date_str: str, include_news: bool = True) -> None:
@@ -2862,9 +3281,11 @@ def main():
         elif args[i] == "--no-news":
             include_news = False
             i += 1
-        elif args[i] in ("--stock", "--symbol") and i + 1 < len(args):
+        elif args[i] in ("--stock", "--symbol", "--fund") and i + 1 < len(args):
             stock_symbol = args[i + 1]
-            if market != "news":
+            if args[i] == "--fund":
+                market = "fund"
+            elif market not in ("news", "fund"):
                 market = "stock"
             i += 2
         elif re.fullmatch(r"\d{8}", args[i]):
@@ -2873,11 +3294,12 @@ def main():
         else:
             i += 1
 
-    if market not in ("a", "hk", "us", "global", "stock", "news"):
-        print("错误: --market 参数必须是 a、hk、us、global、stock 或 news", file=sys.stderr)
+    if market not in ("a", "hk", "us", "global", "stock", "news", "fund"):
+        print("错误: --market 参数必须是 a、hk、us、global、stock、news 或 fund", file=sys.stderr)
         sys.exit(1)
-    if market in ("stock", "news") and not stock_symbol:
-        print(f"错误: --market {market} 需要配合 --stock 600519 使用", file=sys.stderr)
+    if market in ("stock", "news", "fund") and not stock_symbol:
+        example = "--fund 161725" if market == "fund" else "--stock 600519"
+        print(f"错误: --market {market} 需要配合 {example} 使用", file=sys.stderr)
         sys.exit(1)
 
     # 清理过期缓存
@@ -2898,6 +3320,8 @@ def main():
         run_stock_quote(stock_symbol, date_str, include_news=include_news)
     elif market == "news" and stock_symbol:
         run_stock_news(stock_symbol, date_str)
+    elif market == "fund" and stock_symbol:
+        run_fund_report(stock_symbol, date_str, include_news=include_news)
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@
 
 - **A股**：东财免登录 API 实时/盘后数据，涨跌停池，可核验资金流，行业/概念板块榜（浏览器抓取）
 - **港美股**：腾讯/新浪财经批量行情为主，东财 `stock/get` 精确兜底，clist 批量补充，富途与新浪资讯多源 fallback
+- **基金持仓**：天天基金实时估值 + 东财基金持仓，联动持仓股行情和当天新闻
 - **跨市场情绪**：结构化复盘模板，板块轮动分析，社区情绪评分
 - **浏览器降级**：camofox / Hermes 内置浏览器 / Playwright 页面抓取（板块榜或 API 失败时降级）
 
@@ -49,6 +50,8 @@ python scripts/aftermarket.py --market stock --stock 600519
 python scripts/aftermarket.py --market stock --stock 0700.HK
 python scripts/aftermarket.py --market stock --stock AAPL --no-news
 python scripts/aftermarket.py --market news --stock 3690.HK  # 只看多源新闻、来源和链接
+python scripts/aftermarket.py --market fund --fund 161725    # 基金估算收益 + 持仓股行情/新闻
+python scripts/aftermarket.py --market fund --fund 161725 --no-news
 python scripts/aftermarket.py --market hk --no-news
 
 # 指定日期（A股）
@@ -105,6 +108,7 @@ hermes skills install --repo AdvancingTitans/stock-analysis --path skills/stock-
 | quote.eastmoney.com | A股 | 行业/概念板块页面 | 不需要（浏览器抓取） | |
 | ai-news-search.futunn.com | 全球 | 新闻、公告、研报、社区 | 不需要 | |
 | feed.mix.sina.com.cn | 全球 | 新浪财经滚动新闻 | 不需要 | 与富途、东财快讯一起做新闻 fallback/热度参考 |
+| fundgz.1234567.com.cn / fundf10.eastmoney.com | 基金 | 基金估值、净值日期、持仓明细 | 不需要 | 基金用户查看估算涨跌和重仓股表现 |
 
 ### 为什么用腾讯/新浪财经 + 东财补充源
 
@@ -137,6 +141,8 @@ hermes skills install --repo AdvancingTitans/stock-analysis --path skills/stock-
 - **港美股行情**：港股指数优先腾讯收盘口径；港美重点个股优先新浪财经；缺失时用东财 `stock/get` 兜底，clist 作为补充。东财 `fltt=2` 当前返回真实价，不再除以 100。
 - **新浪财经**：批量拉取，响应为 GBK 编码，脚本已自动解码。
 - **新闻 fallback**：富途 `news_search` 不可用时会尝试富途 feed，再尝试新浪财经滚动新闻。
+- **基金估算**：基金正式净值通常晚间更新；脚本里的“当日估算”来自天天基金实时估值，不作为最终净值确认。
+- **新闻链接**：输出前会剔除明显 404/无内容页面；网络临时校验失败时保留链接，避免误杀正常新闻。
 - **数据质量**：所有行情返回统一的 `QuoteData` 结构。零/负价自动过滤，指数成交量为 0 降级为 warning，异常偏低成交量标记 `*`，输出末尾附数据质量报告。
 - **富途搜索**：偏港美股。A股用**中文公司名**（非代码）；港美股用**代码**。
 - **时区**：美股盘后复盘建议北京时间次日 05:00 后；港股 16:00 后。
@@ -166,6 +172,11 @@ hermes skills install --repo AdvancingTitans/stock-analysis --path skills/stock-
 - 所有行情命令标注当前阶段：上午盘、午间、下午盘、盘后；若展示非请求日数据，会标注为该交易日盘后数据，阶段字段包含数据日期。
 - `--no-news` 可用于 `--market a`、`--market hk`、`--market us`、`--market stock`，只看行情时不会输出新闻链接。
 - 默认不再输出“数据源切换记录”；如需排查接口，可设置 `YOUNG_STOCK_DEBUG=1`。
+
+### v3.5.0
+- 同步 young-stock-cli 0.1.9：新增基金查询，支持 `--market fund --fund 161725`，输出基金当日估算涨跌、上一净值日、前十大持仓股行情、重仓贡献粗算和持仓股当天新闻。
+- `young flow`/脚本资金流在东财实时与页面指标不可用时，会先尝试新浪财经资金流页面行业流向，再落到新浪/腾讯指数活跃度和本地最近可信缓存；所有非主力净流入口径均明确标注。
+- 新闻聚合会过滤明显无内容或 404 的链接，尽量用其他当天新闻替换。
 
 ### v3.2.0
 - **同步 young-stock-cli 核心实现**：港美股主路径改为新浪财经批量行情，东财 `stock/get` 单只精确兜底，clist 作为补充。

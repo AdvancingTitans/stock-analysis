@@ -1,7 +1,7 @@
 ---
 name: stock-analysis
-description: "Use when the user asks for current or after-market A股、港股、美股 or global stock-market review, single-stock lookup/news, index/sector/sentiment analysis,涨跌停池,港美股重点个股, or asks to verify market data with low 429/token overhead. v3.4.2 uses Tencent, Sina, Futu, and Eastmoney no-login quote/news sources with dated staged output and same-day news-heat ranking."
-version: 3.4.2
+description: "Use when the user asks for current or after-market A股、港股、美股 or global stock-market review, single-stock/fund lookup/news, index/sector/sentiment analysis,涨跌停池,港美股重点个股, or asks to verify market data with low 429/token overhead. v3.5.0 uses Tencent, Sina, Futu, Tiantian Fund, and Eastmoney no-login quote/news/fund sources with dated staged output and same-day news-heat ranking."
+version: 3.5.0
 author: Hermes Agent + yjw
 tags: [stock-market, a-shares, hk-shares, us-shares, eastmoney, futu, sentiment, global-finance, data-quality, camofox]
 platforms: [linux, macos, windows]
@@ -22,6 +22,7 @@ python scripts/aftermarket.py --market hk
 python scripts/aftermarket.py --market us
 python scripts/aftermarket.py --market a --no-news
 python scripts/aftermarket.py --market news --stock 3690.HK
+python scripts/aftermarket.py --market fund --fund 161725
 python scripts/aftermarket.py --market global --no-cache
 ```
 
@@ -47,15 +48,18 @@ v3.1.1 引入的缓存防污染机制必须保留，后续迭代不得弱化：
 | 港股 | 腾讯指数口径 + 新浪个股 + 东财 stock/get/clist | 富途 news/feed + 新浪滚动新闻 + 东方财富快讯，按新闻热度排 Top5 | camofox 抓富途/东财 | 不适用涨跌停、连板、炸板率 |
 | 美股 | 新浪财经主路径 + 腾讯指数 + 东财 stock/get/clist | 富途 news/feed + 新浪滚动新闻 + 东方财富快讯，按新闻热度排 Top5 | camofox 抓富途/财经页面 | DJI 已覆盖；VIX 若缺失，用诊断说明 |
 
-三层获取：**缓存 → 稳定 API → 浏览器降级**。稳定 API 包括东方财富 A股接口、东财 `fflow` 最新 A股资金流、腾讯港股指数收盘口径、港美股新浪财经批量行情、腾讯美股指数补充、东财 `stock/get` 单只精确兜底、东财 clist 批量补充、富途资讯、新浪滚动新闻、东方财富快讯；浏览器降级用于东财板块榜、富途页面以及 API 连续失败、403、429 场景。
+三层获取：**缓存 → 稳定 API → 浏览器降级**。稳定 API 包括东方财富 A股接口、东财 `fflow` 最新 A股资金流、东财资金流页面指标、新浪资金流页面行业流向、腾讯港股指数收盘口径、港美股新浪财经批量行情、腾讯美股指数补充、东财 `stock/get` 单只精确兜底、东财 clist 批量补充、天天基金实时估值/持仓、富途资讯、新浪滚动新闻、东方财富快讯；浏览器降级用于东财板块榜、富途页面以及 API 连续失败、403、429 场景。
 
 单只股票速览：脚本支持 `python scripts/aftermarket.py --market stock --stock 600519`，也支持港股 `0700.HK` 和 best-effort 美股 `AAPL`；若用户只想看消息面，使用 `python scripts/aftermarket.py --market news --stock 3690.HK`。单票输出必须标注市场、来源、数据交易日、最新价、涨跌、成交量/额和完整度；若数据源交易日与请求日不一致，必须明确提醒，不把旧数据当成当天数据。新闻逐条显示来源和链接状态，且只展示请求交易日当天发布的有效新闻，热度基于所有来源综合命中数和新鲜度，最多 Top5，不足 5 条按实际数量展示，没有则明确提示暂未获取到有效新闻信息。`--market a`、`--market hk`、`--market us`、`--market stock` 都支持 `--no-news`，用户只想看行情时不要输出新闻链接。
+
+基金持仓速览：脚本支持 `python scripts/aftermarket.py --market fund --fund 161725` 或 `--market fund --stock 161725`。输出基金当日估算涨跌幅、上一净值日期、前十大 A股持仓行情、重仓贡献粗算和持仓股当天新闻；正式基金净值通常晚间更新，估算值必须明确标注为“天天基金盘中/收盘估算”，不能写成已确认收益率。`--no-news` 可跳过持仓股新闻。
 
 ## 分析要求
 
 - A股最小集：6 大指数、涨跌停池、炸板池、行业/概念板块；主力资金流向展示最新可用记录并标注来源交易日，用涨停数、跌停数、炸板率、最高连板、封板时间、板块集中度判断情绪。
 - 港美股最小集：大盘指数、重点个股、成交量/质量标记、多源当天新闻；重点看大盘涨跌、成交量变化、板块轮动、个股新闻，不套用 A股连板逻辑。
 - 单只股票最小集：当前价、涨跌幅、昨收、开高低、成交量/额、来源、数据交易日、当天相关新闻；拿不到可核验价格时只提示缺口和建议重试，不输出空表或猜测。
+- 基金最小集：基金名称/代码、上一净值日期和净值、当日估算净值/涨跌幅、估算时间、持仓截止日、前十大持仓股当日行情、按公开持仓权重粗算的贡献，以及前五大持仓股当天新闻 Top5。
 - Exa 或网页搜索只做舆情交叉验证，必须带当天 `startPublishedDate`；国内财经站优先 API 或 camofox，少用 Jina Reader。
 - 如果接口失败，不静默定性；说明“数据缺口 + 已用替代源/诊断摘要”。
 
@@ -71,9 +75,9 @@ v3.1.1 引入的缓存防污染机制必须保留，后续迭代不得弱化：
 
 - 东方财富 `fltt=2` 的 A股指数和 clist 港美股价格当前均按真实价处理，不再除以 100。
 - A股资金流采用东财 `fflow` 最新上证指数口径数据；如果来源交易日与请求日不一致，仍展示数值并明确标注两个日期；实时接口临时不可用时，先尝试在线资金流页面指标接口，在线源都不可用时才展示本地最近一次可信缓存并明确标注缓存兜底。`push2his` 历史资金流当前不视为稳定兜底。
-- 如果东财资金流实时接口 502/断连，先尝试东财资金流页面实时指标，再尝试新浪/腾讯 A股指数活跃度指标；新浪/腾讯指标必须明确标注为“行情活跃度参考，不等同于主力资金净流入”，最后才使用本地最近一次可信资金流缓存。
+- 如果东财资金流实时接口 502/断连，先尝试东财资金流页面实时指标，再尝试新浪资金流页面行业流向，然后尝试新浪/腾讯 A股指数活跃度指标；新浪行业流向必须标注“不等同于全市场主力资金净流入”，新浪/腾讯指数指标必须标注为“行情活跃度参考，不等同于主力资金净流入”，最后才使用本地最近一次可信资金流缓存。
 - 每次运行都要标注日期+阶段：上午盘、午间、下午盘、盘后；如果返回数据日期与请求日期不一致，注明展示的是返回交易日数据，并在阶段字段中使用返回数据日期。
-- 新闻只采用稳定免登录源。当前默认使用富途、新浪财经、东方财富快讯；雪球/同花顺若没有稳定免登录接口，不作为默认硬依赖。A股、港美股重点个股和单票新闻都只展示请求交易日当天发布的有效内容，按多源新闻热度 Top5 展示；展示时尽量保留多来源，不让单一来源自动挤掉其他有效来源。
+- 新闻只采用稳定免登录源。当前默认使用富途、新浪财经、东方财富快讯；雪球/同花顺若没有稳定免登录接口，不作为默认硬依赖。A股、港美股重点个股、基金持仓股和单票新闻都只展示请求交易日当天发布的有效内容，按多源新闻热度 Top5 展示；展示时尽量保留多来源，不让单一来源自动挤掉其他有效来源。新闻链接会剔除明显 404/无内容页面，网络临时校验失败时不误杀。
 - 默认不要输出“数据源切换记录”等调试信息；只有设置 `YOUNG_STOCK_DEBUG=1` 时才展示接口诊断。
 - 富途 `publish_time` 是字符串，脚本会先转整数。
 - 指数成交量为 0 是 warning，不影响价格判断；个股成交量为 0 才影响质量评分。
