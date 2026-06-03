@@ -1,15 +1,15 @@
 ---
 name: stock-analysis
-description: "Use when the user asks for current or after-market A股、港股、美股 or global stock-market review, single-stock/fund lookup/news, index/sector/sentiment analysis,涨跌停池,港美股重点个股, or asks to verify market data with low 429/token overhead. v3.5.2 uses verified two-sided fund-flow fallbacks plus Tencent, Sina, Futu, Tiantian Fund, and Eastmoney no-login quote/news/fund sources with dated staged output and same-day news-heat ranking."
-version: 3.5.2
+description: "Use when the user asks for current or after-market A股、港股、美股 or global stock-market review, personalized daily market report, single-stock/fund lookup/news, index/sector/sentiment analysis,涨跌停池,港美股重点个股, or asks to verify market data with low 429/token overhead. v3.6.0 is a daily-report skill backed by young-stock-cli core modules and local investment memory."
+version: 3.6.0
 author: Hermes Agent + yjw
 tags: [stock-market, a-shares, hk-shares, us-shares, eastmoney, futu, sentiment, global-finance, data-quality, camofox]
 platforms: [linux, macos, windows]
 ---
 
-# 全球股市行情与情绪分析
+# 每日行情日报与全球股市情绪分析
 
-核心原则：**任何分析必须先拉数据，禁止裸眼定性**。优先让脚本采集和汇总，模型只做解释、归纳和风险提示，避免反复手工访问接口消耗额度。数据仅供参考，不构成投资建议。
+核心原则：**任何分析必须先拉数据，禁止裸眼定性**。本技能默认生成“每日行情日报”：先读取用户本地投资记忆，输出关注个股/基金行情和趋势、当日全球指数情况、大盘与市场情绪，以及面向用户持仓的风险提示。模型只做解释、归纳和风险提示，避免反复手工访问接口消耗额度。数据仅供参考，不构成投资建议。
 
 ## 快速使用
 
@@ -17,6 +17,7 @@ platforms: [linux, macos, windows]
 
 ```bash
 python scripts/aftermarket.py --market global
+python scripts/aftermarket.py --market daily
 python scripts/aftermarket.py --market a
 python scripts/aftermarket.py --market hk
 python scripts/aftermarket.py --market us
@@ -27,8 +28,20 @@ python scripts/aftermarket.py --market global --no-cache
 ```
 
 - 默认使用缓存；只有用户要求刷新、数据明显过期或诊断提示缓存异常时才加 `--no-cache`。
-- 用户问“今日全球行情”优先跑 `python scripts/aftermarket.py --market global`，再按需要补跑单市场。
+- 用户问“今天行情/每日行情日报/帮我复盘”优先跑 `python scripts/aftermarket.py --market daily`。
+- 首次使用如果脚本提示尚未设置投资记忆，先引导用户给出关注股票、ETF 或基金代码；再用 `young profile add-stock 600519`、`young profile add-stock 0700.HK`、`young profile add-fund 161725` 保存。保存后重新运行 `python scripts/aftermarket.py --market daily`。
+- 用户只问“今日全球行情”时跑 `python scripts/aftermarket.py --market global`，再按需要补跑单市场。
 - 输出已含来源提示、实际口径和日期+阶段；回答时引用关键数字，不要把完整原始输出逐段复制给用户。数据源诊断和完整度报告仅在 `YOUNG_STOCK_DEBUG=1` 时展示。
+
+## CLI 依赖边界
+
+v3.6.0 起，`scripts/aftermarket.py` 是 `young-stock-cli` 的薄包装，不再维护核心行情采集副本。运行前确保当前 Python 环境可导入 `young_stock._core`；若失败，运行：
+
+```bash
+python -m pip install -U young-stock-cli
+```
+
+技能只维护日报分析规则、首次投资记忆引导、数据口径约束和输出纪律；行情采集、交易日逻辑、缓存、新闻聚合、基金持仓等实现均来自 CLI 包核心模块。
 
 ## 缓存防污染硬约束
 
@@ -56,6 +69,7 @@ v3.1.1 引入的缓存防污染机制必须保留，后续迭代不得弱化：
 
 ## 分析要求
 
+- 每日行情日报最小集：用户关注股票/ETF 的行情与趋势、关注基金的估值/持仓贡献、全球指数表现、A股大盘和市场情绪、资金流/涨跌停/板块方向，以及对用户的仓位纪律、风险点和后续观察项建议。
 - A股最小集：6 大指数、涨跌停池、炸板池、行业/概念板块；主力资金流向展示最新可用记录并标注来源交易日，用涨停数、跌停数、炸板率、最高连板、封板时间、板块集中度判断情绪。
 - 港美股最小集：大盘指数、重点个股、成交量/质量标记、多源当天新闻；重点看大盘涨跌、成交量变化、板块轮动、个股新闻，不套用 A股连板逻辑。
 - 单只股票最小集：当前价、涨跌幅、昨收、开高低、成交量/额、来源、数据交易日、当天相关新闻；拿不到可核验价格时只提示缺口和建议重试，不输出空表或猜测。

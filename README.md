@@ -1,12 +1,13 @@
 # stock-analysis
 
-全球股市行情+情绪分析工具，覆盖 A股（沪深京）、港股、美股等主要市场。
+每日行情日报与全球股市情绪分析技能，覆盖 A股（沪深京）、港股、美股、用户关注股票/ETF 和基金。
 
 ## 功能
 
 - **A股**：东财免登录 API 实时/盘后数据，涨跌停池，同花顺概念资金流双边校验源，行业/概念板块榜（浏览器抓取）
 - **港美股**：腾讯/新浪财经批量行情为主，东财 `stock/get` 精确兜底，clist 批量补充，富途与新浪资讯多源 fallback
 - **基金持仓**：天天基金实时估值 + 东财基金持仓，联动持仓股行情和当天新闻
+- **每日日报**：读取 `young-stock-cli` 本地投资记忆，汇总关注标的、全球指数、大盘情绪和风险建议
 - **跨市场情绪**：结构化复盘模板，板块轮动分析，社区情绪评分
 - **浏览器降级**：camofox / Hermes 内置浏览器 / Playwright 页面抓取（板块榜或 API 失败时降级）
 
@@ -21,6 +22,7 @@ git clone https://github.com/AdvancingTitans/stock-analysis.git ~/.hermes/skills
 ### 依赖
 
 - Python 3.10+（运行 `scripts/aftermarket.py`）
+- `young-stock-cli>=0.1.12`（核心行情、缓存、交易日、基金和日报编排）
 - `curl` (所有系统通用)
 - **可选** — 浏览器自动化（用于板块榜和页面抓取）：
   - [camofox-browser](https://github.com/daijro/camoufox) REST 服务，或
@@ -32,6 +34,20 @@ git clone https://github.com/AdvancingTitans/stock-analysis.git ~/.hermes/skills
 ### 命令行脚本
 
 ```bash
+# 安装/升级核心 CLI 包
+python -m pip install -U young-stock-cli
+```
+
+```bash
+# 首次设置投资记忆
+young profile add-stock 600519
+young profile add-stock 0700.HK
+young profile add-fund 161725
+
+# 每日行情日报（默认读取投资记忆）
+python scripts/aftermarket.py --market daily
+python scripts/aftermarket.py --market daily --no-news
+
 # A股复盘（自动检测交易日）
 python scripts/aftermarket.py --market a
 python scripts/aftermarket.py --market a --no-news
@@ -63,6 +79,7 @@ python scripts/aftermarket.py --market a 20260526
 安装到 `~/.hermes/skills/research/stock-analysis` 后，Hermes 会自动加载 `SKILL.md` 上下文。
 
 示例提示：
+- "今天帮我出一份行情日报"
 - "今天 A 股怎么样"
 - "复盘下今日行情"
 - "美股今天怎么样"
@@ -150,6 +167,11 @@ hermes skills install --repo AdvancingTitans/stock-analysis --path skills/stock-
 - **时区**：美股盘后复盘建议北京时间次日 05:00 后；港股 16:00 后。
 
 ## 更新日志
+
+### v3.6.0
+- 重新定位为“每日行情日报”技能：默认 `--market daily`，围绕用户投资记忆输出关注个股/基金行情、全球指数、大盘情绪和风险建议。
+- `scripts/aftermarket.py` 改为 `young-stock-cli` 核心包薄包装，不再维护大体量同步副本；安装或升级 `young-stock-cli>=0.1.12` 即可获得最新行情、交易日、缓存和日报编排逻辑。
+- 首次使用会引导用户用 `young profile add-stock` / `young profile add-fund` 保存关注标的，形成本地投资记忆。
 
 ### v3.3.0
 - 同步 young-stock-cli 多源增强：新增腾讯财经 `qt.gtimg.cn`，港股指数优先使用腾讯收盘口径，并在输出中提示和新浪盘后快照可能存在口径差异。
