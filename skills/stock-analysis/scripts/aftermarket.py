@@ -70,6 +70,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--fund", dest="fund")
     parser.add_argument("--no-cache", "--refresh", dest="no_cache", action="store_true")
     parser.add_argument("--no-news", action="store_true")
+    parser.add_argument("--format", dest="report_format", default="full", choices=["full", "summary", "key-points"])
+    parser.add_argument("--only", default=None)
+    parser.add_argument("--order", default=None)
+    parser.add_argument("--quick", action="store_true")
     return parser.parse_args(argv)
 
 
@@ -87,7 +91,15 @@ def main(argv: list[str] | None = None) -> int:
         if not watchlist.get("stocks") and not watchlist.get("funds"):
             _print_first_use_guide()
             return 0
-        core.run_daily_report(date_str, watchlist, include_news=include_news)
+        core.run_daily_report(
+            date_str,
+            watchlist,
+            include_news=include_news,
+            report_format=args.report_format,
+            only=args.only,
+            order=args.order,
+            quick=args.quick,
+        )
     elif args.market == "a":
         core.run_a_share(date_str, include_news=include_news)
     elif args.market == "hk":
