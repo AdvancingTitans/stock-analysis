@@ -171,6 +171,7 @@ hermes skills install --repo AdvancingTitans/stock-analysis --path skills/stock-
 ### v3.6.0
 - 重新定位为“每日行情日报”技能：默认 `--market daily`，围绕用户投资记忆输出关注个股/基金行情、全球指数、大盘情绪和风险建议。
 - `scripts/aftermarket.py` 改为 `young-stock-cli` 核心包薄包装，不再维护大体量同步副本；安装或升级 `young-stock-cli>=0.1.12` 即可获得最新行情、交易日、缓存和日报编排逻辑。
+- 依赖 CLI 的模块化核心：交易日历、投资记忆、日报编排和数据源健康评分分别由 `young_stock.calendar`、`young_stock.profile`、`young_stock.reports`、`young_stock.health` 维护。
 - 首次使用会引导用户用 `young profile add-stock` / `young profile add-fund` 保存关注标的，形成本地投资记忆。
 
 ### v3.3.0
