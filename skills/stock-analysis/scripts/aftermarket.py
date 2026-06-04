@@ -41,23 +41,24 @@ def _profile_path() -> Path:
 def _load_watchlist() -> dict[str, list[str]]:
     path = _profile_path()
     if not path.exists():
-        return {"stocks": [], "funds": []}
+        return {"stocks": [], "funds": [], "positions": {"stocks": {}, "funds": {}}}
     try:
         data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return {"stocks": [], "funds": []}
+        return {"stocks": [], "funds": [], "positions": {"stocks": {}, "funds": {}}}
     return {
         "stocks": [str(v) for v in data.get("stocks", []) if str(v).strip()],
         "funds": [str(v) for v in data.get("funds", []) if str(v).strip()],
+        "positions": data.get("positions", {"stocks": {}, "funds": {}}),
     }
 
 
 def _print_first_use_guide() -> None:
     print("# 每日行情日报\n")
-    print("尚未设置投资记忆。请先让用户给出关注的股票、ETF 或基金，然后保存到 CLI profile：")
-    print("  young profile add-stock 600519")
-    print("  young profile add-stock 0700.HK")
-    print("  young profile add-fund 161725")
+    print("尚未设置投资记忆。请先让用户给出关注的股票、ETF 或基金，以及买入日期和数量，然后保存到 CLI profile：")
+    print("  young profile add-stock 600519 --buy-date 2026-01-15 --quantity 100")
+    print("  young profile add-stock 0700.HK --buy-date 2026-01-15 --quantity 200")
+    print("  young profile add-fund 161725 --buy-date 2026-01-10 --quantity 1000")
     print()
     print(f"当前配置路径: {_profile_path()}")
 

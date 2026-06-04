@@ -22,7 +22,7 @@ git clone https://github.com/AdvancingTitans/stock-analysis.git ~/.hermes/skills
 ### 依赖
 
 - Python 3.10+（运行 `scripts/aftermarket.py`）
-- `young-stock-cli>=0.1.15`（核心行情、缓存、交易日、基金、日报编排和本地管理命令）
+- `young-stock-cli>=0.1.16`（核心行情、缓存、交易日、基金、日报编排和本地管理命令）
 - `curl` (所有系统通用)
 - **可选** — 浏览器自动化（用于板块榜和页面抓取）：
   - [camofox-browser](https://github.com/daijro/camoufox) REST 服务，或
@@ -40,10 +40,10 @@ python -m pip install -U young-stock-cli
 
 ```bash
 # 首次设置投资记忆
-young profile add-stock 600519
-young profile add-stock 0700.HK
+young profile add-stock 600519 --buy-date 2026-01-15 --quantity 100
+young profile add-stock 0700.HK --buy-date 2026-01-15 --quantity 200
 young profile add-stock NVDA --buy-date 2026-01-15 --quantity 10
-young profile add-fund 161725
+young profile add-fund 161725 --buy-date 2026-01-10 --quantity 1000
 young profile add-fund 021528 --buy-date 2026-01-10 --quantity 1000
 young profile clear-stocks  # 只清空股票/ETF 记忆
 young profile clear-funds   # 只清空基金记忆
@@ -174,11 +174,10 @@ hermes skills install --repo AdvancingTitans/stock-analysis --path skills/stock-
 
 ## 更新日志
 
-### v3.6.0
-- 重新定位为“每日行情日报”技能：默认 `--market daily`，围绕用户投资记忆输出关注个股/基金行情、全球指数、大盘情绪和风险建议。
-- `scripts/aftermarket.py` 改为 `young-stock-cli` 核心包薄包装，不再维护大体量同步副本；安装或升级 `young-stock-cli>=0.1.12` 即可获得最新行情、交易日、缓存和日报编排逻辑。
-- 依赖 CLI 的模块化核心：交易日历、投资记忆、日报编排和数据源健康评分分别由 `young_stock.calendar`、`young_stock.profile`、`young_stock.reports`、`young_stock.health` 维护。
-- 首次使用会引导用户用 `young profile add-stock` / `young profile add-fund` 保存关注标的，形成本地投资记忆。
+### v3.6.4
+- 同步 young-stock-cli 0.1.16：投资记忆添加时必须提供买入日期和数量，且 CLI 会先校验股票/基金代码，确认名称后才写入本地 profile。
+- 日报 full 模式不再默认展开全球市场，仅根据用户直接持有的 A股/港股/美股和基金 top10 持仓展示相关市场。
+- 技能包装脚本会保留 CLI profile 中的 `positions` 字段，保证买入以来收益、个股/基金分开分析和综合持仓建议不丢失。
 
 ### v3.6.3
 - 同步 young-stock-cli 0.1.15：投资记忆支持买入日期和数量，日报会自动回溯买入日附近基金净值或股票收盘价，估算买入以来收益。
@@ -192,6 +191,12 @@ hermes skills install --repo AdvancingTitans/stock-analysis --path skills/stock-
 - 同步 young-stock-cli 0.1.13：日报支持 `--format summary|key-points|full`、`--only`、`--order` 和 `--quick`，默认建议用 summary 避免长文刷屏。
 - 支持更完整的投资记忆管理：`young profile list/remove-stock/remove-fund/clear/group create/group add`。
 - 新增本地 workflow 命令：`young portfolio`、`young alert`、`young note`、`young diary`，以及 `young diagnose` 网络/数据源诊断。
+
+### v3.6.0
+- 重新定位为“每日行情日报”技能：默认 `--market daily`，围绕用户投资记忆输出关注个股/基金行情、市场概览和风险建议。
+- `scripts/aftermarket.py` 改为 `young-stock-cli` 核心包薄包装，不再维护大体量同步副本；安装或升级 `young-stock-cli>=0.1.12` 即可获得最新行情、交易日、缓存和日报编排逻辑。
+- 依赖 CLI 的模块化核心：交易日历、投资记忆、日报编排和数据源健康评分分别由 `young_stock.calendar`、`young_stock.profile`、`young_stock.reports`、`young_stock.health` 维护。
+- 首次使用会引导用户用 `young profile add-stock` / `young profile add-fund` 保存关注标的，形成本地投资记忆。
 
 ### v3.3.0
 - 同步 young-stock-cli 多源增强：新增腾讯财经 `qt.gtimg.cn`，港股指数优先使用腾讯收盘口径，并在输出中提示和新浪盘后快照可能存在口径差异。
