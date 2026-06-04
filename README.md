@@ -7,7 +7,7 @@
 - **A股**：东财免登录 API 实时/盘后数据，涨跌停池，同花顺概念资金流双边校验源，行业/概念板块榜（浏览器抓取）
 - **港美股**：腾讯/新浪财经批量行情为主，东财 `stock/get` 精确兜底，clist 批量补充，富途与新浪资讯多源 fallback
 - **基金持仓**：天天基金实时估值 + 东财基金持仓，联动持仓股行情和当天新闻
-- **每日日报**：读取 `young-stock-cli` 本地投资记忆，汇总关注标的、全球指数、大盘情绪和 Buffett-style 具体风险建议
+- **每日日报**：读取 `young-stock-cli` 本地投资记忆，按基金、个股和综合持仓输出行情、买入以来收益、新闻趋势和组合建议
 - **跨市场情绪**：结构化复盘模板，板块轮动分析，社区情绪评分
 - **浏览器降级**：camofox / Hermes 内置浏览器 / Playwright 页面抓取（板块榜或 API 失败时降级）
 
@@ -22,7 +22,7 @@ git clone https://github.com/AdvancingTitans/stock-analysis.git ~/.hermes/skills
 ### 依赖
 
 - Python 3.10+（运行 `scripts/aftermarket.py`）
-- `young-stock-cli>=0.1.14`（核心行情、缓存、交易日、基金、日报编排和本地管理命令）
+- `young-stock-cli>=0.1.15`（核心行情、缓存、交易日、基金、日报编排和本地管理命令）
 - `curl` (所有系统通用)
 - **可选** — 浏览器自动化（用于板块榜和页面抓取）：
   - [camofox-browser](https://github.com/daijro/camoufox) REST 服务，或
@@ -42,7 +42,9 @@ python -m pip install -U young-stock-cli
 # 首次设置投资记忆
 young profile add-stock 600519
 young profile add-stock 0700.HK
+young profile add-stock NVDA --buy-date 2026-01-15 --quantity 10
 young profile add-fund 161725
+young profile add-fund 021528 --buy-date 2026-01-10 --quantity 1000
 young profile clear-stocks  # 只清空股票/ETF 记忆
 young profile clear-funds   # 只清空基金记忆
 
@@ -178,8 +180,12 @@ hermes skills install --repo AdvancingTitans/stock-analysis --path skills/stock-
 - 依赖 CLI 的模块化核心：交易日历、投资记忆、日报编排和数据源健康评分分别由 `young_stock.calendar`、`young_stock.profile`、`young_stock.reports`、`young_stock.health` 维护。
 - 首次使用会引导用户用 `young profile add-stock` / `young profile add-fund` 保存关注标的，形成本地投资记忆。
 
+### v3.6.3
+- 同步 young-stock-cli 0.1.15：投资记忆支持买入日期和数量，日报会自动回溯买入日附近基金净值或股票收盘价，估算买入以来收益。
+- 日报建议改为“基金分析 / 个股分析 / 综合持仓”三段，支持只持有基金、只持有股票以及基金+个股混合持仓场景。
+
 ### v3.6.2
-- 同步 young-stock-cli 0.1.14：日报投资建议合入 Buffett 框架，围绕用户关注标的、基金估值、相关新闻、能力圈、安全边际和护城河输出更具体的风险摘要。
+- 同步 young-stock-cli 0.1.14：日报投资建议围绕用户关注标的、基金估值和相关新闻输出更具体的风险摘要。
 - 新增 `young uninstall` 一键卸载命令，并支持 `young profile clear-stocks`、`young profile clear-funds` 分类型清空投资记忆。
 
 ### v3.6.1

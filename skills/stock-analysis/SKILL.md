@@ -1,7 +1,7 @@
 ---
 name: stock-analysis
-description: "Use when the user asks for current or after-market A股、港股、美股 or global stock-market review, personalized daily market report, single-stock/fund lookup/news, index/sector/sentiment analysis,涨跌停池,港美股重点个股, or asks to verify market data with low 429/token overhead. v3.6.2 adds Buffett-style concrete advice, one-command uninstall, and stock/fund memory clearing through young-stock-cli."
-version: 3.6.2
+description: "Use when the user asks for current or after-market A股、港股、美股 or global stock-market review, personalized daily market report, single-stock/fund lookup/news, index/sector/sentiment analysis,涨跌停池,港美股重点个股, or asks to verify market data with low 429/token overhead. v3.6.3 adds buy-date/quantity-aware portfolio advice through young-stock-cli."
+version: 3.6.3
 author: Hermes Agent + yjw
 tags: [stock-market, a-shares, hk-shares, us-shares, eastmoney, futu, sentiment, global-finance, data-quality, camofox]
 platforms: [linux, macos, windows]
@@ -34,7 +34,7 @@ python scripts/aftermarket.py --market global --no-cache
 - 首次使用如果脚本提示尚未设置投资记忆，先引导用户给出关注股票、ETF 或基金代码；再用 `young profile add-stock 600519`、`young profile add-stock 0700.HK`、`young profile add-fund 161725` 保存。保存后重新运行 `python scripts/aftermarket.py --market daily`。
 - 用户只问“今日全球行情”时跑 `python scripts/aftermarket.py --market global`，再按需要补跑单市场。
 - 输出已含来源提示、实际口径和日期+阶段；回答时引用关键数字，不要把完整原始输出逐段复制给用户。摘要模式优先保留基金/关注个股/A股指数/资金热点/风险提示。数据源诊断和完整度报告仅在 `YOUNG_STOCK_DEBUG=1` 时展示；排查问题可运行 `young diagnose`。
-- 投资建议必须合入 Buffett 框架：能力圈、安全边际、护城河、估值纪律、市场先生和机会成本。建议必须落到用户关注的具体股票/基金、当日涨跌、主题集中度、相关新闻和基金估值/持仓时效；拿不到 PE/PB/ROE、现金流、负债等基本面数据时要写“需要验证”，不能泛泛写“谨慎持有/逢低布局/控制风险”。
+- 投资建议必须合入三层投研框架：`futu-stock-digest` 的单票新闻事件/利多利空方向判断、`futu-comment-sentiment` 的组合情绪快照思路，以及基金经理/股票分析师常用的持仓收益、趋势强弱、主题集中度、相关性和仓位纪律分析。建议必须分开分析用户持有基金和个股，最后再汇总“基金 + 个股”的综合持仓风险与建议；若用户记录了买入日期和数量，系统应自动回溯买入日附近基金净值或股票收盘价估算买入以来收益，不要求用户手填成本价。拿不到 PE/PB/ROE、现金流、负债等基本面数据时要写“需要验证”，不能泛泛写“谨慎持有/逢低布局/控制风险”。
 
 ## CLI 依赖边界
 
