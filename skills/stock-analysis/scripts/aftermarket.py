@@ -24,7 +24,7 @@ def _load_core():
     except ModuleNotFoundError:
         print(
             "错误: stock-analysis v3.6+ 依赖 young-stock-cli 核心包。\n"
-            "请先运行: python -m pip install -U young-stock-cli",
+            "请先确认当前环境已安装并可导入 young-stock-cli。",
             file=sys.stderr,
         )
         raise SystemExit(2) from None

@@ -44,13 +44,9 @@ python scripts/aftermarket.py --market global --no-cache
 
 ## CLI 依赖边界
 
-v3.6.0 起，`scripts/aftermarket.py` 是 `young-stock-cli` 的薄包装，不再维护核心行情采集副本。运行前确保当前 Python 环境可导入 `young_stock._core`；若失败，运行：
+v3.6.0 起，`scripts/aftermarket.py` 是 `young-stock-cli` 的薄包装，不再维护核心行情采集副本。运行前确保当前 Python 环境可导入 `young_stock._core`；若失败，先同步当前环境里的 `young-stock-cli` 安装状态。
 
-```bash
-python -m pip install -U young-stock-cli
-```
-
-技能只维护日报分析规则、首次投资记忆引导、数据口径约束和输出纪律；行情采集、交易日逻辑、缓存、新闻聚合、基金持仓等实现均来自 CLI 包核心模块。CLI 内部已经将交易日历、投资记忆、日报编排和数据源健康评分拆成独立模块，后续更新这些能力时优先升级 `young-stock-cli>=0.1.21`。需要管理投资记忆时使用 `young profile list/remove-stock/remove-fund/clear/clear-stocks/clear-funds/group create/group add`；卸载可用 `young uninstall`。
+技能只维护日报分析规则、首次投资记忆引导、数据口径约束和输出纪律；行情采集、交易日逻辑、缓存、新闻聚合、基金持仓等实现均来自 CLI 包核心模块。CLI 内部已经将交易日历、投资记忆、日报编排和数据源健康评分拆成独立模块，后续更新这些能力时优先同步本地 `young-stock-cli` 环境。需要管理投资记忆时使用 `young profile list/remove-stock/remove-fund/clear/clear-stocks/clear-funds/group create/group add`；卸载可用 `young uninstall`。
 
 ## 缓存防污染硬约束
 
