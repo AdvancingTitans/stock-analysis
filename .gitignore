@@ -5,3 +5,8 @@ __pycache__/
 .vscode/
 .idea/
 *.log
+.venv/
+uv.lock
+dist/
+evidence_*.json
+m[1-6]_*.json

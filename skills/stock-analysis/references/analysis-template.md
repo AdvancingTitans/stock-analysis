@@ -154,7 +154,7 @@
 
 #### 六、数据质量检查
 
-> v2.1.0 新增：港股/欧股/日股的成交量数据来源（Yahoo Finance）可能不完整
+> 港股/欧股/日股的成交量数据可能不完整，缺失时不做量价结论。
 > - 如果成交量显示 `*` 或为 `-`，表示数据异常或缺失
 > - 数据完整性评分: ___%
 > - 异常数据项: _______
@@ -168,4 +168,4 @@
 
 ---
 
-*Template provided by stock-analysis skill v2.1.0. Data sources: Eastmoney free API + Yahoo Finance API + Futunn free search + browser capture + Exa sentiment cross-validation.*
+*Template provided by stock-analysis skill. Data is collected through multi-source market APIs, browser fallback, and sentiment cross-validation.*

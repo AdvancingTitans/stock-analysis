@@ -1,105 +1,194 @@
 ---
 name: stock-analysis
-description: "Use when the user asks for current or after-market A股、港股、美股 or global stock-market review, personalized daily market report, single-stock/fund lookup/news, index/sector/sentiment analysis,涨跌停池,港美股重点个股, or asks to verify market data with low 429/token overhead. v3.7.0 prioritizes stable sources (Sina/Tencent/Futu/THS/SEC) and keeps Eastmoney/Yahoo only as hidden implementation details if the CLI already uses them."
-version: 3.7.0
+description: 全球股市深度复盘技能。以日报框架、多市场情绪分析和持仓分析为核心，整合 A股/港股/美股/基金多源行情、东财独有信号、证据包评分、诊断命令与浏览器降级链路。
+version: 4.0.0
 author: Hermes Agent + yjw
-tags: [stock-market, a-shares, hk-shares, us-shares, futu, sentiment, global-finance, data-quality, camofox]
+tags: [stock-market, a-share, hk-share, us-share, portfolio, eastmoney, tencent, sina, evidence]
 platforms: [linux, macos, windows]
 ---
 
-# 每日行情日报与全球股市情绪分析
+# 全球股市深度复盘
 
-核心原则：**任何分析必须先拉数据，禁止裸眼定性**。本技能默认生成“每日行情日报”：先读取用户本地投资记忆，输出关注个股/基金行情和趋势、与用户持仓相关的市场概览，以及面向用户持仓的风险提示。模型只做解释、归纳和风险提示，避免反复手工访问接口消耗额度。数据仅供参考，不构成投资建议。
+先拉数据，再做判断。所有强弱判断必须能回到成交额、放量倍数、资金流或指数对比上。
 
-稳定源优先级：
+## 何时使用
 
-1. 新浪财经、腾讯财经、富途、同花顺、SEC、CNINFO、基金实时估值
-2. CLI 已封装且主路径可用时，再把东财当作补充
-3. Yahoo 不作为默认建议源，只保留历史兼容或可选降级语义
+- 用户说“今天行情”“复盘”“分析我的持仓”“全球股市怎么样”
+- 用户要看 A股/港股/美股/基金
+- 用户要证据驱动的 6 模块复盘
+- 用户要 `diagnose` 网络和数据源可用性检查
 
-## 快速使用
-
-在技能目录运行：
+## 命令
 
 ```bash
-python scripts/aftermarket.py --market global
-python scripts/aftermarket.py --market daily --format summary
-python scripts/aftermarket.py --market daily --format key-points --only 基金,A股
-python scripts/aftermarket.py --market daily --format full
-python scripts/aftermarket.py --market a
-python scripts/aftermarket.py --market hk
-python scripts/aftermarket.py --market us
-python scripts/aftermarket.py --market a --no-news
-python scripts/aftermarket.py --market news --stock 3690.HK
-python scripts/aftermarket.py --market fund --fund 161725
-python scripts/aftermarket.py --market global --no-cache
+python skills/stock-analysis/scripts/daily_recap.py --market daily --format summary
+python skills/stock-analysis/scripts/daily_recap.py --market a --format full
+python skills/stock-analysis/scripts/daily_recap.py --market diagnose
+python skills/stock-analysis/scripts/aftermarket.py --market daily
 ```
 
-- 默认使用缓存；只有用户要求刷新、数据明显过期或诊断提示缓存异常时才加 `--no-cache`。
-- 用户问“今天行情/每日行情日报/帮我复盘”优先跑 `python scripts/aftermarket.py --market daily --format summary`，避免长文刷屏；用户要求完整复盘时再用 `--format full`。
-- 首次使用如果脚本提示尚未设置投资记忆，先引导用户给出关注股票、ETF 或基金代码、买入日期和数量；再用 `young profile add-stock 600519 --buy-date 2026-01-15 --quantity 100`、`young profile add-stock 0700.HK --buy-date 2026-01-15 --quantity 200`、`young profile add-fund 161725 --buy-date 2026-01-10 --quantity 1000` 保存。CLI 会先校验代码，仅在返回“您的投资记忆已添加：名称（代码）”后才视为保存成功。
-- 用户只问“今日全球行情”时跑 `python scripts/aftermarket.py --market global`，再按需要补跑单市场。
-- 输出已含来源提示、实际口径和日期+阶段；回答时引用关键数字，不要把完整原始输出逐段复制给用户。摘要模式优先保留基金/关注个股/A股指数/资金热点/风险提示。数据源诊断和完整度报告仅在 `YOUNG_STOCK_DEBUG=1` 时展示；排查问题可运行 `young diagnose`。
-- 投资建议必须合入三层投研框架：`futu-stock-digest` 的单票新闻事件/利多利空方向判断、`futu-comment-sentiment` 的组合情绪快照思路，以及基金经理/股票分析师常用的持仓收益、趋势强弱、主题集中度、相关性和仓位纪律分析。建议必须分开分析用户持有基金和个股，最后再汇总“基金 + 个股”的综合持仓风险与建议；若用户记录了买入日期和数量，系统应自动回溯买入日附近基金净值或股票收盘价估算买入以来收益，不要求用户手填成本价。拿不到 PE/PB/ROE、现金流、负债等基本面数据时要写“需要验证”，不能泛泛写“谨慎持有/逢低布局/控制风险”。
+## 强制策略
 
-## CLI 依赖边界
+### 1. 数据优先级
 
-v3.6.0 起，`scripts/aftermarket.py` 是 `young-stock-cli` 的薄包装，不再维护核心行情采集副本。运行前确保当前 Python 环境可导入 `young_stock._core`；若失败，先同步当前环境里的 `young-stock-cli` 安装状态。
+- A股主力行情：腾讯 `qt.gtimg.cn` + 新浪 `hq.sinajs.cn`
+- `mootdx` 默认禁用，仅用于五档盘口、逐笔、深度分钟 K
+- 东财只用于独有数据，且必须走统一限流
+- 港美股主路径：新浪 + 腾讯 + 东财 `stock/get`
 
-技能只维护日报分析规则、首次投资记忆引导、数据口径约束和输出纪律；行情采集、交易日逻辑、缓存、新闻聚合、基金持仓等实现均来自 CLI 包核心模块。CLI 内部已经将交易日历、投资记忆、日报编排和数据源健康评分拆成独立模块，后续更新这些能力时优先同步本地 `young-stock-cli` 环境。需要管理投资记忆时使用 `young profile list/remove-stock/remove-fund/clear/clear-stocks/clear-funds/group create/group add`；卸载可用 `young uninstall`。
+### 2. 标准化层
 
-## 缓存防污染硬约束
+调用任何缓存、合并、持仓匹配前，必须先执行 `normalize_code(symbol, source)`：
 
-v3.1.1 引入的缓存防污染机制必须保留，后续迭代不得弱化：
+- `sh600519` → `600519`
+- `sz399001` → `399001`
+- `hk00700` / `00700.HK` → `0700.HK`
+- `usAAPL` / `gb_aapl` → `AAPL`
+- `fu161725` → `161725`
 
-- 行情缓存 TTL 固定为 **5 分钟（300 秒）**，盘中实时数据过期后必须重新拉取，不能长期复用旧快照。
-- 缓存路径必须按交易日隔离：`~/.cache/stock-analysis/YYYYMMDD/`；缓存 key 至少包含数据源、symbol 和日期，避免早盘未更新时把昨日数据污染到今日。
-- 脚本必须继续支持 `--no-cache` 和 `--refresh`，用于用户要求刷新、早盘/午间疑似旧数据、接口诊断异常等场景。
-- 缓存读取必须校验文件修改时间；超过 TTL 直接视为 miss，不应返回 stale data。
-- 标题或阶段字段必须根据当前时间自动标注 `上午盘` / `午间` / `下午盘` / `盘后`，且阶段字段带数据日期，例如 `2026-06-01 下午盘`；若返回数据日期与请求日期不一致，展示返回交易日的阶段，不把请求日伪装成数据日。
-- 如果未来调整缓存策略，必须同时更新 `scripts/aftermarket.py`、本文件和 README 更新日志，并明确说明如何防止缓存污染。
-## 数据源优先级
+### 3. 持仓完整性
 
-| 市场 | 行情 | 新闻/情绪 | 板块 | 说明 |
-|---|---|---|---|---|
-| A股 | 新浪/腾讯个股 + 交易日历 + 指数兜底 | 富途 news_search + 新浪滚动新闻 + 同花顺热点/北向 | 浏览器抓板块页或 CLI 已封装板块榜 | 支持 6 大指数、涨跌停池、炸板池；腾讯补充成交额、换手率、市值、PE/PB、52周区间 |
-| 港股 | 腾讯指数口径 + 新浪个股主报价 + 腾讯个股补充 | 富途 news/feed + 新浪滚动新闻，按新闻热度排 Top5 | 无稳定主板块源时只做概览 | 不适用涨跌停、连板、炸板率；腾讯补充成交额、市值、PE/PB、52周区间 |
-| 美股 | 新浪财经主报价 + 腾讯个股/指数补充 | 富途 news/feed + 新浪滚动新闻，按新闻热度排 Top5 | 无稳定主板块源时只做概览 | DJI 已覆盖；腾讯补充成交额、换手率、市值、PE、52周区间；VIX 若缺失，用诊断说明 |
+- 每只持仓必须校验 `price/change/change_pct`
+- 任一缺失时自动触发全链路 fallback
+- 仍缺失时在 evidence 中记录最后成功日期，正式报告对应字段留空
+- 禁止输出误导性的 `0.00`、`未知` 或调试提示
 
-三层获取：**缓存 → 稳定 API → 浏览器降级**。稳定 API 包括同花顺概念热点/北向、腾讯港股指数收盘口径、港美股新浪财经批量行情、腾讯 A股/港股/美股个股补充、腾讯美股指数补充、天天基金实时估值/持仓、富途资讯、新浪滚动新闻、SEC XBRL/EDGAR、CNINFO 公告、纯计算技术指标层；浏览器降级用于板块页、富途页面以及 API 连续失败、403、429 场景。东财和 Yahoo 仅在 CLI 已封装且没有更稳替代时作为历史兼容或可选补充，不作为默认建议链路。
+### 4. 编码
 
-单只股票速览：脚本支持 `python scripts/aftermarket.py --market stock --stock 600519`，也支持港股 `0700.HK` 和 best-effort 美股 `AAPL`；若用户只想看消息面，使用 `python scripts/aftermarket.py --market news --stock 3690.HK`。单票输出必须标注市场、来源、数据交易日、最新价、涨跌、成交量/额；若腾讯财经补充字段可用，还应展示换手率、市值、PE/PB、52周高低等，不把补充源误写成价格主来源。若数据源交易日与请求日不一致，必须明确提醒，不把旧数据当成当天数据。新闻逐条显示来源和链接状态，且只展示请求交易日当天发布的有效新闻，热度基于所有来源综合命中数和新鲜度，最多 Top5，不足 5 条按实际数量展示，没有则明确提示暂未获取到有效新闻信息。`--market a`、`--market hk`、`--market us`、`--market stock` 都支持 `--no-news`，用户只想看行情时不要输出新闻链接。
+- 腾讯/新浪响应必须强制 `gb2312`
 
-基金持仓速览：脚本支持 `python scripts/aftermarket.py --market fund --fund 161725` 或 `--market fund --stock 161725`。输出基金当日估算涨跌幅、上一净值日期、前十大 A股持仓行情、重仓贡献粗算和持仓股当天新闻；正式基金净值通常晚间更新，估算值必须明确标注为“天天基金盘中/收盘估算”，不能写成已确认收益率。`--no-news` 可跳过持仓股新闻。
+### 5. 东财限流
 
-## 分析要求
+- 串行
+- 最小间隔 `>= 1s`
+- 随机抖动
+- 会话复用
+- 指数退避最多 3 次
 
-- 每日行情日报最小集：用户关注股票/ETF 的行情与趋势、关注基金的估值/持仓贡献、由个股市场和基金 top10 持仓推导出的相关市场概览，以及对用户的仓位纪律、风险点和后续观察项建议；不默认展开与持仓无关的全球市场。
-- A股最小集：6 大指数、涨跌停池、炸板池、行业/概念板块；主力资金流向展示最新可用记录并标注来源交易日，用涨停数、跌停数、炸板率、最高连板、封板时间、板块集中度判断情绪。
-- 港美股最小集：大盘指数、重点个股、成交量/质量标记、多源当天新闻；重点看大盘涨跌、成交量变化、板块轮动、个股新闻，不套用 A股连板逻辑。
-- 单只股票最小集：当前价、涨跌幅、昨收、开高低、成交量/额、来源、数据交易日、当天相关新闻；拿不到可核验价格时只提示缺口和建议重试，不输出空表或猜测。
-- 基金最小集：基金名称/代码、上一净值日期和净值、当日估算净值/涨跌幅、估算时间、持仓截止日、前十大持仓股当日行情、按公开持仓权重粗算的贡献，以及前五大持仓股当天新闻 Top5。
-- Exa 或网页搜索只做舆情交叉验证，必须带当天 `startPublishedDate`；国内财经站优先 API 或 camofox，少用 Jina Reader。
-- 如果接口失败，不静默定性；说明“数据缺口 + 已用替代源/诊断摘要”。
+社区阈值记录：
 
-## 省额度规则
+- `>5 次/秒`
+- `并发 >= 10`
+- `1 分钟 >= 200`
+- `5 分钟 >= 300`
 
-- 先跑脚本，再分析；同一市场同一轮不要重复请求相同 symbol。
-- 不把脚本代码、完整表格或长新闻列表塞进最终回答；保留指数、涨跌幅、活跃方向、异常数据和结论。
-- 缓存命中时不要强刷；需要刷新时一次性跑目标市场，不逐只股票手工请求。
-- 不使用境外行情接口作为默认备用源；这类接口易受地区网络和限流影响。港美股优先用腾讯/新浪这些免登录国内可访问源。
-- 需要更多实现细节时再读取 `references/` 和脚本帮助，主技能正文保持轻量。
+### 6. 浏览器降级
 
-## 关键坑位
+- 顺序：camofox > Hermes browser > Playwright
+- 先查 `http://localhost:9377/json/version`
+- 3 秒无响应则跳下一级
+- 全部不可用时必须写 `数据源不可用`
 
-- 若 CLI 内部仍使用东财作为隐藏补充实现，必须把它当作实现细节而不是技能默认建议源；对用户只强调交易日、阶段和数据口径。
-- A股资金流只有在同花顺概念资金流页面同时返回净流入和净流出榜时才采用；该源只代表概念板块净额，必须标注“不等同于全市场主力资金净流入”。
-- 同花顺 `data.10jqka.com.cn/funds/gnzjl/` 当前适合 `young flow` 的概念板块方向参考，不适合替代 A股指数、个股、港美股行情主路径；其他行情优先走新浪/腾讯稳定链路。
-- 每次运行都要标注日期+阶段：上午盘、午间、下午盘、盘后；如果返回数据日期与请求日期不一致，注明展示的是返回交易日数据，并在阶段字段中使用返回数据日期。
-- 新闻只采用稳定免登录源。当前默认使用富途和新浪财经；雪球/同花顺若没有稳定免登录接口，不作为默认硬依赖。A股、港美股重点个股、基金持仓股和单票新闻都只展示请求交易日当天发布的有效内容，按多源新闻热度 Top5 展示；展示时尽量保留多来源，不让单一来源自动挤掉其他有效来源。新闻链接会剔除明显 404/无内容页面，网络临时校验失败时不误杀。
-- 默认不要输出“数据源切换记录”等调试信息；只有设置 `YOUNG_STOCK_DEBUG=1` 时才展示接口诊断。
-- 富途 `publish_time` 是字符串，脚本会先转整数。
-- 指数成交量为 0 是 warning，不影响价格判断；个股成交量为 0 才影响质量评分。
-- 仅对 429/403/5xx/timeout 重试；404 不重试，直接降级或诊断。
-- 港股指数优先腾讯 `qt.gtimg.cn` 收盘口径；新浪 `hkHSI` 可作实时快照补充，二者盘后点位可能略有差异，回答时说明口径。
-- 港美股新浪财经缺失时先尝试腾讯个股行情；即使新浪价格主口径可用，也可用腾讯补充成交额、市值、PE/PB、52周区间等字段。
+### 7. 缺失字段输出纪律
+
+- 能补齐就补齐：先走多源 fallback，再走浏览器降级
+- 仍补不齐时默认隐藏字段，不向用户直接展示：
+  - `趋势 数据不足`
+  - `板块=未知`
+  - `资金=未知`
+  - `成交额 --`
+  - `行业强势方向以 暂无 为首`
+- 用户看到的应该是更完整的分析句子，而不是调试痕迹
+
+### 8. 数据来源展示纪律
+
+- 数据来源、接口名、fallback 轨迹只写入 evidence JSON 和 diagnose 输出
+- 面向用户的正式复盘报告不得出现：
+  - `来源 eastmoney/sina/tencent`
+  - `口径来自同花顺`
+  - `hsgtApi`
+  - API URL、接口字段名或抓取工具名
+- 正文只呈现数据、判断、证据和风险；用户明确要求审计数据来源时，再单独附来源清单
+
+### 9. 表格化要求
+
+- 大盘指数概览必须包含表格：`大盘 | 收盘 | 涨跌 | 涨跌幅 | 成交额`
+- 持仓分析必须包含表格：`代码 | 名称 | 买入日 | 数量 | 现价 | 当日浮动盈亏 | 趋势`
+- 赚钱效应模块必须包含连板梯队表格：`股票 | 连板 | 封单金额`
+- 缺失字段保留空单元格，不展示 `--`、`未知`、`数据不足`
+
+## 自动报告模式
+
+- 未明确说“深度复盘/6模块”时，自动按当前时段选轻量/中量/完整版
+- 早盘：指数概览 + 持仓浮盈亏 + 简要风险
+- 盘中：指数概览 + 持仓分析 + 盘面趋势/赚钱效应/爆量下跌风险
+- 盘后：固定顺序完整版
+
+## 固定输出顺序
+
+1. 大盘指数概览
+2. 持仓分析
+3. 6 模块深度复盘
+4. 综合持仓建议与风险提示
+
+报告写法默认采用“研报分析形式”：
+
+- 先给市场结论
+- 再给证据与结构拆解
+- 避免机械列表和缺失字段占位
+- 每个模块至少包含“判断 + 证据 + 风险/确认度”
+- 综合持仓建议采用券商研报结尾结构：
+  - 现状总结：逐只持仓当日涨跌与当日浮动盈亏
+  - 基准跑赢/跑输：A股对比沪指/创业板，港股对比恒指/恒生科技，美股对比纳指/道指
+  - 仓位动作建议：围绕相对收益、趋势、重复暴露和集中度给出条件化动作
+  - 观察清单：列出下一交易日需要验证的指数承接、炸板率、连板晋级和主线成交额
+  - 风险提示：指数极端波动、炸板率、连板梯队断层、集中度风险
+
+仓位动作建议不得直接给出无条件买卖指令，必须使用可核验触发条件，例如：
+
+- 连续两日跑输基准且所属板块未进入成交额主线
+- 跌破 MA10/MA20 或由跑赢转为跑输
+- 炸板率超过 25% 且连板梯队收缩
+- 直接持股与基金重仓股形成重复暴露
+
+最后必须包含：
+
+`以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。`
+
+## 证据包工作流
+
+1. 确定交易日
+2. 生成 `evidence_YYYYMMDD.json`
+3. 生成 6 个模块级 JSON
+4. 计算 `_meta.quality_score`
+5. 聚合成报告
+
+评分规则：
+
+- M1: 20
+- M2: 20
+- M3: 20
+- M4: 15
+- M5: 15
+- M6: 10
+
+质量门槛：
+
+- `>=80`：完整报告
+- `60-79`：完整报告 + 降级提示
+- `<60`：仅 M1 + 持仓 + 风险提示
+
+## 持仓分析要求
+
+- 读取 `young profile` 投资记忆
+- 统一折算 CNY
+- 输出原始币种
+- 三大持仓市值占比 > 70% 标记高集中度
+- 单一市场 > 80% 标记单一市场风险
+- A股持仓对比沪指/创业板
+- 港股持仓对比恒指/恒生科技
+- 美股持仓对比纳指/道指
+- 每只标的标记跑赢/跑输
+
+## 参考文档
+
+- `references/output_discipline.md`
+- `references/methodology/`
+- `references/template/`
+
+## 示例提示
+
+- “复盘今日行情，分析我的持仓”
+- “今天全球市场怎么样，给我 summary”
+- “帮我跑 diagnose，看 mootdx、东财和浏览器工具是否正常”
+- “盘后给我一份完整 6 模块复盘”

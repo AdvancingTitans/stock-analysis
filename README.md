@@ -1,308 +1,143 @@
 # stock-analysis
 
-每日行情日报与全球股市情绪分析技能，覆盖 A股（沪深京）、港股、美股、用户关注股票/ETF 和基金。
+基于 `AdvancingTitans/stock-analysis` 日报框架重构的全球股市深度复盘技能，整合：
 
-## 功能
+- `simonlin1212/a-stock-data` 的 A 股全栈数据分层与东财限流原则
+- `simonlin1212/global-stock-data` 的港美股多源报价与代码映射思路
+- `a-stock-daily-market-sense` 的 6 模块证据驱动复盘方法论
 
-- **A股**：新浪/腾讯主报价，同花顺热点与北向，涨跌停池，行业/概念板块榜
-- **港美股**：新浪财经主报价 + 腾讯个股字段补充，富途与新浪资讯多源 fallback
-- **基金持仓**：天天基金实时估值 + 基金持仓明细，联动持仓股行情和当天新闻
-- **每日日报**：读取 `young-stock-cli` 本地投资记忆，按基金、个股和综合持仓输出行情、买入以来收益、新闻趋势和组合建议
-- **跨市场情绪**：结构化复盘模板，板块轮动分析，社区情绪评分
-- **浏览器降级**：camofox / Hermes 内置浏览器 / Playwright 页面抓取（板块榜或 API 失败时降级）
+目标是提供一个稳定、证据化、支持持仓分析和自动时段适配的全球市场复盘引擎。
 
-## 安装
-
-### 通过 Hermes CLI
-
-```bash
-git clone https://github.com/AdvancingTitans/stock-analysis.git ~/.hermes/skills/research/stock-analysis
-```
-
-### 依赖
-
-- Python 3.10+（运行 `scripts/aftermarket.py`）
-- 当前环境可导入 `young_stock`（核心行情、缓存、交易日、基金、日报编排和本地管理命令来自 `young-stock-cli`）
-- `curl` (所有系统通用)
-- **可选** — 浏览器自动化（用于板块榜和页面抓取）：
-  - [camofox-browser](https://github.com/daijro/camoufox) REST 服务，或
-  - Hermes 内置浏览器工具（`browser_navigate`, `browser_console`），或
-  - Playwright / Puppeteer / Selenium
-
-## 用法
-
-### 命令行脚本
-
-```bash
-# 首次设置投资记忆
-young profile add-stock 600519 --buy-date 2026-01-15 --quantity 100
-young profile add-stock 0700.HK --buy-date 2026-01-15 --quantity 200
-young profile add-stock NVDA --buy-date 2026-01-15 --quantity 10
-young profile add-fund 161725 --buy-date 2026-01-10 --quantity 1000
-young profile add-fund 021528 --buy-date 2026-01-10 --quantity 1000
-young profile clear-stocks  # 只清空股票/ETF 记忆
-young profile clear-funds   # 只清空基金记忆
-
-# 每日行情日报（默认读取投资记忆）
-python scripts/aftermarket.py --market daily --format summary
-python scripts/aftermarket.py --market daily --format key-points --only 基金,A股
-python scripts/aftermarket.py --market daily --format full
-python scripts/aftermarket.py --market daily --no-news
-
-# A股复盘（自动检测交易日）
-python scripts/aftermarket.py --market a
-python scripts/aftermarket.py --market a --no-news
-
-# 美股复盘
-python scripts/aftermarket.py --market us
-
-# 港股复盘
-python scripts/aftermarket.py --market hk
-
-# 全球市场概览（美股+港股+A股指数）
-python scripts/aftermarket.py --market global
-
-# 单只股票速览（A股/港股/美股，自动标注来源交易日）
-python scripts/aftermarket.py --market stock --stock 600519
-python scripts/aftermarket.py --market stock --stock 0700.HK
-python scripts/aftermarket.py --market stock --stock AAPL --no-news
-python scripts/aftermarket.py --market news --stock 3690.HK  # 只看多源新闻、来源和链接
-python scripts/aftermarket.py --market fund --fund 161725    # 基金估算收益 + 持仓股行情/新闻
-python scripts/aftermarket.py --market fund --fund 161725 --no-news
-python scripts/aftermarket.py --market hk --no-news
-
-# 指定日期（A股）
-python scripts/aftermarket.py --market a 20260526
-```
-
-### 作为 Hermes Skill 使用
-
-安装到 `~/.hermes/skills/research/stock-analysis` 后，Hermes 会自动加载 `SKILL.md` 上下文。
-
-示例提示：
-- "今天帮我出一份行情日报"
-- "今天 A 股怎么样"
-- "复盘下今日行情"
-- "美股今天怎么样"
-- "港股腾讯怎么样"
-- "查一下 600519"
-- "腾讯控股现在什么情况"
-- "早盘怎么看"
-
-## 目录结构
+## v4 架构
 
 ```
 stock-analysis/
-├── skills/
-│   └── stock-analysis/
-│       ├── SKILL.md                  # Hermes Agent 技能主体说明
-│       ├── scripts/
-│       │   └── aftermarket.py        # 一键采集脚本
-│       └── references/
-│           ├── eastmoney-api.md      # 东财富免登录 API 速查（A股+港美股）
-│           ├── futu-api.md           # 富途免登录搜索 API 速查
-│           └── analysis-template.md  # 结构化复盘模板
-├── README.md                         # 本文件
-├── LICENSE                           # MIT
-└── .gitignore
+├── src/stock_analysis/
+│   ├── app.py                # 主入口
+│   ├── normalize.py          # normalize_code(symbol, source)
+│   ├── market_time.py        # 交易日与时段判断
+│   ├── http.py               # GB2312 强制解码 + 东财 em_get
+│   ├── diagnostics.py        # diagnose 命令
+│   ├── evidence.py           # evidence_YYYYMMDD.json + quality_score
+│   ├── portfolio.py          # 持仓完整性校验
+│   ├── reporting.py          # 固定顺序 Markdown 输出
+│   └── sources/router.py     # 多市场 fallback 路由
+├── skills/stock-analysis/
+│   ├── SKILL.md
+│   ├── scripts/
+│   │   ├── daily_recap.py
+│   │   └── aftermarket.py
+│   └── references/
+│       ├── methodology/
+│       ├── template/
+│       └── output_discipline.md
+└── tests/
 ```
 
-### 通过 Hermes CLI 安装
+## 数据源策略
+
+### A股
+
+- 默认主路径：腾讯财经 `qt.gtimg.cn` + 新浪财经 `hq.sinajs.cn`
+- `mootdx` 仅按需启用：五档盘口、逐笔成交、高精度分钟/深度 K 线、扩展实时报价
+- 东财仅用于独有数据：板块归属、资金流、龙虎榜、解禁、两融、大宗、股东户数、研报、新闻、全球资讯
+- 优先级铁律：腾讯/新浪 > mootdx（独有能力） > 东财（独有数据且必须限流）
+
+### 港美股
+
+- 主路径：新浪 + 腾讯 + 东财 `push2/stock/get`
+
+### 持仓标的
+
+- A股：腾讯批量 > 新浪 > 东财 > 浏览器降级
+- 港股：腾讯港股 > 新浪港股 > 东财港股 > 浏览器降级
+- 美股：腾讯美股 > 新浪美股 > 东财美股 > 浏览器降级
+- 基金：天天基金/东财基金 > 新浪基金 > 浏览器降级
+- 任一标的 `price/change/change_pct` 缺失时，必须触发全链路 fallback；仍失败则在 evidence 中记录，正式报告字段留空
+
+### 汇率与盈亏
+
+- HKD/USD 持仓统一折算 CNY 计算组合浮盈亏
+- 明细中保留原始币种
+
+## 网络与降级
+
+### 东财限流
+
+- 所有东财接口统一走 `em_get()`
+- 串行调用，最小间隔 `>= 1s`，带随机抖动
+- `requests.Session` 复用
+- 指数退避重试最多 3 次
+- 文档中保留社区实测风控阈值：`>5 req/s`、`并发 >=10`、`1 分钟 >=200`、`5 分钟 >=300`
+
+### 浏览器降级
+
+- 降级顺序：`camofox-browser` REST > Hermes 内置浏览器 > Playwright
+- Camofox 降级前先做 `http://localhost:9377/json/version` 健康检查，超时 3 秒视为不可用
+- 所有浏览器工具不可用时，模块必须显式标注 `数据源不可用`
+
+### 编码
+
+- 腾讯/新浪响应统一强制 `response.encoding = "gb2312"`
+- 禁止依赖自动编码检测
+
+## 自动时段模式
+
+- 早盘：轻量版
+- 盘中：中量版
+- 盘后：完整版，固定顺序为：
+  1. 大盘指数概览
+  2. 持仓分析
+  3. 6 模块深度复盘
+  4. 综合持仓建议与风险提示
+
+默认日期是当前自然日；非交易日自动回溯到最近交易日，并写入 `evidence_YYYYMMDD.json` 的 `_meta.trade_date`。
+
+## 使用
 
 ```bash
-hermes skills install --repo AdvancingTitans/stock-analysis --path skills/stock-analysis
+~/.local/bin/uv sync
+~/.local/bin/uv run python -m stock_analysis --market diagnose
+~/.local/bin/uv run python skills/stock-analysis/scripts/daily_recap.py --market daily --format summary
+~/.local/bin/uv run python skills/stock-analysis/scripts/daily_recap.py --market a --format full
+~/.local/bin/uv run python skills/stock-analysis/scripts/aftermarket.py --market daily
 ```
 
-## 数据来源
+## 与 young-stock-cli 的关系
 
-| 来源 | 市场 | 类型 | 登录需求 | 优势 |
-|---|---|---|---|---|
-| data.10jqka.com.cn | **A股** | 同花顺热点、北向资金 | **不需要** | 只做稳定方向参考，不把它当全市场主力口径 |
-| qt.gtimg.cn | **A股/港美股** | 指数行情、个股成交额/估值字段、港股收盘口径 | **不需要** | 补充换手率、市值、PE/PB、52周区间；港股指数收盘点位更接近交易所/新闻稿口径 |
-| hq.sinajs.cn | **A股/港美股** | 单只股票、指数、重点个股实时行情 | **不需要** | 批量、免登录，单票查询主路径 |
-| quote.eastmoney.com | A股 | 行业/概念板块页面 | 不需要（浏览器抓取） | 仅作为板块页降级 |
-| ai-news-search.futunn.com | 全球 | 新闻、公告、研报、社区 | 不需要 | |
-| feed.mix.sina.com.cn | 全球 | 新浪财经滚动新闻 | 不需要 | 与富途资讯一起做新闻 fallback/热度参考 |
-| fundgz.1234567.com.cn / fundf10.eastmoney.com | 基金 | 基金估值、净值日期、持仓明细 | 不需要 | 基金用户查看估算涨跌和重仓股表现 |
+- 保留对 `young profile` 投资记忆的读取能力
+- 不再把整个技能实现绑定为 `young-stock-cli` 的薄包装
+- `aftermarket.py` 继续兼容旧调用方式，但会转发到新的证据驱动引擎
 
-### 为什么用腾讯/新浪财经 + 稳定补充源
+## 输出纪律优化
 
-港美重点个股优先调用新浪财经批量行情；腾讯个股行情用于补充成交额、换手率、市值、PE/PB、52周区间。若价格主源缺失，优先回落到 CLI 已封装的精确单票查询；板块、新闻、财报、公告优先选择各自稳定源，而不是把 Yahoo 或东财榜单当默认主链路。
+- 对可补齐字段优先走多源补齐，不让用户直接看到 `未知`、`数据不足`、`--`
+- 仍无法稳定补齐时，正文默认隐藏该字段，不输出生硬占位词
+- 例如：
+  - 美股指数若缺成交额，则只写点位和涨跌
+  - 个股若缺板块归属，则不写板块描述
+  - 趋势不足以计算 MA 时，不输出“趋势数据不足”
+- A股板块归属优先补东财 `slist`；板块榜/页面类数据优先 API，失败再走浏览器降级
+- 报告形态默认向“研报分析形式”靠拢，而非命令行 checklist
+- 正式报告不显示数据接口、来源站点或 fallback 技术细节
+- 固定增加指数、持仓、连板梯队三类 Markdown 表格
+- 持仓建议按券商研报结尾展开：
+  - 现状总结
+  - 基准跑赢/跑输
+  - 仓位动作建议
+  - 观察清单
+  - 风险提示
+- 仓位建议会识别直接持股与基金重仓股的重复暴露，并使用连续跑输、均线破位、炸板率和连板梯队等条件作为动作触发器
+- 趋势数据优先使用：
+  - A股：百度股市通 K 线与 MA
+  - 美股：新浪美股日 K
+  - 港股：低优先级历史 K 线备用链路
 
-| 维度 | 腾讯财经 | 新浪财经 | CLI 隐藏补充 |
-|---|---|---|---|
-| 登录/API Key | 不需要 | 不需要 | 由 CLI 自行处理 |
-| 使用时机 | 港股指数优先；A/HK/US 个股补充成交额和估值字段 | 港美个股主报价；指数补充 | 仅在主链路缺失时内部补洞 |
-| 批量获取 | ✅ | ✅ | 由 CLI 自行判断是否启用 |
-| 美股指数 | ✅ SPX、NDX、DJI | ✅ SPX、NDX、DJI | 不对外承诺 |
-| 美股重点股 | ✅ 补成交额、换手率、市值、PE、52周区间 | ✅ AAPL、NVDA、TSLA、MSFT、AMZN、GOOGL、META、BABA、PDD、JD | 不对外承诺 |
-| 港股指数 | ✅ HSI、HSCEI、HSTECH | ✅ HSI、HSCEI、HSTECH | 不对外承诺 |
-| 港股重点股 | ✅ 补成交额、市值、PE/PB、52周区间 | ✅ 0700、9988、3690、9618、1299、2318、0005、0388 | 不对外承诺 |
+## 当前实现状态
 
-> 注意：DJI 已通过新浪财经覆盖；VIX 暂无稳定免登录源，若缺失，脚本输出诊断摘要，不裸眼定性。
+- 已完成：项目骨架、标准化层、交易日/时段判断、诊断命令、证据包评分、持仓完整性校验、真实多源抓取适配、汇率折算、研报式报告生成、兼容入口、方法论文档
+- 待继续增强：实时多源抓取器、完整指数/板块/持仓行情汇总、浏览器抓取执行层
 
-## 市场覆盖
+## 风险提示
 
-| 市场 | 指数 | 个股 | 新闻 | 情绪 |
-|---|---|---|---|---|
-| **A股（沪深京）** | ✅ 新浪/腾讯/CLI 封装 | ✅ 富途（中文名） | ✅ 浏览器/CLI 封装 | ✅ 富途 |
-| **美股** | ✅ 新浪/腾讯 (SPX、NDX、DJI) | ✅ 富途/新浪（代码） | ⚠️ 仅概览 | ✅ 富途 |
-| **港股** | ✅ 腾讯/新浪 (HSI、HSCEI、HSTECH) | ✅ 富途/新浪（代码） | ⚠️ 仅概览 | ✅ 富途 |
-| **日股** | ⚠️ 仅 Exa | ⚠️ 仅 Exa | ⚠️ 仅 Exa | ⚠️ 仅 Exa |
-
-## 注意事项
-
-- **A股**：如果使用 CLI 内部封装的 A股资金、板块、涨跌停输出，优先看稳定源和交易日标注；任何旧数据都必须明确标注请求日与返回日。
-- **港美股行情**：港股指数优先腾讯收盘口径；港美重点个股优先新浪财经主报价，并用腾讯个股补充成交额、市值、PE/PB、52周区间。
-- **新浪财经**：批量拉取，响应为 GBK 编码，脚本已自动解码。
-- **新闻 fallback**：富途 `news_search` 不可用时会尝试富途 feed，再尝试新浪财经滚动新闻。
-- **基金估算**：基金正式净值通常晚间更新；脚本里的“当日估算”来自天天基金实时估值，不作为最终净值确认。
-- **新闻链接**：输出前会剔除明显 404/无内容页面；网络临时校验失败时保留链接，避免误杀正常新闻。
-- **同花顺资金流**：`funds/gnzjl` 只作为概念方向参考，不替代指数或个股行情主路径。
-- **数据质量**：所有行情返回统一的 `QuoteData` 结构。零/负价自动过滤，指数成交量为 0 降级为 warning，异常偏低成交量标记 `*`；腾讯补充字段只在验证为合理字段时展示，不覆盖主报价来源；普通输出不展示完整度和数据源诊断，排查问题时可设置 `YOUNG_STOCK_DEBUG=1`。
-- **富途搜索**：偏港美股。A股用**中文公司名**（非代码）；港美股用**代码**。
-- **时区**：美股盘后复盘建议北京时间次日 05:00 后；港股 16:00 后。
-
-## 更新日志
-
-### v3.7.0
-- 同步 young-stock-cli 0.1.21：A股日报新增同花顺北向资金和板块榜，单股资金流、北向、板块可在 CLI 内直接消费。
-- 参考 `a-stock-data` 与 `global-stock-data` 的可吸收内容，保留同花顺热点/北向、腾讯/新浪行情补充、基金估值/持仓、SEC/XBRL 和纯计算技术指标；东财和 Yahoo 只作为隐藏实现细节，不作为技能默认主链路。
-- 日报与单票输出继续要求标注来源、交易日和阶段，不把补充源误写成主报价源。
-
-### v3.6.4
-- 同步 young-stock-cli 0.1.16：投资记忆添加时必须提供买入日期和数量，且 CLI 会先校验股票/基金代码，确认名称后才写入本地 profile。
-- 日报 full 模式不再默认展开全球市场，仅根据用户直接持有的 A股/港股/美股和基金 top10 持仓展示相关市场。
-- 技能包装脚本会保留 CLI profile 中的 `positions` 字段，保证买入以来收益、个股/基金分开分析和综合持仓建议不丢失。
-
-### v3.6.3
-- 同步 young-stock-cli 0.1.15：投资记忆支持买入日期和数量，日报会自动回溯买入日附近基金净值或股票收盘价，估算买入以来收益。
-- 日报建议改为“基金分析 / 个股分析 / 综合持仓”三段，支持只持有基金、只持有股票以及基金+个股混合持仓场景。
-
-### v3.6.2
-- 同步 young-stock-cli 0.1.14：日报投资建议围绕用户关注标的、基金估值和相关新闻输出更具体的风险摘要。
-- 新增 `young uninstall` 一键卸载命令，并支持 `young profile clear-stocks`、`young profile clear-funds` 分类型清空投资记忆。
-
-### v3.6.1
-- 同步 young-stock-cli 0.1.13：日报支持 `--format summary|key-points|full`、`--only`、`--order` 和 `--quick`，默认建议用 summary 避免长文刷屏。
-- 支持更完整的投资记忆管理：`young profile list/remove-stock/remove-fund/clear/group create/group add`。
-- 新增本地 workflow 命令：`young portfolio`、`young alert`、`young note`、`young diary`，以及 `young diagnose` 网络/数据源诊断。
-
-### v3.6.0
-- 重新定位为“每日行情日报”技能：默认 `--market daily`，围绕用户投资记忆输出关注个股/基金行情、市场概览和风险建议。
-- `scripts/aftermarket.py` 改为 `young-stock-cli` 核心包薄包装，不再维护大体量同步副本；技能仓库只保留包装层、说明和分析约束。
-- 依赖 CLI 的模块化核心：交易日历、投资记忆、日报编排和数据源健康评分分别由 `young_stock.calendar`、`young_stock.profile`、`young_stock.reports`、`young_stock.health` 维护。
-- 首次使用会引导用户用 `young profile add-stock` / `young profile add-fund` 保存关注标的，形成本地投资记忆。
-
-### v3.3.0
-- 同步 young-stock-cli 多源增强：新增腾讯财经 `qt.gtimg.cn`，港股指数优先使用腾讯收盘口径，并在输出中提示和新浪盘后快照可能存在口径差异。
-- 新闻增加 fallback 链路：富途 news_search → 富途 feed → 新浪财经滚动新闻。
-- A股指数在东财失败、再到新浪失败时可继续降级到腾讯指数。
-- 输出风格改为“数据质量与来源提示 / 口径说明 / 复盘仅供参考”，移除“输出结束”等偏技术化文案。
-- 港股指数表将成交额和成交量区分展示，并显示当前命中的数据源。
-
-### v3.4.0
-- 新增单只股票速览：`--market stock --stock 600519`，支持 A股、港股和 best-effort 美股，输出价格、涨跌、成交量/额、来源和数据交易日。
-- 同步 young-stock-cli 0.1.4：`young flow`/脚本资金流输出明确标注为 A股上证指数口径，并显示数据源实际交易日。
-- 默认交易日选择在工作日 15:00 前仍使用上一交易日，避免早盘/午间把尚未结算的当天数据写入复盘。
-- 东财 `push2his` 历史资金流当前不再作为稳定兜底；A股复盘仅在资金流返回日期与复盘日期一致时使用，否则给出清晰提示。
-
-### v3.4.1
-- 同步 young-stock-cli 0.1.5：资金流即使返回交易日与请求日不一致，也展示最新可用数据并明确标注来源交易日和请求日期。
-- 资金流实时接口临时不可用时，先尝试在线资金流页面指标接口，再尝试新浪/腾讯 A股指数活跃度指标；这些指标会明确标注“不等同于主力资金净流入”，在线源都不可用时才降级展示本地最近一次可信资金流缓存。
-- 港美股重点个股会基于富途、新浪财经、东方财富快讯等免登录来源做新闻热度 Top5 排序；雪球/同花顺若无稳定免登录接口，不作为默认硬依赖。
-- 新闻输出逐条显示来源和链接状态；热度排序基于所有来源命中数和新鲜度，展示时尽量保留多来源，不让单一来源自动挤掉其他有效来源。
-- 新闻只展示请求交易日当天发布的有效内容，最多 5 条；不足 5 条则按实际数量展示，没有则明确提示暂未获取到有效新闻信息。
-- A股复盘默认带市场新闻，`--no-news` 可跳过。
-- 所有行情命令标注当前阶段：上午盘、午间、下午盘、盘后；若展示非请求日数据，会标注为该交易日盘后数据，阶段字段包含数据日期。
-- `--no-news` 可用于 `--market a`、`--market hk`、`--market us`、`--market stock`，只看行情时不会输出新闻链接。
-- 默认不再输出“数据源切换记录”；如需排查接口，可设置 `YOUNG_STOCK_DEBUG=1`。
-
-### v3.5.0
-- 同步 young-stock-cli 0.1.9：新增基金查询，支持 `--market fund --fund 161725`，输出基金当日估算涨跌、上一净值日、前十大持仓股行情、重仓贡献粗算和持仓股当天新闻。
-- `young flow`/脚本资金流在东财实时与页面指标不可用时，会先尝试新浪财经资金流页面行业流向，再落到新浪/腾讯指数活跃度和本地最近可信缓存；所有非主力净流入口径均明确标注。
-- 新闻聚合会过滤明显无内容或 404 的链接，尽量用其他当天新闻替换。
-
-### v3.5.1
-- 同步 young-stock-cli 0.1.10：`young flow`/脚本资金流优先尝试同花顺概念资金流页面，输出概念净流入/净流出方向并标注概念板块口径。
-- 若同花顺页面不可用，会继续降级到东财实时资金流、东财页面指标、新浪行业资金流、指数活跃度和本地最近可信缓存。
-
-### v3.5.2
-- 同步 young-stock-cli 0.1.11：同花顺概念资金流只有在净流入和净流出榜均可用时才采用；若只拿到单边数据，会自动降级到东财、新浪、腾讯或本地最近可信缓存。
-- 普通输出移除完整度、数据质量与来源诊断等偏工程化提示；需要排查接口时设置 `YOUNG_STOCK_DEBUG=1`。
-
-### v3.2.0
-- **同步 young-stock-cli 核心实现**：港美股主路径改为新浪财经批量行情，东财 `stock/get` 单只精确兜底，clist 作为补充。
-- 美股默认指数恢复道指 DJI（走新浪财经）；VIX 仍暂不默认纳入。
-- A股资金流在东财实时 `fflow` 接口关闭 Python 直连时，降级到 `push2his` 历史资金流接口并放宽请求策略。
-- 恒生指数改用新浪 `hkHSI` 完整行情，补齐成交量字段。
-- A股指数在东财接口失败时降级到新浪指数。
-- HTTP 请求绕过本地代理，避免 Clash 等代理导致东财/新浪接口 502。
-- 空数据/错误响应不再写入缓存，减少缓存污染。
-- 修正东财 `fltt=2` 价格处理：按真实价处理，不再除以 100。
-
-### v3.1.4
-- 恢复并前置缓存防污染约束到 `SKILL.md` 主上下文：5 分钟 TTL、按交易日隔离缓存、`--no-cache` / `--refresh` 强制刷新、过期缓存直接 miss、盘中/盘后标题自动切换
-- 明确后续迭代如果调整缓存策略，必须同步更新脚本、技能说明和 README，防止 v3.1.1 的缓存污染修复被文档压缩遗漏
-### v3.1.3
-- 新增腾讯行情 `qt.gtimg.cn` 作为港股/美股免登录备用源
-  - 东财 clist 缺失港股正股、美股大盘股或部分港股指数时自动补齐
-  - 已验证补齐港股：恒指、国企指数、恒生科技，以及 0700、9988、3690、9618、1299、2318、0005、0388
-  - 已验证补齐美股：AAPL、TSLA、NVDA、MSFT、AMZN、GOOGL、META、BABA、PDD、JD
-- 修复腾讯行情 GBK 解码，中文名称正常显示
-- 修复东财 clist 港美股/指数价格误除以 100 的问题
-- 全球概览可完整输出港股三大指数；诊断摘要会标注腾讯 fallback 命中项
-- 默认备用源不使用境外行情接口，降低地区网络和限流风险
-
-### v3.1.2
-- 压缩 `SKILL.md` 主上下文，降低模型 token 消耗
-- 保留数据源优先级、三层获取、缓存、诊断摘要和“禁止裸眼定性”等关键约束
-- 明确最终回答只引用关键数字和结论，不复制完整原始输出
-
-### v3.1.1
-- **修复缓存污染问题**：早盘数据未更新时缓存了昨日数据，导致后续运行始终输出旧数据
-  - 新增 `--no-cache` / `--refresh` 参数，强制刷新缓存
-  - 缓存增加 5 分钟 TTL 过期机制，盘中实时数据不再长期污染
-  - 标题根据当前时间自动切换：上午盘/午间/下午盘/盘后
-
-### v3.1.0
-- **东财 clist 替代境外逐只行情接口**获取港美股数据
-  - 降低境外接口限流影响
-  - 从逐个 symbol 请求改为批量拉取
-  - 不需登录、不需 API Key、不需 Cookie
-- 移除港美股 3 秒请求间隔（东财不限流）；A股间隔保持
-- 新增 `_normalize_diff` 辅助函数，兼容东财 `diff` 不一致格式（数组 vs 对象）
-- 新增 `_em_clist_price` 辅助函数，正确处理 `fltt=2` 价格字段
-- 新增 `EM_CODE_MAP` 外部 symbol → 东财 f12 映射
-- 美股道指 DJI 和 VIX 移除默认指数（东财暂不支持）
-- 所有行情 `source` 字符串统一为稳定数据源标识
-- User-Agent 升级为 `stock-analysis/3.1.0`
-
-### v3.0.0
-- 技能重命名为 `stock-analysis`，仓库结构调整为 `skills/stock-analysis/`
-- 废弃不稳定的批量行情接口，改用逐标的行情接口（带缓存）
-- 新增三层获取策略：缓存 → 稳定 API → 浏览器降级
-- 新增本地缓存层 `~/.cache/stock-analysis/`
-- 修复 A股指数价格格式 — 东财 `fltt=2` 已返回正常价格
-- 修复富途 `publish_time` 字符串转换崩溃
-- 修复 `^HSTECH` 404 — 改用 `HSTECH.HK`
-- 请求间隔从 0.5s 调整为 3s；404 不重试
-- 新增诊断摘要输出
-- 统一数据结构 `QuoteData`，完整度评分
-- 新增自动数据质量验证
-
-### v2.1.0
-- 新增 `--market global` 跨市场概览
-- 新增指数退避重试机制
-- 新增自动数据清洗（成交量异常检测、价格过滤）
-- 新增数据完整度评分与质量报告
-- 新增市场类型自动检测
-- 优化错误处理 — 缺失数据静默跳过，不干扰输出
-
-### v2.0.0
-- 新增全球市场支持（港美日行情 + 富途资讯）
-- 移除硬编码代理设置，提升兼容性
-
-## License
-
-MIT
+以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。
