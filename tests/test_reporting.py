@@ -96,17 +96,24 @@ def test_report_uses_tables_and_hides_source_language():
             "total_value_cny": 100_000,
             "total_pnl_cny": -10_000,
             "top3_ratio": 0.9,
+            "dominant_market": "a",
             "dominant_ratio": 0.8,
             "details": [
                 {
                     "symbol": "600519",
                     "name": "贵州茅台",
+                    "market": "a",
                     "buy_date": "2026-01-15",
                     "quantity": 100,
                     "current_price": 1240,
+                    "change_pct": -1.25,
                     "currency": "CNY",
                     "daily_pnl_original": -1575,
                     "trend": "震荡",
+                    "style": "价值型",
+                    "benchmark_name": "上证指数",
+                    "relative_label": "跑输",
+                    "relative_pct": -1.65,
                 }
             ],
         },
@@ -116,7 +123,10 @@ def test_report_uses_tables_and_hides_source_language():
     assert "| 资金项 | 净流向 |" in report
     assert "| 市场广度 | 上涨家数 | 下跌家数 | 涨跌比 |" in report
     assert "| 板块 | 涨跌幅 | 上涨家数 | 下跌家数 |" in report
-    assert "| 代码 | 名称 | 买入日 | 数量 | 现价 | 当日浮动盈亏 | 趋势 |" in report
+    assert "| 代码 | 名称 | 市场 | 买入日 | 数量 | 现价 | 当日涨跌 | 当日浮盈/亏 | 趋势 |" in report
+    assert "| 总市值(CNY) | 总浮盈/亏 | 前三大占比 | 单一市场最高暴露 | 风格暴露 |" in report
+    assert "| 代码 | 名称 | 基准指数 | 跑赢/跑输(pp) |" in report
+    assert "| 600519 | 贵州茅台 | 上证指数 | -1.65 |" in report
     assert "| 股票 | 连板 | 封单金额 |" in report
     assert "来源" not in report
     assert "口径来自" not in report
@@ -161,7 +171,9 @@ def test_summary_keeps_mandatory_disclaimer():
         report_format="summary",
     )
     assert "## 二、持仓分析" in report
-    assert "| 代码 | 名称 | 买入日 | 数量 | 现价 | 当日浮动盈亏 | 趋势 |" in report
+    assert "| 代码 | 名称 | 市场 | 买入日 | 数量 | 现价 | 当日涨跌 | 当日浮盈/亏 | 趋势 |" in report
+    assert "| 总市值(CNY) | 总浮盈/亏 | 前三大占比 | 单一市场最高暴露 | 风格暴露 |" in report
+    assert "| 代码 | 名称 | 基准指数 | 跑赢/跑输(pp) |" in report
     assert "## 三、六模块深度复盘" not in report
     assert "以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。" in report
 
