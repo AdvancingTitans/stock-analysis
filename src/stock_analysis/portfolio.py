@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from typing import Any
 
 from .analytics import moving_average_summary
 from .exchange import fetch_cny_rates
+from .futu_public import fetch_futu_public_pulse
 from .http import em_get
 from .integrations import (
     fetch_board_list,
@@ -238,6 +240,9 @@ def build_portfolio_snapshot(holdings: list[Holding], trade_date: str) -> dict[s
                 detail["daily_pnl_cny"] = daily_pnl_original * fx_rate
         details.append(detail)
 
+    if not is_historical_date(trade_date):
+        _attach_public_pulses(details)
+
     sorted_values = sorted(market_values, reverse=True)
     top3_ratio = (sum(sorted_values[:3]) / total_value_cny) if total_value_cny else 0.0
     dominant_market = max(market_counter.items(), key=lambda item: item[1])[0] if market_counter else "a"
@@ -251,6 +256,32 @@ def build_portfolio_snapshot(holdings: list[Holding], trade_date: str) -> dict[s
         "dominant_market": dominant_market,
         "dominant_ratio": dominant_ratio,
     }
+
+
+def _attach_public_pulses(details: list[dict[str, Any]]) -> None:
+    stocks = [detail for detail in details if detail.get("market") in {"a", "hk", "us"}]
+    if not stocks:
+        return
+    with ThreadPoolExecutor(max_workers=min(4, len(stocks))) as executor:
+        futures = {
+            executor.submit(
+                fetch_futu_public_pulse,
+                str(detail.get("symbol") or ""),
+                str(detail.get("name") or detail.get("symbol") or ""),
+                str(detail.get("market") or ""),
+            ): detail
+            for detail in stocks
+        }
+        for future in as_completed(futures):
+            detail = futures[future]
+            try:
+                detail["public_pulse"] = future.result()
+            except Exception:
+                detail["public_pulse"] = {
+                    "news_tone": "暂无相关新闻",
+                    "community_label": "证据不足",
+                    "community_sample_count": 0,
+                }
 
 
 def _safe_float(value: Any) -> float | None:
