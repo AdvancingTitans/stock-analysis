@@ -1,5 +1,5 @@
 from stock_analysis.models import Holding, QuoteData
-from stock_analysis.portfolio import validate_holdings_quotes
+from stock_analysis.portfolio import _resolve_buy_price, validate_holdings_quotes
 
 
 def test_validate_holdings_quotes_marks_missing_fields():
@@ -9,3 +9,8 @@ def test_validate_holdings_quotes_marks_missing_fields():
     result = validated["0700.HK"]
     assert result.status == "unavailable"
     assert "数据暂不可用" in result.note
+
+
+def test_saved_buy_price_takes_priority_over_date_reference():
+    assert _resolve_buy_price(1420.5, {"close": 1500.0}, "close") == 1420.5
+    assert _resolve_buy_price(None, {"close": 1500.0}, "close") == 1500.0

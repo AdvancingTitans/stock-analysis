@@ -6,7 +6,7 @@
 - `simonlin1212/global-stock-data` 的新浪/腾讯/东财港美股映射
 - `a-stock-daily-market-sense` 的 6 模块 Evidence Pack 方法
 
-当前版本为 `4.1.0`。
+当前版本为 `4.1.1`。
 
 ## 已实现
 
@@ -58,6 +58,9 @@ Yahoo 已从推荐路径和当前技术分析路径移除。
 # 网络和数据源诊断
 ~/.local/bin/uv run python -m stock_analysis --market diagnose
 ```
+
+`--market daily` 与 `--market a` 默认加载 young profile 持仓；港股、美股或全球模式需通过
+`--with-holdings` 显式加载。
 
 兼容入口：
 

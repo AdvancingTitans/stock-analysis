@@ -98,7 +98,7 @@ def build_evidence(trade_date: str, market: str, session_label: str, include_hol
     breadth = _market_breadth(industry)
 
     m1 = {
-        "available": bool(a_indices or hk_indices or us_indices) and breadth.get("available", False),
+        "available": bool(a_indices or hk_indices or us_indices),
         "a_indices": a_indices,
         "hk_indices": hk_indices,
         "us_indices": us_indices,
@@ -195,7 +195,7 @@ def run(argv: list[str] | None = None) -> int:
         trade_date=trade_date,
         market=args.market,
         session_label=session.label,
-        include_holdings=args.with_holdings or args.market == "daily",
+        include_holdings=_should_include_holdings(args.market, args.with_holdings),
     )
     quality = evidence.quality()
     report_format = args.report_format
@@ -222,6 +222,10 @@ def run(argv: list[str] | None = None) -> int:
                 encoding="utf-8",
             )
     return 0
+
+
+def _should_include_holdings(market: str, explicitly_requested: bool) -> bool:
+    return explicitly_requested or market in {"daily", "a"}
 
 
 def _source_events(

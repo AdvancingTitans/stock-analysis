@@ -97,10 +97,14 @@ def build_portfolio_snapshot(holdings: list[Holding], trade_date: str) -> dict[s
                 }
             else:
                 estimate = fetch_fund_estimate(holding.symbol, trade_date)
-            buy_ref = fetch_fund_buy_reference(holding.symbol, holding.buy_date)
+            buy_ref = (
+                {}
+                if _safe_float(holding.buy_price)
+                else fetch_fund_buy_reference(holding.symbol, holding.buy_date)
+            )
             price = _safe_float(estimate.get("estimate_nav")) or _safe_float(estimate.get("nav"))
             change_pct = _safe_float(estimate.get("estimate_change_pct"))
-            buy_price = _safe_float(buy_ref.get("nav"))
+            buy_price = _resolve_buy_price(holding.buy_price, buy_ref, "nav")
             currency = "CNY"
             source = estimate.get("_source", "天天基金实时估值")
             detail = {
@@ -141,7 +145,11 @@ def build_portfolio_snapshot(holdings: list[Holding], trade_date: str) -> dict[s
             quote = fetch_single_quote(holding.symbol, trade_date)
             if quote is None:
                 quote = QuoteData(symbol=holding.symbol, market=holding.market, trade_date=trade_date)
-            buy_ref = fetch_stock_buy_reference(holding.symbol, holding.buy_date)
+            buy_ref = (
+                {}
+                if _safe_float(holding.buy_price)
+                else fetch_stock_buy_reference(holding.symbol, holding.buy_date)
+            )
             ma = moving_average_summary(holding.symbol, holding.market, trade_date=trade_date)
             boards = []
             if holding.market == "a":
@@ -183,7 +191,7 @@ def build_portfolio_snapshot(holdings: list[Holding], trade_date: str) -> dict[s
                     board_name = candidate
             price = quote.price
             change_pct = quote.change_pct
-            buy_price = _safe_float(buy_ref.get("close"))
+            buy_price = _resolve_buy_price(holding.buy_price, buy_ref, "close")
             detail = {
                 "symbol": holding.symbol,
                 "name": quote.name or holding.symbol,
@@ -252,6 +260,14 @@ def _safe_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _resolve_buy_price(saved_price: Any, reference: dict[str, Any], field: str) -> float | None:
+    saved = _safe_float(saved_price)
+    if saved is not None and saved > 0:
+        return saved
+    fetched = _safe_float(reference.get(field))
+    return fetched if fetched is not None and fetched > 0 else None
 
 
 def _daily_pnl(
