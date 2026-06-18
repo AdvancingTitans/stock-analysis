@@ -198,6 +198,32 @@ def _append_relative_strength_table(lines: list[str], details: list[dict[str, An
         )
 
 
+def _append_public_pulse_table(lines: list[str], details: list[dict[str, Any]]) -> None:
+    visible = [detail for detail in details if detail.get("public_pulse")]
+    if not visible:
+        return
+    lines.extend(
+        [
+            "### 持仓公开信息脉冲",
+            "| 代码 | 新闻倾向 | 最新高信号事件 | 社区情绪 | 有效样本 | 证据 |",
+            "|---|---|---|---|---:|---|",
+        ]
+    )
+    for detail in visible:
+        pulse = detail.get("public_pulse") or {}
+        event = str(pulse.get("event_title") or "").replace("|", "｜")
+        url = str(pulse.get("evidence_url") or "")
+        evidence = f"[原文]({url})" if url else ""
+        lines.append(
+            f"| {detail.get('symbol') or ''} | {pulse.get('news_tone') or ''} | "
+            f"{event} | {pulse.get('community_label') or ''} | "
+            f"{pulse.get('community_sample_count') if pulse.get('community_sample_count') is not None else ''} | "
+            f"{evidence} |"
+        )
+    lines.append("")
+    lines.append("> 社区情绪仅代表富途公开讨论样本；少于 3 条精确匹配的有效帖子时不计算多空比例。")
+
+
 def _market_label(value: Any) -> str:
     return {"a": "A股", "hk": "港股", "us": "美股", "fund": "基金"}.get(
         str(value or "").lower(),
@@ -289,6 +315,8 @@ def render_report(
     _append_portfolio_summary_table(lines, portfolio_snapshot)
     lines.append("")
     _append_relative_strength_table(lines, details)
+    lines.append("")
+    _append_public_pulse_table(lines, details)
     lines.append("")
 
     if quality.degrade_mode != "simplified":

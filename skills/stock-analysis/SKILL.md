@@ -2,7 +2,7 @@
 name: stock-analysis
 description: 全球股市深度复盘技能。用于 A股、港股、美股、基金的当前行情、盘中/盘后复盘、6 模块证据驱动分析、young profile 持仓分析、单股速览与数据源诊断；执行腾讯/新浪优先、东财独有数据限流、证据质量评分和浏览器接管策略。
 metadata:
-  version: "4.1.2"
+  version: "4.2.0"
   author: "Hermes Agent + yjw"
   platforms: "linux, macos, windows"
 ---
@@ -39,6 +39,7 @@ uv run python -m stock_analysis --market diagnose
 
 - 行情：新浪/腾讯互补 → 东财 `stock/get`。
 - 港股历史 K 线：腾讯 K 线；美股历史 K 线：新浪。
+- 当前持仓的公开信息脉冲：Futu 免登录新闻搜索 + 个股解读 + 严格过滤后的社区情绪。
 - Yahoo 不属于推荐路径，不在报告或示例中使用。
 
 ### 基金
@@ -117,6 +118,8 @@ uv run python -m stock_analysis --market diagnose
 - A股对比沪指/创业板，港股对比恒指/恒生科技，美股对比纳指/道指。
 - 建议必须使用条件化触发器，不得给出无条件买卖指令。
 - 持仓表格格式见 `references/template/portfolio-template.md`，生成时原样套用。
+- 直接股票持仓追加公开信息脉冲；社区有效样本少于 3 条时必须标记“证据不足”，不得输出伪精确比例。
+- Futu 技术面、资金面、衍生品异动依赖 OpenD 登录，不属于默认免登录日报能力。
 
 ## 输出纪律
 

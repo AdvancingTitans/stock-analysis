@@ -140,13 +140,29 @@ def build_evidence(trade_date: str, market: str, session_label: str, include_hol
         "resilient": _resilient_directions(industry, concept, pool_stats),
         "summary": _module6_summary(industry, concept, pool_stats, m1),
     }
+    public_pulses = [
+        detail["public_pulse"]
+        for detail in portfolio_snapshot.get("details", [])
+        if detail.get("public_pulse")
+    ]
+    source_events = _source_events(a_indices, hk_indices, us_indices, industry, concept)
+    if public_pulses:
+        source_events.append(
+            {
+                "module": "portfolio_public_pulse",
+                "source": "Futu public gateway",
+                "symbols": [pulse.get("symbol") for pulse in public_pulses],
+                "generated_at": max(str(pulse.get("generated_at") or "") for pulse in public_pulses),
+            }
+        )
     evidence = EvidenceBundle(
         trade_date=trade_date,
         modules={"M1": m1, "M2": m2, "M3": m3, "M4": m4, "M5": m5, "M6": m6},
         meta={
             "trade_date": trade_date,
             "session": session_label,
-            "source_events": _source_events(a_indices, hk_indices, us_indices, industry, concept),
+            "source_events": source_events,
+            "portfolio_public_pulse": public_pulses,
             "portfolio_advice_sections": _portfolio_advice_sections(portfolio_snapshot, m1, m2, m3, m4),
         },
     )

@@ -114,6 +114,13 @@ def test_report_uses_tables_and_hides_source_language():
                     "benchmark_name": "上证指数",
                     "relative_label": "跑输",
                     "relative_pct": -1.65,
+                    "public_pulse": {
+                        "news_tone": "偏正面",
+                        "event_title": "贵州茅台回购计划获市场关注",
+                        "community_label": "证据不足",
+                        "community_sample_count": 1,
+                        "evidence_url": "https://news.futunn.com/post/1",
+                    },
                 }
             ],
         },
@@ -127,6 +134,8 @@ def test_report_uses_tables_and_hides_source_language():
     assert "| 总市值(CNY) | 总浮盈/亏 | 前三大占比 | 单一市场最高暴露 | 风格暴露 |" in report
     assert "| 代码 | 名称 | 基准指数 | 跑赢/跑输(pp) |" in report
     assert "| 600519 | 贵州茅台 | 上证指数 | -1.65 |" in report
+    assert "| 代码 | 新闻倾向 | 最新高信号事件 | 社区情绪 | 有效样本 | 证据 |" in report
+    assert "[原文](https://news.futunn.com/post/1)" in report
     assert "| 股票 | 连板 | 封单金额 |" in report
     assert "来源" not in report
     assert "口径来自" not in report

@@ -6,7 +6,7 @@
 - `simonlin1212/global-stock-data` 的新浪/腾讯/东财港美股映射
 - `a-stock-daily-market-sense` 的 6 模块 Evidence Pack 方法
 
-当前版本为 `4.1.2`。
+当前版本为 `4.2.0`。
 
 ## 已实现
 
@@ -16,6 +16,7 @@
 - 东财 `em_get()` 统一无代理 Session、1 秒间隔、抖动和最多 3 次指数退避
 - 最近交易日与 A股/港股/美股时段识别，`--format auto` 自动选择报告深度
 - young profile 股票/基金持仓、汇率折算、浮盈亏、集中度、重复暴露和基准比较
+- Futu 免登录新闻与社区数据，形成持仓公开信息脉冲和可审计原文链接
 - Evidence Pack、6 个模块 JSON、100 分质量评分和降级报告
 - Camofox 健康检测、板块榜 fallback、Hermes browser 接管说明、Playwright 可用性诊断
 - 固定报告顺序、Markdown 表格、研报措辞过滤和强制免责声明
@@ -98,6 +99,10 @@ m6_YYYYMMDD.json
 
 ## 能力边界
 
+- Futu 默认仅使用无需 OpenD、无需登录的资讯搜索、个股新闻解读和社区情绪接口。
+- Futu 技术面、资金面和衍生品异动依赖 OpenD 登录，不进入开箱即用的默认日报。
+- 社区接口可能返回全站流数据；程序只保留精确匹配当前标的的有效帖子，少于 3 条时标记证据不足。
+- 显式历史日期报告不混入当前 Futu 新闻或社区情绪。
 - Python CLI 不能直接调用 Hermes 内置浏览器，因为它属于 Agent 工具；CLI 会在 diagnose/evidence 中提示由 Hermes、Codex 或 OpenClaw 执行环境接管。
 - Camofox 自动板块抓取依赖 `CAMOFOX_USER_ID` 和 `CAMOFOX_SESSION_KEY`；缺少凭据时不会伪装成功。
 - `mootdx` 默认禁用且不是必装依赖；启用后仅服务五档、逐笔和深度 K 线，不进入日常行情主路径。
