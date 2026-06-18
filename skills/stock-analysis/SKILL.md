@@ -2,7 +2,7 @@
 name: stock-analysis
 description: 全球股市深度复盘技能。用于 A股、港股、美股、基金的当前行情、盘中/盘后复盘、6 模块证据驱动分析、young profile 持仓分析、单股速览与数据源诊断；执行腾讯/新浪优先、东财独有数据限流、证据质量评分和浏览器接管策略。
 metadata:
-  version: "4.1.0"
+  version: "4.1.1"
   author: "Hermes Agent + yjw"
   platforms: "linux, macos, windows"
 ---
@@ -22,6 +22,7 @@ uv run python -m stock_analysis --market diagnose
 - 默认 `--format auto`：根据当前北京时间自动选择 `summary`、`key-points` 或 `full`。
 - `--date YYYYMMDD` 仅在用户明确指定日期时使用；未指定时自动解析最近 A股交易日。
 - `--emit-evidence` 保留 `evidence_YYYYMMDD.json` 与 6 个模块 JSON。
+- `--market daily` 和 `--market a` 默认加载持仓；`hk`、`us`、`global` 需显式添加 `--with-holdings`。
 - `mootdx` 默认关闭；只有明确需要五档、逐笔或深度分钟 K 时才使用 `--enable-mootdx`。
 - 专用能力由 `sources/mootdx_adapter.py` 执行；依赖缺失、TCP 失败或返回空数据时自动回普通腾讯/新浪报价并记录原因。
 
