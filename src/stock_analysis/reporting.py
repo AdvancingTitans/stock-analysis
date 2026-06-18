@@ -124,8 +124,8 @@ def _append_sector_table(lines: list[str], rows: list[dict[str, Any]], limit: in
 def _append_holdings_table(lines: list[str], details: list[dict[str, Any]]) -> None:
     lines.extend(
         [
-            "| 代码 | 名称 | 买入日 | 数量 | 现价 | 当日浮动盈亏 | 趋势 |",
-            "|---|---|---|---:|---:|---:|---|",
+            "| 代码 | 名称 | 市场 | 买入日 | 数量 | 现价 | 当日涨跌 | 当日浮盈/亏 | 趋势 |",
+            "|---|---|---|---|---:|---:|---:|---:|---|",
         ]
     )
     for detail in details:
@@ -133,16 +133,88 @@ def _append_holdings_table(lines: list[str], details: list[dict[str, Any]]) -> N
         if current_price:
             current_price = f"{current_price} {detail.get('currency', '')}".strip()
         lines.append(
-            "| {symbol} | {name} | {buy_date} | {quantity} | {price} | {daily_pnl} | {trend} |".format(
+            "| {symbol} | {name} | {market} | {buy_date} | {quantity} | {price} | "
+            "{change_pct} | {daily_pnl} | {trend} |".format(
                 symbol=detail.get("symbol") or "",
                 name=detail.get("name") or "",
+                market=_market_label(detail.get("market")),
                 buy_date=detail.get("buy_date") or "",
                 quantity=_fmt_quantity(detail.get("quantity")),
                 price=current_price,
+                change_pct=_fmt_pct(detail.get("change_pct")),
                 daily_pnl=_fmt_daily_pnl(detail),
                 trend=detail.get("trend") or "",
             )
         )
+
+
+def _append_portfolio_summary_table(lines: list[str], snapshot: dict[str, Any]) -> None:
+    details = snapshot.get("details") or []
+    styles: dict[str, float] = {}
+    for detail in details:
+        style = str(detail.get("style") or "").strip()
+        if not style:
+            continue
+        weight = float(detail.get("market_value_cny") or 0)
+        styles[style] = styles.get(style, 0.0) + weight
+    style_exposure = ""
+    if styles:
+        style_exposure = max(styles.items(), key=lambda item: item[1])[0]
+    dominant_market = _market_label(snapshot.get("dominant_market"))
+    dominant_ratio = snapshot.get("dominant_ratio")
+    market_exposure = dominant_market
+    if dominant_market and dominant_ratio is not None:
+        market_exposure = f"{dominant_market} {_fmt_ratio(dominant_ratio)}"
+    lines.extend(
+        [
+            "| 总市值(CNY) | 总浮盈/亏 | 前三大占比 | 单一市场最高暴露 | 风格暴露 |",
+            "|---:|---:|---:|---|---|",
+            "| {value} | {pnl} | {top3} | {market} | {style} |".format(
+                value=_fmt_price(snapshot.get("total_value_cny")),
+                pnl=_fmt_signed_cny(snapshot.get("total_pnl_cny")),
+                top3=_fmt_ratio(snapshot.get("top3_ratio")),
+                market=market_exposure,
+                style=style_exposure,
+            ),
+        ]
+    )
+
+
+def _append_relative_strength_table(lines: list[str], details: list[dict[str, Any]]) -> None:
+    lines.extend(
+        [
+            "| 代码 | 名称 | 基准指数 | 跑赢/跑输(pp) |",
+            "|---|---|---|---:|",
+        ]
+    )
+    for detail in details:
+        benchmark = detail.get("benchmark_name")
+        relative_pct = detail.get("relative_pct")
+        if not benchmark or relative_pct is None:
+            continue
+        lines.append(
+            f"| {detail.get('symbol') or ''} | {detail.get('name') or ''} | "
+            f"{benchmark} | {float(relative_pct):+.2f} |"
+        )
+
+
+def _market_label(value: Any) -> str:
+    return {"a": "A股", "hk": "港股", "us": "美股", "fund": "基金"}.get(
+        str(value or "").lower(),
+        str(value or ""),
+    )
+
+
+def _fmt_ratio(value: Any) -> str:
+    if value is None:
+        return ""
+    return f"{float(value):.1%}"
+
+
+def _fmt_signed_cny(value: Any) -> str:
+    if value is None:
+        return ""
+    return f"{float(value):+,.2f}"
 
 
 def _append_leader_table(lines: list[str], leaders: list[dict[str, Any]]) -> None:
@@ -213,24 +285,10 @@ def render_report(
     details = portfolio_snapshot.get("details", [])
     lines.append("## 二、持仓分析")
     _append_holdings_table(lines, details)
-    total_value = portfolio_snapshot.get("total_value_cny")
-    total_pnl = portfolio_snapshot.get("total_pnl_cny")
-    if total_value is not None and total_pnl is not None:
-        lines.append(
-            f"\n组合折算总市值约 {_fmt_price(total_value)} CNY，买入以来浮动盈亏约 "
-            f"{float(total_pnl):+,.2f} CNY。前三大持仓占比 "
-            f"{portfolio_snapshot.get('top3_ratio', 0):.1%}，最高单一市场暴露 "
-            f"{portfolio_snapshot.get('dominant_ratio', 0):.1%}。"
-        )
-    relative_lines = []
-    for detail in details:
-        if detail.get("relative_label") and detail.get("benchmark_name"):
-            relative_lines.append(
-                f"{detail.get('name')}当日{detail.get('relative_label')}{detail.get('benchmark_name')}"
-                f"{abs(float(detail.get('relative_pct', 0))):.2f}个百分点"
-            )
-    if relative_lines:
-        lines.append("相对强弱：" + "；".join(relative_lines) + "。")
+    lines.append("")
+    _append_portfolio_summary_table(lines, portfolio_snapshot)
+    lines.append("")
+    _append_relative_strength_table(lines, details)
     lines.append("")
 
     if quality.degrade_mode != "simplified":

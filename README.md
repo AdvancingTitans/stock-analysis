@@ -6,7 +6,7 @@
 - `simonlin1212/global-stock-data` 的新浪/腾讯/东财港美股映射
 - `a-stock-daily-market-sense` 的 6 模块 Evidence Pack 方法
 
-当前版本为 `4.1.1`。
+当前版本为 `4.1.2`。
 
 ## 已实现
 

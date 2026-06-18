@@ -2,7 +2,7 @@
 name: stock-analysis
 description: 全球股市深度复盘技能。用于 A股、港股、美股、基金的当前行情、盘中/盘后复盘、6 模块证据驱动分析、young profile 持仓分析、单股速览与数据源诊断；执行腾讯/新浪优先、东财独有数据限流、证据质量评分和浏览器接管策略。
 metadata:
-  version: "4.1.1"
+  version: "4.1.2"
   author: "Hermes Agent + yjw"
   platforms: "linux, macos, windows"
 ---
@@ -116,6 +116,7 @@ uv run python -m stock_analysis --market diagnose
 - 前三大持仓占比 `>70%` 标记集中度风险；单一市场 `>80%` 标记市场暴露风险。
 - A股对比沪指/创业板，港股对比恒指/恒生科技，美股对比纳指/道指。
 - 建议必须使用条件化触发器，不得给出无条件买卖指令。
+- 持仓表格格式见 `references/template/portfolio-template.md`，生成时原样套用。
 
 ## 输出纪律
 
