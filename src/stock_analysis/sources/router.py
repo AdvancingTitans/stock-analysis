@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+MOOTDX_REQUEST_TYPES = {"order_book", "transactions", "minute_kline", "deep_kline", "extended_quote"}
+
 
 @dataclass
 class RouteDecision:
@@ -10,7 +12,16 @@ class RouteDecision:
     reason: str = ""
 
 
-def build_quote_route(market: str, asset_type: str = "stock", require_depth: bool = False) -> RouteDecision:
+def needs_mootdx(request_type: str | None) -> bool:
+    return request_type in MOOTDX_REQUEST_TYPES
+
+
+def build_quote_route(
+    market: str,
+    asset_type: str = "stock",
+    require_depth: bool = False,
+    request_type: str | None = None,
+) -> RouteDecision:
     if asset_type == "fund":
         return RouteDecision(
             chain=["eastmoney-fund", "sina-fund", "eastmoney-browser"],
@@ -19,7 +30,7 @@ def build_quote_route(market: str, asset_type: str = "stock", require_depth: boo
         )
     if market == "a":
         chain = ["tencent-quote", "sina-quote"]
-        if require_depth:
+        if require_depth or needs_mootdx(request_type):
             chain.append("mootdx-depth")
         chain.extend(["eastmoney-stock-get", "browser-fallback"])
         return RouteDecision(chain=chain, browser_required=True, reason="A股主路径：腾讯/新浪")

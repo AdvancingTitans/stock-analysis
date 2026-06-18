@@ -10,6 +10,7 @@ DEFAULT_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36
 
 EM_SESSION = requests.Session()
 EM_SESSION.headers.update({"User-Agent": DEFAULT_UA})
+EM_SESSION.trust_env = False
 _last_eastmoney_call = [0.0]
 
 
@@ -34,6 +35,7 @@ def em_get(
     url: str,
     *,
     params: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
     min_interval: float = 1.0,
     retries: int = 3,
     timeout: float = 15.0,
@@ -44,7 +46,7 @@ def em_get(
         if wait > 0:
             time.sleep(wait + random.uniform(0.1, 0.4))
         try:
-            response = EM_SESSION.get(url, params=params, timeout=timeout)
+            response = EM_SESSION.get(url, params=params, headers=headers, timeout=timeout)
             response.raise_for_status()
             return response
         except Exception as exc:  # pragma: no cover

@@ -36,9 +36,23 @@ def _sample_evidence() -> EvidenceBundle:
                     "latest_time": "15:00",
                     "_source": "同花顺北向资金 hsgtApi",
                 },
+                "breadth": {
+                    "available": True,
+                    "up": 3200,
+                    "down": 1900,
+                    "ratio": 1.68,
+                    "scope": "行业板块成分汇总",
+                },
                 "cross_market_comment": "A股相对最强。",
             },
-            "M2": {"available": True, "summary": "主线偏科技制造。", "concentration": {}},
+            "M2": {
+                "available": True,
+                "summary": "主线偏科技制造。",
+                "concentration": {},
+                "industry_top20": [
+                    {"name": "半导体", "change_pct": 3.2, "up_count": 48, "down_count": 5}
+                ],
+            },
             "M3": {
                 "available": True,
                 "summary": "涨停梯队完整。",
@@ -99,6 +113,9 @@ def test_report_uses_tables_and_hides_source_language():
         report_format="full",
     )
     assert "| 大盘 | 收盘 | 涨跌 | 涨跌幅 | 成交额 |" in report
+    assert "| 资金项 | 净流向 |" in report
+    assert "| 市场广度 | 上涨家数 | 下跌家数 | 涨跌比 |" in report
+    assert "| 板块 | 涨跌幅 | 上涨家数 | 下跌家数 |" in report
     assert "| 代码 | 名称 | 买入日 | 数量 | 现价 | 当日浮动盈亏 | 趋势 |" in report
     assert "| 股票 | 连板 | 封单金额 |" in report
     assert "来源" not in report
@@ -128,6 +145,43 @@ def test_report_renders_specific_portfolio_advice_sections():
     assert "仓位动作建议" in report
     assert "观察清单" in report
     assert "风险提示" in report
+
+
+def test_summary_keeps_mandatory_disclaimer():
+    evidence = _sample_evidence()
+    report = render_report(
+        trade_date="20260617",
+        session_label="早盘",
+        evidence=evidence,
+        quality=EvidenceQuality(
+            module_scores={"M1": 20, "M2": 20, "M3": 20, "M4": 15, "M5": 15, "M6": 10},
+            missing_modules=[],
+        ),
+        portfolio_snapshot={"details": []},
+        report_format="summary",
+    )
+    assert "## 二、持仓分析" in report
+    assert "| 代码 | 名称 | 买入日 | 数量 | 现价 | 当日浮动盈亏 | 趋势 |" in report
+    assert "## 三、六模块深度复盘" not in report
+    assert "以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。" in report
+
+
+def test_key_points_stops_after_downside_module():
+    evidence = _sample_evidence()
+    report = render_report(
+        trade_date="20260617",
+        session_label="盘中",
+        evidence=evidence,
+        quality=EvidenceQuality(
+            module_scores={"M1": 20, "M2": 20, "M3": 20, "M4": 15, "M5": 15, "M6": 10},
+            missing_modules=[],
+        ),
+        portfolio_snapshot={"details": []},
+        report_format="key-points",
+    )
+    assert "### 4. 爆量下跌风险" in report
+    assert "### 5. 特征分组" not in report
+    assert "以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。" in report
 
 
 def test_style_distribution_is_value_weighted():

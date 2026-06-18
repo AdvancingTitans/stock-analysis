@@ -14,6 +14,8 @@ class EvidenceBundle:
     meta: dict[str, object] = field(default_factory=dict)
 
     def quality(self) -> EvidenceQuality:
+        self.meta["style"] = "research-report"
+        self.meta["style_filter"] = "research-report-sanitized"
         module_scores: dict[str, int] = {}
         missing: list[str] = []
         for module, weight in MODULE_WEIGHTS.items():
