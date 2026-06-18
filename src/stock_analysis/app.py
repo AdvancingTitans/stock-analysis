@@ -26,15 +26,22 @@ from .reporting import render_diagnostics, render_report
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Evidence-driven global stock market recap")
-    parser.add_argument("date", nargs="?", help="Trade date YYYYMMDD")
+    parser.add_argument("legacy_date", nargs="?", help=argparse.SUPPRESS)
+    parser.add_argument("--date", help="Explicit trade date YYYYMMDD")
     parser.add_argument(
         "--market",
         default="daily",
         choices=["daily", "a", "hk", "us", "global", "diagnose"],
     )
-    parser.add_argument("--format", dest="report_format", default="full", choices=["summary", "key-points", "full"])
+    parser.add_argument(
+        "--format",
+        dest="report_format",
+        default="auto",
+        choices=["auto", "summary", "key-points", "full"],
+    )
     parser.add_argument("--with-holdings", action="store_true", help="Force loading holdings from young profile")
     parser.add_argument("--disable-mootdx", action="store_true")
+    parser.add_argument("--enable-mootdx", action="store_true")
     parser.add_argument("--emit-evidence", action="store_true")
     return parser
 
@@ -50,8 +57,8 @@ def _a_indices_payload(trade_date: str) -> list[dict[str, Any]]:
                 "change": item.get("f4"),
                 "change_pct": item.get("f3"),
                 "turnover": item.get("f6"),
-                "trade_date": item.get("_source_date", "").replace("-", "") or trade_date,
-                "source": "eastmoney/sina/tencent",
+                "trade_date": _normalize_trade_date(item.get("_source_date")) or trade_date,
+                "source": item.get("_source") or "",
             }
         )
     return rows
@@ -67,7 +74,7 @@ def _quote_payload(quote) -> dict[str, Any]:
         "change": quote.change,
         "change_pct": quote.change_pct,
         "turnover": quote.turnover,
-        "trade_date": quote.trade_date,
+        "trade_date": _normalize_trade_date(quote.trade_date),
         "source": quote.source,
         "currency": quote.currency,
     }
@@ -82,19 +89,21 @@ def build_evidence(trade_date: str, market: str, session_label: str, include_hol
     us_indices = [_quote_payload(q) for q in fetch_us_indices(trade_date)]
     northbound = fetch_northbound_flow(trade_date)
     fund_flow = fetch_fund_flow(trade_date)
-    industry = fetch_board_list("industry", trade_date, limit=20)
+    industry = fetch_board_list("industry", trade_date, limit=200)
     concept = fetch_board_list("concept", trade_date, limit=20)
     pools = fetch_limit_pools(trade_date) if market in {"daily", "a", "global"} else {"zt": {}, "dt": {}, "zb": {}}
     pool_stats = _pool_statistics(pools)
     feature_groups = _feature_groups(pools)
     concentration = _concentration_snapshot(pools, industry, concept)
+    breadth = _market_breadth(industry)
 
     m1 = {
-        "available": True,
+        "available": bool(a_indices or hk_indices or us_indices) and breadth.get("available", False),
         "a_indices": a_indices,
         "hk_indices": hk_indices,
         "us_indices": us_indices,
         "northbound": northbound,
+        "breadth": breadth,
         "cross_market_comment": _cross_market_comment(a_indices, hk_indices, us_indices),
     }
     _enrich_portfolio_benchmarks(portfolio_snapshot, m1)
@@ -121,13 +130,13 @@ def build_evidence(trade_date: str, market: str, session_label: str, include_hol
         "summary": _module4_summary(pool_stats),
     }
     m5 = {
-        "available": bool(portfolio_snapshot.get("details")),
+        "available": any(feature_groups.values()) or bool(portfolio_snapshot.get("details")),
         "styles": _style_distribution(portfolio_snapshot.get("details", [])),
         "feature_groups": feature_groups,
         "summary": _module5_summary(portfolio_snapshot, feature_groups),
     }
     m6 = {
-        "available": True,
+        "available": bool(_resilient_directions(industry, concept, pool_stats)),
         "resilient": _resilient_directions(industry, concept, pool_stats),
         "summary": _module6_summary(industry, concept, pool_stats, m1),
     }
@@ -137,10 +146,29 @@ def build_evidence(trade_date: str, market: str, session_label: str, include_hol
         meta={
             "trade_date": trade_date,
             "session": session_label,
+            "source_events": _source_events(a_indices, hk_indices, us_indices, industry, concept),
             "portfolio_advice_sections": _portfolio_advice_sections(portfolio_snapshot, m1, m2, m3, m4),
         },
     )
     return evidence, portfolio_snapshot
+
+
+def _normalize_trade_date(value: Any) -> str:
+    digits = "".join(character for character in str(value or "") if character.isdigit())
+    return digits[:8] if len(digits) >= 8 else ""
+
+
+def _market_breadth(industry: dict[str, Any]) -> dict[str, Any]:
+    rows = industry.get("rows") or []
+    up = sum(int(row.get("up_count") or 0) for row in rows)
+    down = sum(int(row.get("down_count") or 0) for row in rows)
+    return {
+        "available": (up + down) > 0,
+        "up": up,
+        "down": down,
+        "ratio": (up / down) if down else None,
+        "scope": "行业板块成分汇总",
+    }
 
 
 def run(argv: list[str] | None = None) -> int:
@@ -148,9 +176,17 @@ def run(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     now = datetime.now()
     market = "a" if args.market in {"daily", "a", "global"} else args.market
+    explicit_date = args.date or args.legacy_date
+    if explicit_date and (len(explicit_date) != 8 or not explicit_date.isdigit()):
+        parser.error("--date must use YYYYMMDD")
+    if explicit_date and explicit_date > now.strftime("%Y%m%d"):
+        parser.error("--date cannot be in the future")
+    trade_date = explicit_date or resolve_trade_date(now, market=market)
     session = detect_market_session(now, market=market)
-    trade_date = args.date or resolve_trade_date(now, market=market)
-    config = SourceConfig(enable_mootdx=False)
+    if explicit_date and trade_date < now.strftime("%Y%m%d"):
+        session.label = "盘后"
+        session.depth = "full"
+    config = SourceConfig(enable_mootdx=args.enable_mootdx and not args.disable_mootdx)
     if args.market == "diagnose":
         print(render_diagnostics(run_diagnostics(config)))
         return 0
@@ -162,13 +198,16 @@ def run(argv: list[str] | None = None) -> int:
         include_holdings=args.with_holdings or args.market == "daily",
     )
     quality = evidence.quality()
+    report_format = args.report_format
+    if report_format == "auto":
+        report_format = {"light": "summary", "medium": "key-points", "full": "full"}[session.depth]
     report = render_report(
         trade_date=trade_date,
         session_label=session.label,
         evidence=evidence,
         quality=quality,
         portfolio_snapshot=portfolio_snapshot,
-        report_format=args.report_format,
+        report_format=report_format,
     )
     print(report)
     if args.emit_evidence:
@@ -183,6 +222,26 @@ def run(argv: list[str] | None = None) -> int:
                 encoding="utf-8",
             )
     return 0
+
+
+def _source_events(
+    a_indices: list[dict[str, Any]],
+    hk_indices: list[dict[str, Any]],
+    us_indices: list[dict[str, Any]],
+    industry: dict[str, Any],
+    concept: dict[str, Any],
+) -> list[dict[str, Any]]:
+    events = []
+    for market, rows in (("a", a_indices), ("hk", hk_indices), ("us", us_indices)):
+        sources = sorted({str(row.get("source") or "") for row in rows if row.get("source")})
+        dates = sorted({str(row.get("trade_date") or "") for row in rows if row.get("trade_date")})
+        events.append({"market": market, "sources": sources, "trade_dates": dates})
+    for board_type, payload in (("industry", industry), ("concept", concept)):
+        if payload.get("_fallback"):
+            events.append({"module": board_type, "fallback": payload["_fallback"]})
+        elif not payload.get("rows"):
+            events.append({"module": board_type, "status": "数据源不可用"})
+    return events
 
 
 def _cross_market_comment(a_indices: list[dict[str, Any]], hk_indices: list[dict[str, Any]], us_indices: list[dict[str, Any]]) -> str:
@@ -302,6 +361,9 @@ def _pool_statistics(pools: dict[str, Any]) -> dict[str, Any]:
     zt_pool = _pool_items(pools, "zt")
     dt_pool = _pool_items(pools, "dt")
     zb_pool = _pool_items(pools, "zb")
+    zt_count = int(((pools.get("zt", {}).get("data") or {}).get("tc")) or len(zt_pool))
+    dt_count = int(((pools.get("dt", {}).get("data") or {}).get("tc")) or len(dt_pool))
+    zb_count = int(((pools.get("zb", {}).get("data") or {}).get("tc")) or len(zb_pool))
     first_board = 0
     multi_board = 0
     theme_counter: dict[str, int] = {}
@@ -309,8 +371,8 @@ def _pool_statistics(pools: dict[str, Any]) -> dict[str, Any]:
     total_fund = 0.0
     for row in zt_pool:
         zttj = row.get("zttj") or {}
-        days = int(zttj.get("days") or 1)
-        if days <= 1:
+        board_count = int(zttj.get("ct") or 1)
+        if board_count <= 1:
             first_board += 1
         else:
             multi_board += 1
@@ -326,7 +388,7 @@ def _pool_statistics(pools: dict[str, Any]) -> dict[str, Any]:
             {
                 "name": str(row.get("n") or row.get("c") or ""),
                 "code": str(row.get("c") or ""),
-                "board_days": int((row.get("zttj") or {}).get("days") or 1),
+                "board_days": int((row.get("zttj") or {}).get("ct") or 1),
                 "seal_fund_yi": float(row.get("fund") or 0.0) / 1e8,
                 "theme": str(row.get("hybk") or ""),
             }
@@ -336,13 +398,13 @@ def _pool_statistics(pools: dict[str, Any]) -> dict[str, Any]:
         reverse=True,
     )[:10]
     return {
-        "zt_count": len(zt_pool),
-        "dt_count": len(dt_pool),
-        "zb_count": len(zb_pool),
+        "zt_count": zt_count,
+        "dt_count": dt_count,
+        "zb_count": zb_count,
         "first_board_count": first_board,
         "multi_board_count": multi_board,
         "zt_fund_total_yi": total_fund / 1e8,
-        "blowup_ratio": (len(zb_pool) / len(zt_pool)) if zt_pool else 0.0,
+        "blowup_ratio": (zb_count / (zt_count + zb_count)) if zt_count or zb_count else 0.0,
         "theme_counter": theme_counter,
         "theme_fund_yi": {key: value / 1e8 for key, value in theme_fund.items()},
         "top_themes_text": top_text,

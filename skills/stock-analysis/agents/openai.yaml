@@ -1,0 +1,7 @@
+interface:
+  display_name: "全球股市深度复盘"
+  short_description: "多市场行情、持仓与六模块证据驱动复盘"
+  default_prompt: "使用 $stock-analysis 复盘当前全球市场，并结合我的持仓给出证据化风险分析。"
+
+policy:
+  allow_implicit_invocation: true

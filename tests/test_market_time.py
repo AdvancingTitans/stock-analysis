@@ -19,3 +19,9 @@ def test_detect_market_session_for_a_share_aftermarket():
 def test_resolve_trade_date_rolls_back_non_trade_day():
     trade_date = resolve_trade_date(datetime(2026, 6, 21, 10, 0), market="a")
     assert trade_date == "20260618"
+
+
+def test_detect_market_session_for_us_night_session():
+    session = detect_market_session(datetime(2026, 6, 18, 22, 0), market="us")
+    assert session.label == "夜盘"
+    assert session.depth == "medium"

@@ -16,15 +16,19 @@ class SourceConfig:
 
 
 TENCENT_FIELD_MAP = {
-    2: "name",
+    1: "name",
+    2: "code",
     3: "price",
     4: "previous_close",
     5: "open_price",
     31: "change",
     32: "change_pct",
-    37: "turnover_rate",
-    38: "pe",
-    39: "pb",
+    33: "high",
+    34: "low",
+    37: "turnover",
+    38: "turnover_rate",
+    39: "pe",
     44: "total_market_cap",
     45: "float_market_cap",
+    46: "pb",
 }

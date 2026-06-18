@@ -5,6 +5,7 @@ from typing import Any
 
 from .analytics import moving_average_summary
 from .exchange import fetch_cny_rates
+from .http import em_get
 from .integrations import (
     fetch_board_list,
     fetch_fund_buy_reference,
@@ -13,6 +14,7 @@ from .integrations import (
     fetch_fund_holdings,
     fetch_single_quote,
     fetch_stock_buy_reference,
+    is_historical_date,
 )
 from .models import Holding, HoldingValidation, QuoteData
 
@@ -82,7 +84,19 @@ def build_portfolio_snapshot(holdings: list[Holding], trade_date: str) -> dict[s
 
     for holding in holdings:
         if holding.asset_type == "fund":
-            estimate = fetch_fund_estimate(holding.symbol, trade_date)
+            if is_historical_date(trade_date):
+                historical_nav = fetch_fund_buy_reference(holding.symbol, trade_date)
+                fund_metadata = fetch_fund_estimate(holding.symbol, trade_date)
+                nav_date = str(historical_nav.get("date") or "").replace("-", "")
+                historical_price = historical_nav.get("nav") if nav_date == trade_date else None
+                estimate = {
+                    "name": fund_metadata.get("name") or holding.symbol,
+                    "nav": historical_price,
+                    "date": historical_nav.get("date") or trade_date,
+                    "_source": "历史基金净值",
+                }
+            else:
+                estimate = fetch_fund_estimate(holding.symbol, trade_date)
             buy_ref = fetch_fund_buy_reference(holding.symbol, holding.buy_date)
             price = _safe_float(estimate.get("estimate_nav")) or _safe_float(estimate.get("nav"))
             change_pct = _safe_float(estimate.get("estimate_change_pct"))
@@ -128,12 +142,10 @@ def build_portfolio_snapshot(holdings: list[Holding], trade_date: str) -> dict[s
             if quote is None:
                 quote = QuoteData(symbol=holding.symbol, market=holding.market, trade_date=trade_date)
             buy_ref = fetch_stock_buy_reference(holding.symbol, holding.buy_date)
-            ma = moving_average_summary(holding.symbol, holding.market)
+            ma = moving_average_summary(holding.symbol, holding.market, trade_date=trade_date)
             boards = []
             if holding.market == "a":
                 try:
-                    import requests
-
                     market_code = 1 if holding.symbol.startswith("6") else 0
                     params = {
                         "fltt": "2",
@@ -145,9 +157,7 @@ def build_portfolio_snapshot(holdings: list[Holding], trade_date: str) -> dict[s
                         "po": "1",
                         "fields": "f12,f14,f3,f128",
                     }
-                    session = requests.Session()
-                    session.trust_env = False
-                    response = session.get(
+                    response = em_get(
                         "https://push2.eastmoney.com/api/qt/slist/get",
                         params=params,
                         headers={"Referer": "https://quote.eastmoney.com/", "User-Agent": "Mozilla/5.0"},

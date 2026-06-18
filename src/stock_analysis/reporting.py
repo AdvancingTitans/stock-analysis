@@ -4,6 +4,16 @@ from typing import Any
 
 from .evidence import EvidenceBundle
 from .quality import EvidenceQuality
+from .research_style import sanitize_research_report
+
+MODULE_LABELS = {
+    "M1": "大盘指数概览",
+    "M2": "板块资金与集中度",
+    "M3": "赚钱效应与上涨主线",
+    "M4": "下跌风险",
+    "M5": "特征分组",
+    "M6": "抗跌方向",
+}
 
 
 def render_diagnostics(items) -> str:
@@ -53,14 +63,61 @@ def _append_index_table(lines: list[str], rows: list[dict[str, Any]]) -> None:
         ]
     )
     for row in rows:
+        turnover = _fmt_amount_yi(row.get("turnover")) or ""
         lines.append(
             "| {name} | {price} | {change} | {change_pct} | {turnover} |".format(
                 name=row.get("name") or "",
                 price=_fmt_price(row.get("price")),
                 change=_fmt_price(row.get("change")),
                 change_pct=_fmt_pct(row.get("change_pct")),
-                turnover=_fmt_amount_yi(row.get("turnover")),
+                turnover=turnover,
             )
+        )
+
+
+def _append_northbound_table(lines: list[str], northbound: dict[str, Any]) -> None:
+    if northbound.get("total_yi") is None:
+        return
+    lines.extend(
+        [
+            "",
+            "| 资金项 | 净流向 |",
+            "|---|---:|",
+            f"| 北向资金 | {float(northbound['total_yi']):+,.2f}亿 |",
+        ]
+    )
+
+
+def _append_breadth_table(lines: list[str], breadth: dict[str, Any]) -> None:
+    if not breadth.get("available"):
+        return
+    ratio = breadth.get("ratio")
+    lines.extend(
+        [
+            "",
+            "| 市场广度 | 上涨家数 | 下跌家数 | 涨跌比 |",
+            "|---|---:|---:|---:|",
+            f"| {breadth.get('scope') or '全市场'} | {breadth.get('up', 0)} | "
+            f"{breadth.get('down', 0)} | {f'{float(ratio):.2f}' if ratio is not None else ''} |",
+        ]
+    )
+
+
+def _append_sector_table(lines: list[str], rows: list[dict[str, Any]], limit: int = 10) -> None:
+    visible = [row for row in rows if row.get("name")][:limit]
+    if not visible:
+        return
+    lines.extend(
+        [
+            "| 板块 | 涨跌幅 | 上涨家数 | 下跌家数 |",
+            "|---|---:|---:|---:|",
+        ]
+    )
+    for row in visible:
+        lines.append(
+            f"| {row.get('name')} | {_fmt_pct(row.get('change_pct'))} | "
+            f"{row.get('up_count') if row.get('up_count') is not None else ''} | "
+            f"{row.get('down_count') if row.get('down_count') is not None else ''} |"
         )
 
 
@@ -115,6 +172,14 @@ def _append_bullets(lines: list[str], values: list[str]) -> None:
             lines.append(f"- {value}")
 
 
+def _section_prefix(lines: list[str], stop_heading: str) -> list[str]:
+    try:
+        stop = lines.index(stop_heading)
+    except ValueError:
+        return list(lines)
+    return lines[:stop]
+
+
 def render_report(
     *,
     trade_date: str,
@@ -126,9 +191,10 @@ def render_report(
 ) -> str:
     lines: list[str] = [f"# 全球市场复盘研报（{trade_date} {session_label}）", ""]
     if quality.degrade_mode == "degraded":
-        lines.extend(["> 部分市场模块采用简化分析，正文仅展示可验证内容。", ""])
+        missing = "、".join(MODULE_LABELS.get(value, value) for value in quality.missing_modules)
+        lines.extend([f"> 本模块证据暂缺：{missing}。正文仅呈现可验证信息。", ""])
     elif quality.degrade_mode == "simplified":
-        lines.extend(["> 当前有效证据较少，报告聚焦指数、持仓和风险控制。", ""])
+        lines.extend(["> 本模块证据暂缺，报告聚焦指数、持仓和风险控制。", ""])
 
     m1 = evidence.modules.get("M1", {})
     index_rows = [
@@ -139,8 +205,8 @@ def render_report(
     lines.append("## 一、大盘指数概览")
     _append_index_table(lines, index_rows)
     northbound = m1.get("northbound") or {}
-    if northbound.get("total_yi") is not None:
-        lines.append(f"\n北向资金全天净流向约 {float(northbound['total_yi']):+,.2f} 亿元。")
+    _append_northbound_table(lines, northbound)
+    _append_breadth_table(lines, m1.get("breadth") or {})
     lines.append(f"\n=={m1.get('cross_market_comment', '三地市场强弱分化，风险偏好仍需结合成交额确认。')}==")
     lines.append("")
 
@@ -188,6 +254,8 @@ def render_report(
         lines.append("")
 
         lines.append("### 2. 集中度分析")
+        sector_rows = m2.get("industry_top20") or m2.get("concept_top20") or []
+        _append_sector_table(lines, sector_rows)
         lines.append(
             f"涨停主题 TOP1 占比 {float(concentration.get('top1_ratio') or 0):.1%}，"
             f"TOP3 占比 {float(concentration.get('top3_ratio') or 0):.1%}。"
@@ -255,8 +323,15 @@ def render_report(
     lines.append("")
     lines.append("免责声明：以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。")
 
+    disclaimer = "免责声明：以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。"
     if report_format == "summary":
-        return "\n".join(lines[: min(len(lines), 28)])
+        compact = _section_prefix(lines, "## 三、六模块深度复盘")
+        if disclaimer not in compact:
+            compact.extend(["", disclaimer])
+        return sanitize_research_report("\n".join(compact))
     if report_format == "key-points":
-        return "\n".join(lines[: min(len(lines), 58)])
-    return "\n".join(lines)
+        compact = _section_prefix(lines, "### 5. 特征分组")
+        if disclaimer not in compact:
+            compact.extend(["", disclaimer])
+        return sanitize_research_report("\n".join(compact))
+    return sanitize_research_report("\n".join(lines))
