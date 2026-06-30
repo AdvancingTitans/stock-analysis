@@ -12,10 +12,14 @@ from .evidence import EvidenceBundle
 from .integrations import (
     fetch_a_indices,
     fetch_board_list,
+    fetch_fund_estimate,
     fetch_fund_flow,
+    fetch_fund_holding_quotes,
+    fetch_fund_holdings,
     fetch_hk_indices,
     fetch_limit_pools,
     fetch_northbound_flow,
+    fetch_single_quote,
     fetch_us_indices,
 )
 from .market_time import detect_market_session, resolve_trade_date
@@ -31,7 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--market",
         default="daily",
-        choices=["daily", "a", "hk", "us", "global", "diagnose"],
+        choices=["daily", "a", "hk", "us", "global", "stock", "fund", "diagnose"],
     )
     parser.add_argument(
         "--format",
@@ -43,6 +47,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--disable-mootdx", action="store_true")
     parser.add_argument("--enable-mootdx", action="store_true")
     parser.add_argument("--emit-evidence", action="store_true")
+    parser.add_argument("--symbol", help="Symbol for --market stock or --market fund")
+    parser.add_argument("--stock", dest="symbol", help="Alias for --symbol with --market stock")
+    parser.add_argument("--fund", dest="symbol", help="Alias for --symbol with --market fund")
     return parser
 
 
@@ -206,6 +213,16 @@ def run(argv: list[str] | None = None) -> int:
     if args.market == "diagnose":
         print(render_diagnostics(run_diagnostics(config)))
         return 0
+    if args.market == "stock":
+        if not args.symbol:
+            parser.error("--symbol or --stock is required when --market stock")
+        print(_render_stock_snapshot(args.symbol, trade_date))
+        return 0
+    if args.market == "fund":
+        if not args.symbol:
+            parser.error("--symbol or --fund is required when --market fund")
+        print(_render_fund_snapshot(args.symbol, trade_date))
+        return 0
 
     evidence, portfolio_snapshot = build_evidence(
         trade_date=trade_date,
@@ -242,6 +259,126 @@ def run(argv: list[str] | None = None) -> int:
 
 def _should_include_holdings(market: str, explicitly_requested: bool) -> bool:
     return explicitly_requested or market in {"daily", "a"}
+
+
+def _render_stock_snapshot(symbol: str, trade_date: str) -> str:
+    quote = fetch_single_quote(symbol, trade_date)
+    lines = [f"# 单股速览（{trade_date}）", ""]
+    lines.extend(
+        [
+            "| 代码 | 名称 | 市场 | 最新价 | 涨跌幅 | 交易日 |",
+            "|---|---|---|---:|---:|---|",
+        ]
+    )
+    if quote is None or quote.price is None:
+        lines.append(f"| {symbol} |  |  |  |  |  |")
+        lines.extend(["", "关键报价暂不可用；已保留缺口，不用零值替代。"])
+    else:
+        price = f"{float(quote.price):,.2f} {quote.currency}".strip()
+        quote_trade_date = _normalize_trade_date(quote.trade_date) or trade_date
+        lines.append(
+            f"| {quote.symbol} | {quote.name or quote.symbol} | {_market_label(quote.market)} | "
+            f"{price} | {_format_pct(quote.change_pct)} | {quote_trade_date} |"
+        )
+        previous_close = _format_number(quote.previous_close)
+        open_price = _format_number(quote.open_price)
+        high = _format_number(quote.high)
+        low = _format_number(quote.low)
+        volume = _format_number(quote.volume, digits=0)
+        turnover = _format_amount_yi(quote.turnover)
+        lines.extend(
+            [
+                "",
+                "| 昨收 | 开盘 | 最高 | 最低 | 成交量 | 成交额 |",
+                "|---:|---:|---:|---:|---:|---:|",
+                f"| {previous_close} | {open_price} | {high} | {low} | {volume} | {turnover} |",
+            ]
+        )
+        if quote.quality_flags:
+            lines.extend(["", "数据质量提示："] + [f"- {flag}" for flag in quote.quality_flags])
+    lines.extend(["", "以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。"])
+    return "\n".join(lines)
+
+
+def _render_fund_snapshot(code: str, trade_date: str) -> str:
+    estimate = fetch_fund_estimate(code, trade_date)
+    holdings = fetch_fund_holdings(code, trade_date, limit=5).get("holdings") or []
+    quotes = fetch_fund_holding_quotes(holdings, trade_date)
+    normalized_date = _normalize_trade_date(estimate.get("date")) or trade_date
+    price = _safe_float(estimate.get("estimate_nav")) or _safe_float(estimate.get("nav"))
+    change_pct = _safe_float(estimate.get("estimate_change_pct"))
+    lines = [f"# 基金速览（{trade_date}）", ""]
+    lines.extend(
+        [
+            "| 代码 | 名称 | 估值/净值 | 涨跌幅 | 交易日 |",
+            "|---|---|---:|---:|---|",
+            "| {code} | {name} | {price} CNY | {change_pct} | {trade_date} |".format(
+                code=code,
+                name=estimate.get("name") or code,
+                price=_format_number(price),
+                change_pct=_format_pct(change_pct),
+                trade_date=normalized_date,
+            ),
+        ]
+    )
+    if holdings:
+        lines.extend(
+            [
+                "",
+                "## 重仓股",
+                "| 代码 | 名称 | 权重 | 最新价 | 涨跌幅 |",
+                "|---|---|---:|---:|---:|",
+            ]
+        )
+        for item in holdings:
+            symbol = str(item.get("code") or "")
+            quote = quotes.get(symbol)
+            lines.append(
+                "| {symbol} | {name} | {weight} | {price} | {change_pct} |".format(
+                    symbol=symbol,
+                    name=item.get("name") or "",
+                    weight=_format_pct(item.get("weight_pct"), signed=False),
+                    price=_format_number(quote.price if quote else None),
+                    change_pct=_format_pct(quote.change_pct if quote else None),
+                )
+            )
+    else:
+        lines.extend(["", "重仓股暂不可用；已保留缺口，不用零值替代。"])
+    lines.extend(["", "以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。"])
+    return "\n".join(lines)
+
+
+def _market_label(value: str) -> str:
+    return {"a": "A股", "hk": "港股", "us": "美股", "fund": "基金"}.get(value, value)
+
+
+def _format_pct(value: Any, *, signed: bool = True) -> str:
+    number = _safe_float(value)
+    if number is None:
+        return ""
+    prefix = "+" if signed and number > 0 else ""
+    return f"{prefix}{number:.2f}%"
+
+
+def _format_number(value: Any, digits: int = 2) -> str:
+    number = _safe_float(value)
+    if number is None:
+        return ""
+    return f"{number:,.{digits}f}"
+
+
+def _format_amount_yi(value: Any) -> str:
+    number = _safe_float(value)
+    if number is None:
+        return ""
+    return f"{number / 1e8:,.2f}亿"
+
+
+def _safe_float(value: Any) -> float | None:
+    try:
+        return None if value in (None, "") else float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _source_events(

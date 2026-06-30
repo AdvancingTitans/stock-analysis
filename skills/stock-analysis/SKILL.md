@@ -2,7 +2,7 @@
 name: stock-analysis
 description: 全球股市深度复盘技能。用于 A股、港股、美股、基金的当前行情、盘中/盘后复盘、6 模块证据驱动分析、young profile 持仓分析、单股速览与数据源诊断；执行腾讯/新浪优先、东财独有数据限流、证据质量评分和浏览器接管策略。
 metadata:
-  version: "4.2.0"
+  version: "4.3.0"
   author: "Hermes Agent + yjw"
   platforms: "linux, macos, windows"
 ---
@@ -16,6 +16,8 @@ metadata:
 ```bash
 uv run python -m stock_analysis --market daily
 uv run python -m stock_analysis --market a --format full --emit-evidence
+uv run python -m stock_analysis --market stock --symbol 600519
+uv run python -m stock_analysis --market fund --symbol 161725
 uv run python -m stock_analysis --market diagnose
 ```
 
@@ -23,8 +25,11 @@ uv run python -m stock_analysis --market diagnose
 - `--date YYYYMMDD` 仅在用户明确指定日期时使用；未指定时自动解析最近 A股交易日。
 - `--emit-evidence` 保留 `evidence_YYYYMMDD.json` 与 6 个模块 JSON。
 - `--market daily` 和 `--market a` 默认加载持仓；`hk`、`us`、`global` 需显式添加 `--with-holdings`。
+- `--market stock --symbol <代码>` 与 `--market fund --symbol <代码>` 是确定性速览入口，不触发 LLM；缺字段保留空值并提示缺口。
 - `mootdx` 默认关闭；只有明确需要五档、逐笔或深度分钟 K 时才使用 `--enable-mootdx`。
 - 专用能力由 `sources/mootdx_adapter.py` 执行；依赖缺失、TCP 失败或返回空数据时自动回普通腾讯/新浪报价并记录原因。
+
+参考 `young-stock-cli` 的入口纪律：先给 deterministic evidence，再决定是否升级为深度复盘；浏览器和慢源只作降级或 Agent 接管，不把缺失数据猜成结论。
 
 ## 数据路由
 
@@ -39,6 +44,7 @@ uv run python -m stock_analysis --market diagnose
 
 - 行情：新浪/腾讯互补 → 东财 `stock/get`。
 - 港股历史 K 线：腾讯 K 线；美股历史 K 线：新浪。
+- 单股速览只输出可核验行情、交易日、成交字段和质量提示；需要观点时再切到 full evidence pack 或 young 的 `--llm`/`--lens`。
 - 当前持仓的公开信息脉冲：Futu 免登录新闻搜索 + 个股解读 + 严格过滤后的社区情绪。
 - Yahoo 不属于推荐路径，不在报告或示例中使用。
 
@@ -46,6 +52,7 @@ uv run python -m stock_analysis --market diagnose
 
 - 天天基金/东财基金估值 → 新浪基金备用。
 - 基金重仓股统一走股票行情路由，并参与重复暴露分析。
+- 基金速览输出估值/净值、涨跌幅、交易日和前 5 大重仓股报价；不替代基金 `--llm` 深度分析。
 
 详细字段与路由见 `references/data-source-strategy.md`。
 
@@ -108,6 +115,8 @@ uv run python -m stock_analysis --market diagnose
 `_meta` 至少包含 `trade_date`、`session`、`quality_score`、`missing_modules`、`source_events`。
 
 6 模块方法见 `references/methodology/`，报告模板见 `references/template/`，输出纪律见 `references/output_discipline.md`。
+
+`stock-analysis` 固定负责 M1-M6 的证据包、评分和研报正文；`young-stock-cli` 的 M7 研究委员会、`--lens all`、chat、report 和 send 属于上层产品工作流。需要 M1-M7 全链路时，先用本 skill 产出可审计证据，再交给 young 的 LLM/lens 流程综合。
 
 ## 持仓
 

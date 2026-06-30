@@ -1,5 +1,12 @@
 # Changelog
 
+## v4.3.0 - 2026-06-30
+
+- 参考 `young-stock-cli` 的 deterministic-first 入口纪律，新增 `--market stock --symbol` 单股速览和 `--market fund --symbol` 基金速览。
+- 单股速览输出可核验报价、交易日、涨跌幅、开高低、成交量和成交额；缺失字段保留空值并提示数据缺口。
+- 基金速览输出估值/净值、涨跌幅、交易日和前 5 大重仓股报价；不触发 LLM，不替代 young 的 `--llm` / `--lens` 深度分析。
+- README 与 SKILL.md 补充 M1-M7 边界、浏览器降级纪律和 stock/fund 命令契约。
+
 ## v4.2.0 - 2026-06-18
 
 - 接入 Futu SkillHub 三项免登录 Search Skills 能力：资讯搜索、个股新闻解读、社区情绪。

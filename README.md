@@ -6,7 +6,7 @@
 - `simonlin1212/global-stock-data` 的新浪/腾讯/东财港美股映射
 - `a-stock-daily-market-sense` 的 6 模块 Evidence Pack 方法
 
-当前版本为 `4.2.0`。
+当前版本为 `4.3.0`。
 
 ## 已实现
 
@@ -18,6 +18,8 @@
 - young profile 股票/基金持仓、汇率折算、浮盈亏、集中度、重复暴露和基准比较
 - Futu 免登录新闻与社区数据，形成持仓公开信息脉冲和可审计原文链接
 - Evidence Pack、6 个模块 JSON、100 分质量评分和降级报告
+- 参考 `young-stock-cli` 的确定性入口纪律：`daily`、`stock`、`fund` 默认不需要 LLM，不把浏览器或慢源伪装成主路径
+- 单股/基金速览入口：先给可核验报价、估值、交易日和缺口提示，再由 Agent 决定是否升级为深度复盘
 - Camofox 健康检测、板块榜 fallback、Hermes browser 接管说明、Playwright 可用性诊断
 - 固定报告顺序、Markdown 表格、研报措辞过滤和强制免责声明
 - `diagnose` 对腾讯、新浪、东财、Camofox、Hermes browser、Playwright、mootdx 的检查
@@ -56,12 +58,21 @@ Yahoo 已从推荐路径和当前技术分析路径移除。
 # 用户明确指定历史交易日
 ~/.local/bin/uv run python -m stock_analysis --market a --date 20260618
 
+# 确定性单股/基金速览，不触发 LLM
+~/.local/bin/uv run python -m stock_analysis --market stock --symbol 600519
+~/.local/bin/uv run python -m stock_analysis --market fund --symbol 161725
+
 # 网络和数据源诊断
 ~/.local/bin/uv run python -m stock_analysis --market diagnose
 ```
 
 `--market daily` 与 `--market a` 默认加载 young profile 持仓；港股、美股或全球模式需通过
 `--with-holdings` 显式加载。
+
+`--market stock --symbol <代码>` 与 `--market fund --symbol <代码>` 是确定性证据视图：
+只输出当前价/估值、涨跌、交易日、关键交易字段和基金重仓股报价；字段缺失时保留空单元格并提示缺口。
+如果用户需要研报式判断，再运行 `daily`、`a`、`global --format full --emit-evidence` 或交给 `young-stock-cli`
+的 `--llm` / `--lens` 工作流。
 
 兼容入口：
 
@@ -97,6 +108,12 @@ m6_YYYYMMDD.json
 
 评分为 M1 20、M2 20、M3 20、M4 15、M5 15、M6 10。空模块不再计分，低于 60 分只输出指数、持仓和风险提示。
 
+### 与 young-stock-cli 的 M1-M7 边界
+
+`stock-analysis` 固定负责 M1-M6 的证据包、评分和研报正文；`young-stock-cli` 的 M7 研究委员会、
+`--lens all`、chat、report 和 send 属于上层产品工作流。需要 M1-M7 全链路时，先用本包产出可审计证据，
+再由 young 的 LLM/lens 流程做综合判断；不要在本包里新增交易、发送或聊天外壳。
+
 ## 能力边界
 
 - Futu 默认仅使用无需 OpenD、无需登录的资讯搜索、个股新闻解读和社区情绪接口。
@@ -104,6 +121,7 @@ m6_YYYYMMDD.json
 - 社区接口可能返回全站流数据；程序只保留精确匹配当前标的的有效帖子，少于 3 条时标记证据不足。
 - 显式历史日期报告不混入当前 Futu 新闻或社区情绪。
 - Python CLI 不能直接调用 Hermes 内置浏览器，因为它属于 Agent 工具；CLI 会在 diagnose/evidence 中提示由 Hermes、Codex 或 OpenClaw 执行环境接管。
+- 浏览器路径只作为 API 连续失败或页面独有数据的降级路径；正文不展示浏览器、API 或 fallback 工程细节，相关信息留在 diagnose/evidence。
 - Camofox 自动板块抓取依赖 `CAMOFOX_USER_ID` 和 `CAMOFOX_SESSION_KEY`；缺少凭据时不会伪装成功。
 - `mootdx` 默认禁用且不是必装依赖；启用后仅服务五档、逐笔和深度 K 线，不进入日常行情主路径。
 - 专用请求通过 `sources/mootdx_adapter.py` 路由；依赖缺失、TCP 失败或空数据时自动回普通腾讯/新浪报价并记录原因。

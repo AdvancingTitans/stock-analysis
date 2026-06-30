@@ -8,8 +8,10 @@ from stock_analysis.app import (
     _should_include_holdings,
     build_evidence,
     build_parser,
+    run,
 )
 from stock_analysis.market_time import detect_market_session
+from stock_analysis.models import QuoteData
 
 
 def test_report_format_defaults_to_session_aware_auto():
@@ -69,6 +71,67 @@ def test_a_market_loads_holdings_by_default():
     assert _should_include_holdings("a", explicitly_requested=False) is True
     assert _should_include_holdings("hk", explicitly_requested=False) is False
     assert _should_include_holdings("hk", explicitly_requested=True) is True
+
+
+def test_stock_market_renders_deterministic_single_symbol_view(capsys):
+    with patch(
+        "stock_analysis.app.fetch_single_quote",
+        return_value=QuoteData(
+            symbol="600519",
+            name="贵州茅台",
+            market="a",
+            price=1240.5,
+            change_pct=-1.25,
+            previous_close=1256.2,
+            open_price=1250.0,
+            high=1260.0,
+            low=1238.0,
+            volume=1200000,
+            turnover=1488600000,
+            currency="CNY",
+            trade_date="20260618",
+            source="tencent",
+        ),
+    ):
+        assert run(["--market", "stock", "--symbol", "600519", "--date", "20260618"]) == 0
+
+    output = capsys.readouterr().out
+    assert "# 单股速览（20260618）" in output
+    assert "| 600519 | 贵州茅台 | A股 | 1,240.50 CNY | -1.25% | 20260618 |" in output
+    assert "以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。" in output
+
+
+def test_fund_market_renders_deterministic_fund_view(capsys):
+    with (
+        patch(
+            "stock_analysis.app.fetch_fund_estimate",
+            return_value={
+                "name": "招商中证白酒指数",
+                "estimate_nav": 1.2345,
+                "estimate_change_pct": 0.56,
+                "date": "2026-06-18",
+                "_source": "天天基金实时估值",
+            },
+        ),
+        patch(
+            "stock_analysis.app.fetch_fund_holdings",
+            return_value={
+                "holdings": [
+                    {"code": "600519", "name": "贵州茅台", "weight_pct": 14.2},
+                ]
+            },
+        ),
+        patch(
+            "stock_analysis.app.fetch_fund_holding_quotes",
+            return_value={"600519": QuoteData(symbol="600519", price=1240.5, change_pct=-1.25)},
+        ),
+    ):
+        assert run(["--market", "fund", "--fund", "161725", "--date", "20260618"]) == 0
+
+    output = capsys.readouterr().out
+    assert "# 基金速览（20260618）" in output
+    assert "| 161725 | 招商中证白酒指数 | 1.23 CNY | +0.56% | 20260618 |" in output
+    assert "| 600519 | 贵州茅台 | 14.20% | 1,240.50 | -1.25% |" in output
 
 
 def test_m1_remains_available_when_indices_exist_but_breadth_is_missing():
