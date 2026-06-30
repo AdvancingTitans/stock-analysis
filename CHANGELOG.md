@@ -1,5 +1,11 @@
 # Changelog
 
+## v4.3.1 - 2026-06-30
+
+- Skill-only update：明确持仓分析必须由用户主动触发，且股票代码、买入日期、买入数量或买入金额三项齐全才进入收益计算。
+- 信息不完整时默认输出普通市场复盘报告，不包含持仓绩效；仅允许一次精准追问，指出缺失项、数字含义或币种确认。
+- 更新 SKILL.md、output discipline、portfolio template、README 和 Agent 默认 prompt，避免把 young profile 或普通复盘自动升级为持仓分析。
+
 ## v4.3.0 - 2026-06-30
 
 - 参考 `young-stock-cli` 的 deterministic-first 入口纪律，新增 `--market stock --symbol` 单股速览和 `--market fund --symbol` 基金速览。
