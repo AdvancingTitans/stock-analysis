@@ -81,3 +81,47 @@ def test_skill_documents_new_user_holdings_override_saved_memory_contract():
         assert "确认信息完整性后" in text
 
     assert "不完整的新信息不得覆盖已有完整投资记忆" in skill
+
+
+def test_skill_documents_young_investor_lens_contract():
+    skill = (ROOT / "skills" / "stock-analysis" / "SKILL.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    output_discipline = (
+        ROOT / "skills" / "stock-analysis" / "references" / "output_discipline.md"
+    ).read_text(encoding="utf-8")
+    portfolio_template = (
+        ROOT / "skills" / "stock-analysis" / "references" / "template" / "portfolio-template.md"
+    ).read_text(encoding="utf-8")
+
+    expected_lenses = (
+        "buffett",
+        "munger",
+        "graham",
+        "klarman",
+        "lynch",
+        "o_neil",
+        "wood",
+        "dalio",
+        "soros",
+        "livermore",
+        "minervini",
+        "simons",
+        "duan_yongping",
+        "zhang_kun",
+        "feng_liu",
+    )
+    for lens in expected_lenses:
+        assert lens in skill
+
+    for text in (skill, readme, output_discipline, portfolio_template):
+        assert "用户明确提出想用哪位投资专家的风格" in text
+        assert "完全以相关专家的视角输出报告" in text
+        assert "不得只在结尾追加专家点评" in text
+        assert "单专家视角不触发 M7" in text
+        assert "不得模仿身份声明或虚构专家发言" in text
+
+    assert "15 个 young-stock-cli 投资专家 lens" in skill
+    assert "专家名称、英文名、中文名、别名或 lens id" in skill
+    assert "## {专家中文名}持仓建议与风险提示" in skill
+    assert "交易计划草案" in skill
+    assert "组合经理最终意见" in skill

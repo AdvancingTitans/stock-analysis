@@ -6,7 +6,7 @@
 - `simonlin1212/global-stock-data` 的新浪/腾讯/东财港美股映射
 - `a-stock-daily-market-sense` 的 6 模块 Evidence Pack 方法
 
-当前 CLI 版本为 `4.3.0`；Skill 规则版本为 `4.3.3`。
+当前 CLI 版本为 `4.3.0`；Skill 规则版本为 `4.3.4`。
 
 ## 已实现
 
@@ -16,6 +16,7 @@
 - 东财 `em_get()` 统一无代理 Session、1 秒间隔、抖动和最多 3 次指数退避
 - 最近交易日与 A股/港股/美股时段识别，`--format auto` 自动选择报告深度
 - 投资记忆优先的股票/基金持仓、汇率折算、浮盈亏、集中度、重复暴露和基准比较
+- 参考 `young-stock-cli` 的 15 个投资专家 lens，支持用户明确指定专家风格后全篇切换视角
 - Futu 免登录新闻与社区数据，形成持仓公开信息脉冲和可审计原文链接
 - Evidence Pack、6 个模块 JSON、100 分质量评分和降级报告
 - 参考 `young-stock-cli` 的确定性入口纪律：`daily`、`stock`、`fund` 默认不需要 LLM，不把浏览器或慢源伪装成主路径
@@ -118,6 +119,14 @@ m6_YYYYMMDD.json
 `stock-analysis` 固定负责 M1-M6 的证据包、评分和研报正文；`young-stock-cli` 的 M7 研究委员会、
 `--lens all`、chat、report 和 send 属于上层产品工作流。需要 M1-M7 全链路时，先用本包产出可审计证据，
 再由 young 的 LLM/lens 流程做综合判断；不要在本包里新增交易、发送或聊天外壳。
+
+### young 投资专家 lens
+
+当用户明确提出想用哪位投资专家的风格生成报告时，必须完全以相关专家的视角输出报告：整篇报告的证据优先级、判断顺序、风险表达、持仓建议和观察清单都服从该专家框架，不得只在结尾追加专家点评。
+
+支持 `buffett`、`munger`、`graham`、`klarman`、`lynch`、`o_neil`、`wood`、`dalio`、`soros`、`livermore`、`minervini`、`simons`、`duan_yongping`、`zhang_kun`、`feng_liu`。可识别专家名称、英文名、中文名、别名或 lens id。
+
+单专家视角不触发 M7，也不输出交易计划草案、风险管理意见、组合经理最终意见等委员会小节；最后章节使用 `## {专家中文名}持仓建议与风险提示`。报告不得模仿身份声明或虚构专家发言，所有结论仍必须回到 evidence 和公开市场数据。
 
 ## 能力边界
 
