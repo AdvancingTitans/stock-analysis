@@ -2,7 +2,7 @@
 name: stock-analysis
 description: 全球股市深度复盘技能。用于 A股、港股、美股、基金的当前行情、盘中/盘后复盘、6 模块证据驱动分析、young profile 投资记忆优先的持仓分析、单股速览与数据源诊断；执行腾讯/新浪优先、东财独有数据限流、证据质量评分和浏览器接管策略。
 metadata:
-  version: "4.3.2"
+  version: "4.3.3"
   author: "Hermes Agent + yjw"
   platforms: "linux, macos, windows"
 ---
@@ -143,6 +143,7 @@ uv run python -m stock_analysis --market diagnose
 - 投资记忆不存在，且用户主动提供持仓相关内容；
 - 投资记忆有但信息不完整；
 - 用户主动修改已有投资记忆。
+- 用户新提供的信息与之前保存的投资记忆不一致。
 
 ### 买入信息
 
@@ -169,6 +170,8 @@ uv run python -m stock_analysis --market diagnose
 ### 保存与清空投资记忆
 
 用户补齐或修改后的持仓信息一旦完整，必须保存到本地投资记忆，路径与 young profile 一致：`~/.young_stock/profile.json` 或 `YOUNG_STOCK_PROFILE` 指向的位置。保存时保留 young profile 兼容结构，不另建私有记忆文件。
+
+如果用户新提供的信息与之前保存的投资记忆不一致，必须先按“股票代码、买入日期、买入数量或买入金额”确认信息完整性；确认信息完整性后，优先以用户新提供的信息为准，覆盖写入投资记忆。不完整的新信息不得覆盖已有完整投资记忆，只能按一次确认流程提示用户补齐缺失项。
 
 每次触发保存或修改时，必须在回复中明确告知用户：
 

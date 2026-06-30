@@ -62,3 +62,22 @@ def test_skill_documents_investment_memory_first_contract():
 
     assert "不得把本地已保存 profile 视为用户本轮主动触发持仓分析" not in skill
     assert "已保存持仓只在用户本轮主动触发持仓分析时使用" not in skill
+
+
+def test_skill_documents_new_user_holdings_override_saved_memory_contract():
+    skill = (ROOT / "skills" / "stock-analysis" / "SKILL.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    output_discipline = (
+        ROOT / "skills" / "stock-analysis" / "references" / "output_discipline.md"
+    ).read_text(encoding="utf-8")
+    portfolio_template = (
+        ROOT / "skills" / "stock-analysis" / "references" / "template" / "portfolio-template.md"
+    ).read_text(encoding="utf-8")
+
+    for text in (skill, readme, output_discipline, portfolio_template):
+        assert "新提供的信息与之前保存的投资记忆不一致" in text
+        assert "优先以用户新提供的信息为准" in text
+        assert "覆盖写入投资记忆" in text
+        assert "确认信息完整性后" in text
+
+    assert "不完整的新信息不得覆盖已有完整投资记忆" in skill
