@@ -2,7 +2,7 @@
 name: stock-analysis
 description: 全球股市深度复盘技能。用于 A股、港股、美股、基金的当前行情、盘中/盘后复盘、6 模块证据驱动分析、显式投资记忆持仓分析、内置投资框架视角、单股速览与数据源诊断；执行腾讯/新浪优先、东财独有数据限流、证据质量评分和浏览器接管策略。
 metadata:
-  version: "4.3.4"
+  version: "4.3.5"
   author: "Hermes Agent + yjw"
   platforms: "linux, macos, windows"
 ---
@@ -38,11 +38,12 @@ uv run python -m stock_analysis --market diagnose
 1. 实时报价、估值、指数、基础 K 线：腾讯 → 新浪。
 2. 五档、逐笔、高精度分钟/深度 K：按需 mootdx；失败后回腾讯/新浪并记录原因。
 3. 板块归属、资金流、涨跌停池、龙虎榜、解禁、两融、大宗、股东户数、研报和新闻：东财独有接口。
-4. 东财失败或页面数据不完整：Camofox → Hermes browser 由 Agent 接管 → Playwright。
+4. 行业/概念板块榜：东财 `clist` → 同花顺公开行业/概念页 → Camofox → Hermes browser 由 Agent 接管 → Playwright。
+5. 东财失败或页面数据不完整：先走可用公开 HTTP fallback，再由浏览器链路接管。
 
 ### 港美股
 
-- 行情：新浪/腾讯互补 → 东财 `stock/get`。
+- 行情：新浪/腾讯互补 → 东财 searchapi 解析 secid 后 `stock/get`。
 - 港股历史 K 线：腾讯 K 线；美股历史 K 线：新浪。
 - 单股速览只输出可核验行情、交易日、成交字段和质量提示；需要观点时再切到 full evidence pack 或内置投资框架视角。
 - 当前持仓的公开信息脉冲：Futu 免登录新闻搜索 + 个股解读 + 严格过滤后的社区情绪。

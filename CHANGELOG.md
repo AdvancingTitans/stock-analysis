@@ -1,10 +1,17 @@
 # Changelog
 
+## v4.3.5 - 2026-07-01
+
+- CLI 版本升至 `4.3.1`：M2 行业/概念板块榜新增同花顺公开页面 fallback，东财 `clist` 空响应时仍能生成板块证据。
+- 板块榜只在当前交易日启用实时 fallback；历史日期继续禁止混入实时板块榜。
+- 港美股东财 `stock/get` fallback 新增 searchapi secid 动态解析，补足静态映射之外的美股/港股标的。
+- 板块榜只有拿到非空 rows 才写缓存，避免空结果污染后续报告。
+
 ## v4.3.4 - 2026-06-30
 
-- Skill-only update：参考 `young-stock-cli` 的 15 个投资专家 lens，补充用户明确指定专家风格时的全篇报告规则。
+- Skill-only update：补充 15 个投资专家框架，支持用户明确指定专家风格时的全篇报告规则。
 - 单专家视角必须完全按相关专家框架组织证据、态度、风险和持仓建议，不得只在结尾追加专家点评。
-- 单专家视角不触发 M7，不输出委员会小节；禁止模仿身份声明或虚构专家发言。
+- 单专家视角不触发额外委员会模块，不输出委员会小节；禁止模仿身份声明或虚构专家发言。
 
 ## v4.3.3 - 2026-06-30
 
@@ -14,7 +21,7 @@
 
 ## v4.3.2 - 2026-06-30
 
-- Skill-only update：持仓分析改为投资记忆优先，默认读取 `~/.young_stock/profile.json` 或 `YOUNG_STOCK_PROFILE`。
+- Skill-only update：持仓分析改为投资记忆优先，默认读取本技能自己的 `~/.stock_analysis/profile.json` 或 `STOCK_ANALYSIS_PROFILE`。
 - 仅在投资记忆不存在且用户主动提供持仓信息、投资记忆不完整或用户主动修改时进入一次确认流程。
 - 用户补齐或修改后的完整持仓信息必须保存回本地投资记忆，并明确告知“投资记忆已保存本地；如需清空投资记忆请反馈”。
 
@@ -22,14 +29,14 @@
 
 - Skill-only update：明确持仓分析必须由用户主动触发，且股票代码、买入日期、买入数量或买入金额三项齐全才进入收益计算。
 - 信息不完整时默认输出普通市场复盘报告，不包含持仓绩效；仅允许一次精准追问，指出缺失项、数字含义或币种确认。
-- 更新 SKILL.md、output discipline、portfolio template、README 和 Agent 默认 prompt，避免把 young profile 或普通复盘自动升级为持仓分析。
+- 更新 SKILL.md、output discipline、portfolio template、README 和 Agent 默认 prompt，避免把普通复盘自动升级为持仓分析。
 
 ## v4.3.0 - 2026-06-30
 
-- 参考 `young-stock-cli` 的 deterministic-first 入口纪律，新增 `--market stock --symbol` 单股速览和 `--market fund --symbol` 基金速览。
+- 参考 deterministic-first 入口纪律，新增 `--market stock --symbol` 单股速览和 `--market fund --symbol` 基金速览。
 - 单股速览输出可核验报价、交易日、涨跌幅、开高低、成交量和成交额；缺失字段保留空值并提示数据缺口。
-- 基金速览输出估值/净值、涨跌幅、交易日和前 5 大重仓股报价；不触发 LLM，不替代 young 的 `--llm` / `--lens` 深度分析。
-- README 与 SKILL.md 补充 M1-M7 边界、浏览器降级纪律和 stock/fund 命令契约。
+- 基金速览输出估值/净值、涨跌幅、交易日和前 5 大重仓股报价；不触发 LLM，不替代上层 Agent 的深度分析。
+- README 与 SKILL.md 补充证据模块边界、浏览器降级纪律和 stock/fund 命令契约。
 
 ## v4.2.0 - 2026-06-18
 
@@ -47,14 +54,14 @@
 
 ## v4.1.1 - 2026-06-18
 
-- 修复 young profile 中已保存的 `buy_price` 未加载问题；持仓分析优先使用用户成本价，仅在缺失时按买入日期查询参考价。
+- 修复本地投资记忆中已保存的 `buy_price` 未加载问题；持仓分析优先使用用户成本价，仅在缺失时按买入日期查询参考价。
 - `--market a` 现在与 `daily` 一样默认加载持仓；港股、美股和全球模式继续使用 `--with-holdings` 显式控制。
 - M1 指数可用性不再依赖 M2 板块涨跌家数，板块源降级时仍保留已验证的指数数据。
 - 新增 profile 成本价、A股默认持仓和 M1/M2 解耦回归测试。
 
 ## v4.1.0 - 2026-06-18
 
-- 修正文档与实现漂移：明确项目仍复用 `young-stock-cli` 行情适配器，区分已实现能力与 Agent 接管边界。
+- 修正文档与实现漂移：明确行情适配器边界，区分已实现能力与 Agent 接管边界。
 - A股指数调整为腾讯 → 新浪 → 东财，并过滤价格异常或涨跌额/涨跌幅同时为空、为零的无效行。
 - 新增 `--format auto`，按 A股、港股、美股当前时段自动选择 `summary`、`key-points`、`full`。
 - 新增显式 `--date YYYYMMDD`；未指定日期时继续自动回溯最近交易日。

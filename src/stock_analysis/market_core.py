@@ -134,6 +134,7 @@ SINA_SECTOR_MONEY_FLOW_URL = (
     "?fenlei=0&format=json&callback=gotData0&_={ts}"
 )
 THS_CONCEPT_MONEY_FLOW_URL = "http://data.10jqka.com.cn/funds/gnzjl/"
+THS_INDUSTRY_BOARD_URL = "https://q.10jqka.com.cn/thshy/"
 INDEX_URL = (
     "https://push2.eastmoney.com/api/qt/ulist.np/get"
     "?fltt=2&secids={secids}&fields={fields}&_={ts}"
@@ -190,6 +191,8 @@ EM_HK_INDEX_SECID = {
 # stock/get 字段映射: f43=最新价, f44=最高, f45=最低, f46=开盘, f47=成交量(股),
 # f48=成交额(元), f57=代码, f58=名称, f60=昨收, f169=涨跌额, f170=涨跌幅
 EM_STOCK_GET_FIELDS = "f43,f44,f45,f46,f47,f48,f57,f58,f60,f169,f170"
+EM_SEARCH_URL = "https://searchapi.eastmoney.com/api/suggest/get"
+EM_SEARCH_TOKEN = "D43BF722C8E33BDC906FB84D85E326E8"
 
 # 指数中文名
 INDEX_NAME_MAP = {
@@ -477,12 +480,21 @@ def fmt_volume(v) -> str:
 # ------------------------------------------------------------------
 
 def _fetch_raw(url: str, headers: dict[str, str] | None = None, timeout: int = 15) -> str:
+    return _fetch_text(url, headers=headers, timeout=timeout)
+
+
+def _fetch_text(
+    url: str,
+    headers: dict[str, str] | None = None,
+    timeout: int = 15,
+    encoding: str = "utf-8",
+) -> str:
     default_headers = {
         "User-Agent": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         ),
-        "Accept": "application/json",
+        "Accept": "application/json,text/html,*/*",
     }
     if headers:
         default_headers.update(headers)
@@ -491,7 +503,7 @@ def _fetch_raw(url: str, headers: dict[str, str] | None = None, timeout: int = 1
     proxy_handler = urllib.request.ProxyHandler({})
     opener = urllib.request.build_opener(proxy_handler)
     with opener.open(req, timeout=timeout) as resp:
-        return resp.read().decode("utf-8", errors="ignore")
+        return resp.read().decode(encoding, errors="ignore")
 
 
 def fetch_json(url: str, headers: dict[str, str] | None = None) -> dict[str, Any]:
@@ -1082,15 +1094,54 @@ def _us_secid(symbol: str) -> str | None:
     return EM_US_SECID.get(s)
 
 
+def resolve_global_stock_secid(symbol: str, market_type: str) -> tuple[str, str] | None:
+    """Resolve US/HK secid through Eastmoney searchapi when static maps are not enough."""
+    raw = symbol.upper().replace(".HK", "")
+    queries = [raw]
+    if market_type == "hk_market":
+        queries.extend([raw.lstrip("0") or "0", raw.zfill(5)])
+        wanted_markets = {"116"}
+    elif market_type == "us_market":
+        wanted_markets = {"105", "106", "107"}
+    else:
+        return None
+
+    for query in dict.fromkeys(queries):
+        params = {
+            "input": query,
+            "type": 14,
+            "token": EM_SEARCH_TOKEN,
+            "count": 10,
+        }
+        url = f"{EM_SEARCH_URL}?{urllib.parse.urlencode(params)}"
+        data = fetch_json(url, {"Referer": "https://quote.eastmoney.com/"})
+        suggestions = ((data.get("QuotationCodeTable") or {}).get("Data") or []) if isinstance(data, dict) else []
+        for item in suggestions:
+            mkt = str(item.get("MktNum") or "")
+            code = str(item.get("Code") or "").upper()
+            if mkt not in wanted_markets or not code:
+                continue
+            if market_type == "hk_market" and code.lstrip("0") != raw.lstrip("0"):
+                continue
+            if market_type == "us_market" and code != raw:
+                continue
+            return f"{mkt}.{code}", str(item.get("Name") or "")
+    return None
+
+
 def _stock_flow_secid_candidates(symbol: str, market: str) -> list[str]:
     if market == "cn_market":
         return [_cn_secid(symbol)]
     if market == "hk_market":
-        return [_hk_secid(symbol)]
+        resolved = resolve_global_stock_secid(symbol, market)
+        return [secid for secid in dict.fromkeys([resolved[0] if resolved else "", _hk_secid(symbol)]) if secid]
     if market == "us_market":
         mapped = _us_secid(symbol)
         raw = symbol.upper()
+        resolved = resolve_global_stock_secid(symbol, market)
         candidates = [mapped] if mapped else []
+        if resolved:
+            candidates.append(resolved[0])
         candidates.extend([f"105.{raw}", f"106.{raw}", f"107.{raw}"])
         return [secid for secid in dict.fromkeys(candidates) if secid]
     raise ValueError(f"暂不支持该市场的资金流: {market}")
@@ -1140,6 +1191,11 @@ def fetch_us_stocks_direct(symbols: list[str], date_str: str) -> list[QuoteData]
     results: list[QuoteData] = []
     for sym in symbols:
         secid = _us_secid(sym)
+        resolved_name = ""
+        if not secid:
+            resolved = resolve_global_stock_secid(sym, "us_market")
+            if resolved:
+                secid, resolved_name = resolved
         payload: dict[str, Any] = {}
         if secid:
             payload = fetch_em_stock_get(secid)
@@ -1152,7 +1208,10 @@ def fetch_us_stocks_direct(symbols: list[str], date_str: str) -> list[QuoteData]
         if not payload:
             diag(f"Eastmoney stock/get missing: {sym}")
             continue
-        results.append(_stock_get_to_quote(payload, sym, "us_market", date_str))
+        qd = _stock_get_to_quote(payload, sym, "us_market", date_str)
+        if resolved_name:
+            qd.name = resolved_name
+        results.append(qd)
     return results
 
 
@@ -1160,11 +1219,16 @@ def fetch_hk_stocks_direct(symbols: list[str], date_str: str) -> list[QuoteData]
     """逐个用 stock/get 查港股（secid=116.<5位补零>）。"""
     results: list[QuoteData] = []
     for sym in symbols:
-        payload = fetch_em_stock_get(_hk_secid(sym))
+        resolved = resolve_global_stock_secid(sym, "hk_market")
+        secid = resolved[0] if resolved else _hk_secid(sym)
+        payload = fetch_em_stock_get(secid)
         if not payload:
             diag(f"Eastmoney stock/get missing HK: {sym}")
             continue
-        results.append(_stock_get_to_quote(payload, sym, "hk_market", date_str))
+        qd = _stock_get_to_quote(payload, sym, "hk_market", date_str)
+        if resolved and resolved[1]:
+            qd.name = resolved[1]
+        results.append(qd)
     return results
 
 
@@ -1741,10 +1805,10 @@ def validate_quote(qd: QuoteData) -> QuoteData:
     flags = []
 
     # 价格验证
-    for field, val in [("price", qd.price), ("open_price", qd.open_price), ("high", qd.high), ("low", qd.low)]:
+    for attr, val in [("price", qd.price), ("open_price", qd.open_price), ("high", qd.high), ("low", qd.low)]:
         if val is not None and val <= 0:
-            setattr(qd, field, None)
-            notes.append(f"{field}异常已过滤")
+            setattr(qd, attr, None)
+            notes.append(f"{attr}异常已过滤")
             flags.append("price_anomaly")
 
     # 成交量验证
@@ -2222,22 +2286,39 @@ def fetch_eastmoney_board_list(board_type: str, date_str: str, limit: int = 100)
         "_source": "东方财富行业/概念板块",
         "_source_note": "东财 clist 板块排名；轻量单请求，失败时回退到浏览器板块页。",
     }
-    cache_save("board_list", f"{date_str}_{normalized_type}", "eastmoney_clist", result)
+    if rows:
+        cache_save("board_list", f"{date_str}_{normalized_type}", "eastmoney_clist", result)
     return result
 
 
 def get_board_list(board_type: str, date_str: str, limit: int = 100) -> dict[str, Any]:
     """Return board rankings through the stock-analysis source order."""
-    return route_board_data(
+    current_trade_date = nearest_trade_date()
+    result = route_board_data(
         board_type,
         date_str,
         direct=fetch_eastmoney_board_list,
         browser_service=browser_board_list,
         playwright=playwright_board_list,
         limit=limit,
-        current_trade_date=nearest_trade_date(),
-        browser_fallback=BROWSER_FALLBACK,
+        current_trade_date=current_trade_date,
+        browser_fallback=False,
     )
+    if result.get("rows") or date_str != current_trade_date:
+        return result
+
+    ths_result = fetch_ths_board_list(board_type, limit=limit)
+    if ths_result.get("rows"):
+        ths_result["_fallback"] = "东财 clist 不可用，已启用同花顺板块页"
+        return ths_result
+
+    if BROWSER_FALLBACK:
+        for browser_source in (browser_board_list, playwright_board_list):
+            candidate = browser_source(board_type)
+            if isinstance(candidate, dict) and candidate.get("rows"):
+                candidate["_fallback"] = "API 失败，已启用浏览器降级抓取"
+                return candidate
+    return result
 
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
@@ -2779,6 +2860,90 @@ def rank_symbols_by_news_heat(
 # ------------------------------------------------------------------
 # 板块榜（可选浏览器服务降级层）
 # ------------------------------------------------------------------
+
+def _strip_pct(value: Any) -> float | None:
+    return _safe_float(str(value or "").replace("%", "").strip())
+
+
+def _html_cells(row_html: str) -> list[str]:
+    return [_html_to_text(cell) for cell in re.findall(r"<td[^>]*>(.*?)</td>", row_html, re.DOTALL | re.IGNORECASE)]
+
+
+def _first_board_code(row_html: str) -> str:
+    match = re.search(r"/detail/code/(\d+)/", row_html)
+    return match.group(1) if match else ""
+
+
+def _parse_ths_board_rows(html_text: str, board_type: str, limit: int) -> list[dict[str, Any]]:
+    tbody_match = re.search(r"<tbody[^>]*>(.*?)</tbody>", html_text, re.DOTALL | re.IGNORECASE)
+    if not tbody_match:
+        return []
+    rows: list[dict[str, Any]] = []
+    for row_html in re.findall(r"<tr[^>]*>(.*?)</tr>", tbody_match.group(1), re.DOTALL | re.IGNORECASE):
+        cells = _html_cells(row_html)
+        if board_type == "industry":
+            if len(cells) < 12:
+                continue
+            rank = _safe_int(cells[0])
+            name = cells[1]
+            change_pct = _strip_pct(cells[2])
+            up_count = _safe_int(cells[6])
+            down_count = _safe_int(cells[7])
+            leader = cells[9]
+            leader_change_pct = _strip_pct(cells[11])
+        else:
+            if len(cells) < 10:
+                continue
+            rank = _safe_int(cells[0])
+            name = cells[1]
+            change_pct = _strip_pct(cells[3])
+            up_count = None
+            down_count = None
+            leader = cells[8]
+            leader_change_pct = _strip_pct(cells[9])
+        if rank is None or not name:
+            continue
+        rows.append(
+            {
+                "rank": rank,
+                "name": name,
+                "code": _first_board_code(row_html),
+                "change_pct": change_pct,
+                "up_count": up_count,
+                "down_count": down_count,
+                "leader": leader,
+                "leader_change_pct": leader_change_pct,
+            }
+        )
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def fetch_ths_board_list(board_type: str, limit: int = 100) -> dict[str, Any]:
+    normalized_type = "concept" if board_type == "concept" else "industry"
+    url = THS_CONCEPT_MONEY_FLOW_URL if normalized_type == "concept" else THS_INDUSTRY_BOARD_URL
+    try:
+        html_text = _fetch_text(
+            url,
+            headers={
+                "Referer": "https://q.10jqka.com.cn/",
+                "User-Agent": "Mozilla/5.0",
+            },
+            timeout=15,
+            encoding="gbk",
+        )
+    except Exception as exc:
+        return {"board_type": normalized_type, "rows": [], "_error": str(exc), "_source": "同花顺板块页"}
+    rows = _parse_ths_board_rows(html_text, normalized_type, max(1, min(int(limit or 100), 200)))
+    return {
+        "board_type": normalized_type,
+        "rows": rows,
+        "count": len(rows),
+        "_source": "同花顺板块页",
+        "_source_note": "东财 clist 不可用时的 HTML 表格 fallback；字段来自公开板块行情页。",
+    }
+
 
 def _parse_browser_board_snapshot(markdown: str) -> list[dict[str, Any]]:
     rows = []

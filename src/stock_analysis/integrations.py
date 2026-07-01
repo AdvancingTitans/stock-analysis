@@ -350,13 +350,7 @@ def fetch_board_list(board_type: str, trade_date: str, limit: int = 20) -> dict[
             "rows": [],
             "_unavailable": "板块榜接口不支持历史日期，已禁止混用实时数据",
         }
-    core = market_core
-    result = core.fetch_eastmoney_board_list(board_type, trade_date, limit=limit)
-    if not result.get("rows"):
-        result = core.camofox_board_list(board_type)
-        if result.get("rows"):
-            result["_fallback"] = "API 失败，已启用浏览器降级抓取"
-    return result
+    return market_core.get_board_list(board_type, trade_date, limit=limit)
 
 
 def fetch_fund_flow(trade_date: str) -> dict[str, Any]:

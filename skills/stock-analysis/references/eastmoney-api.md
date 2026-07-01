@@ -236,7 +236,13 @@ curl -s "https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=100&fid=f3&fs=m:90
 curl -s "...&fs=m:90+t:3&..."
 ```
 
-**替代方案**：直接用 camofox-browser 抓页面 `https://quote.eastmoney.com/center/gridlist.html#industry_board`，见 SKILL.md。
+**替代方案**：
+
+1. 当前交易日先用同花顺公开页面作为无浏览器 fallback：
+   - 行业：`https://q.10jqka.com.cn/thshy/`
+   - 概念：`http://data.10jqka.com.cn/funds/gnzjl/`
+2. 若公开 HTTP fallback 仍不可用，再用 camofox-browser 抓页面 `https://quote.eastmoney.com/center/gridlist.html#industry_board`，见 SKILL.md。
+3. 历史日期禁止混入实时板块榜。
 
 ---
 

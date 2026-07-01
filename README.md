@@ -6,11 +6,13 @@
 - `simonlin1212/global-stock-data` 的新浪/腾讯/东财港美股映射
 - `a-stock-daily-market-sense` 的 6 模块 Evidence Pack 方法
 
-当前 CLI 版本为 `4.3.0`；Skill 规则版本为 `4.3.4`。
+当前 CLI 版本为 `4.3.1`；Skill 规则版本为 `4.3.5`。
 
 ## 已实现
 
 - 腾讯/新浪优先的 A股、港股、美股行情链路，东财作为独有数据或末级 API fallback
+- M2 行业/概念板块榜：东财 `clist` 首选，同花顺公开板块页作为无浏览器 fallback，避免空响应污染报告
+- 港美股东财 fallback 会通过 `searchapi` 动态解析 secid，补足 BABA、港股五位代码等静态映射以外标的
 - `normalize_code(symbol, source)` 统一 A股、港股、美股和基金代码
 - 腾讯/新浪 GB2312 强制解码，空字段保留 `None`
 - 东财 `em_get()` 统一无代理 Session、1 秒间隔、抖动和最多 3 次指数退避
@@ -33,8 +35,9 @@
 | A股指数 | 腾讯 → 新浪 | 东财指数接口 |
 | 五档/逐笔/深度分钟 K | mootdx，默认关闭 | 腾讯/新浪基础行情 |
 | A股独有信号 | 东财限流接口 | Camofox / Agent 浏览器接管 |
+| 行业/概念板块榜 | 东财 `clist` | 同花顺行业/概念页 → Camofox/Playwright |
 | 港股行情 | 腾讯/新浪互补 | 东财 `stock/get` |
-| 美股行情 | 新浪/腾讯互补 | 东财 `stock/get` |
+| 美股行情 | 新浪/腾讯互补 | 东财 searchapi 解析 secid 后 `stock/get` |
 | 港股历史 K | 腾讯 K 线 | 东财可用数据 |
 | 美股历史 K | 新浪日 K | 东财可用数据 |
 | 基金 | 天天基金/东财基金 | 新浪基金 |
