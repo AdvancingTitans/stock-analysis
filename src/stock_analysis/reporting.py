@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from .evidence import EvidenceBundle
+from .lens_engine import LensContext, LensEngine
 from .quality import EvidenceQuality
 from .research_style import sanitize_research_report
 
@@ -14,6 +16,36 @@ MODULE_LABELS = {
     "M5": "特征分组",
     "M6": "抗跌方向",
 }
+
+
+@dataclass(frozen=True)
+class ReportResult:
+    markdown: str
+    metadata: dict[str, Any]
+
+
+def generate_report(
+    *,
+    evidence: EvidenceBundle,
+    trade_date: str | None = None,
+    session_label: str | None = None,
+    portfolio_snapshot: dict[str, Any] | None = None,
+    report_format: str = "full",
+    lens: str | None = None,
+    lenses: tuple[str, ...] | list[str] | None = None,
+    mode: str | None = None,
+) -> ReportResult:
+    return render_report_with_metadata(
+        trade_date=trade_date or evidence.trade_date,
+        session_label=session_label or str(evidence.meta.get("session") or "盘后"),
+        evidence=evidence,
+        quality=evidence.quality(),
+        portfolio_snapshot=portfolio_snapshot or {"details": []},
+        report_format=report_format,
+        lens=lens,
+        lenses=lenses,
+        mode=mode,
+    )
 
 
 def render_diagnostics(items) -> str:
@@ -276,6 +308,370 @@ def _section_prefix(lines: list[str], stop_heading: str) -> list[str]:
     except ValueError:
         return list(lines)
     return lines[:stop]
+
+
+def render_report_with_metadata(
+    *,
+    trade_date: str,
+    session_label: str,
+    evidence: EvidenceBundle,
+    quality: EvidenceQuality,
+    portfolio_snapshot: dict[str, Any],
+    report_format: str,
+    lens: str | None = None,
+    lenses: tuple[str, ...] | list[str] | None = None,
+    mode: str | None = None,
+    lens_context: LensContext | None = None,
+) -> ReportResult:
+    fallback: dict[str, Any] | None = None
+    if lens_context:
+        context = lens_context
+    else:
+        context, fallback = _build_lens_context_with_fallback(evidence, lens=lens, lenses=lenses, mode=mode)
+    markdown = _render_lens_report(
+        trade_date=trade_date,
+        session_label=session_label,
+        evidence=evidence,
+        quality=quality,
+        portfolio_snapshot=portfolio_snapshot,
+        report_format=report_format,
+        lens_context=context,
+        explicit_lens_request=bool(lens or lenses or fallback),
+        default_committee=mode is None and not lens and not lenses and context.mode == "committee",
+        fallback=fallback,
+    )
+    metadata = _report_metadata(
+        trade_date=trade_date,
+        session_label=session_label,
+        quality=quality,
+        lens_context=context,
+        default_committee=mode is None and not lens and not lenses and context.mode == "committee",
+        fallback=fallback,
+    )
+    evidence.meta["report_metadata"] = metadata
+    return ReportResult(markdown=markdown, metadata=metadata)
+
+
+def _build_lens_context_with_fallback(
+    evidence: EvidenceBundle,
+    *,
+    lens: str | None,
+    lenses: tuple[str, ...] | list[str] | None,
+    mode: str | None,
+) -> tuple[LensContext, dict[str, Any] | None]:
+    try:
+        return LensEngine(lens=lens, lenses=lenses, mode=mode).build_context(evidence), None
+    except Exception as exc:
+        requested_mode = (mode or ("single" if (lens or lenses) else "committee")).strip().lower()
+        if requested_mode != "committee":
+            raise
+        fallback_lens = _fallback_lens(lens=lens, lenses=lenses)
+        context = LensEngine(lens=fallback_lens, mode="single").build_context(evidence)
+        return context, {
+            "from_mode": "committee",
+            "to_mode": "single",
+            "fallback_lens": fallback_lens,
+            "reason": str(exc),
+        }
+
+
+def _fallback_lens(*, lens: str | None, lenses: tuple[str, ...] | list[str] | None) -> str:
+    if lens:
+        return lens
+    for candidate in lenses or ():
+        try:
+            return LensEngine(lens=candidate).lenses[0]
+        except Exception:
+            continue
+    return "buffett"
+
+
+def _render_lens_report(
+    *,
+    trade_date: str,
+    session_label: str,
+    evidence: EvidenceBundle,
+    quality: EvidenceQuality,
+    portfolio_snapshot: dict[str, Any],
+    report_format: str,
+    lens_context: LensContext,
+    explicit_lens_request: bool,
+    default_committee: bool,
+    fallback: dict[str, Any] | None = None,
+) -> str:
+    modules = lens_context.adjusted_evidence
+    mode_label = _mode_label(lens_context.mode, default_committee=default_committee)
+    lens_names = _lens_names(lens_context)
+    lines: list[str] = [
+        f"# 全球市场复盘研报（{_display_date(trade_date)} {session_label}）",
+        "",
+        f"**报告日期**：{_display_date(trade_date)}  ",
+        f"**分析模式**：{mode_label}  ",
+    ]
+    if explicit_lens_request:
+        lines.append(f"**使用视角**：{' + '.join(lens_names)}  ")
+    lines.append(f"**数据截止**：{_display_date(evidence.meta.get('trade_date') or trade_date)}")
+    if fallback:
+        lines.append(f"**降级说明**：committee 构建失败，已降级为 single/{fallback['fallback_lens']}。")
+    lines.append("")
+    if quality.degrade_mode == "degraded":
+        missing = "、".join(MODULE_LABELS.get(value, value) for value in quality.missing_modules)
+        lines.extend([f"> 本模块证据暂缺：{missing}。正文仅呈现可验证信息。", ""])
+    elif quality.degrade_mode == "simplified":
+        lines.extend(["> 本模块证据暂缺，报告聚焦指数、持仓和风险控制。", ""])
+
+    m1 = modules.get("M1", {})
+    m2 = modules.get("M2", {})
+    m3 = modules.get("M3", {})
+    m4 = modules.get("M4", {})
+    m5 = modules.get("M5", {})
+    m6 = modules.get("M6", {})
+    sentiment = lens_context.community_sentiment_summary
+
+    lines.append("## 1. 执行摘要")
+    lines.append(_executive_summary(m1, m3, m4, m6, lens_context, quality))
+    lines.append("")
+
+    lines.append("## 2. 分析视角说明")
+    lines.append(f"本次使用{mode_label}。")
+    lines.append("综合视角：" + " + ".join(lens_names) + "。")
+    _append_bullets(lines, lens_context.debate_or_synthesis_notes[:8])
+    lines.append("")
+
+    lines.append("## 3. 商业模式与护城河（多视角综合）")
+    if lens_context.mode == "committee":
+        lines.append("巴菲特侧重护城河与安全边际，芒格侧重风险清单，段永平侧重商业本质，张坤侧重长期质量与治理。")
+    lines.append(f"=={m2.get('summary', '市场以结构性轮动为主。')}==")
+    lines.append(f"风格线索：{m5.get('summary', '当前风格证据不足，先观察价格与基本面是否互相确认。')}")
+    lines.append("")
+
+    lines.append("## 4. 财务深度分析")
+    _append_index_table(lines, _index_rows(m1))
+    _append_northbound_table(lines, m1.get("northbound") or {})
+    _append_breadth_table(lines, m1.get("breadth") or {})
+    if lens_context.mode == "committee":
+        lines.append("")
+        lines.append(_format_m1_committee_analysis(m1))
+    lines.append("")
+
+    lines.append("## 5. 估值与情景分析")
+    lines.append("估值判断采用 lens 调整后的证据权重：先看数据质量，再区分短期价格弹性、长期现金流质量和组合暴露。")
+    sector_rows = m2.get("industry_top20") or m2.get("concept_top20") or []
+    _append_sector_table(lines, sector_rows)
+    lines.append("")
+
+    if lens_context.mode == "committee":
+        lines.append("## 6. 社区情绪分析")
+        lines.extend(_community_sentiment_lines(sentiment))
+        lines.append("")
+
+    risk_heading = "## 7. 风险，催化剂与缓解措施" if lens_context.mode == "committee" else "## 6. 风险，催化剂与缓解措施"
+    lines.append(risk_heading)
+    lines.append(f"=={m4.get('summary', '风险主要集中在高位分歧。')}==")
+    if lens_context.mode == "committee":
+        lines.append(_format_m6_committee_analysis(m6))
+    _append_bullets(lines, _risk_and_catalyst_lines(m3, m4, m6, sentiment))
+    lines.append("")
+
+    advice_heading = "## 8. 投资建议与仓位指导" if lens_context.mode == "committee" else "## 7. 投资建议与仓位指导"
+    lines.append(advice_heading)
+    lines.append("以下为多视角调和后的条件化结论，不作为无条件买卖指令。")
+    _append_lens_advice(lines, evidence, portfolio_snapshot)
+    lines.append("")
+
+    appendix_heading = "## 9. 证据附录" if lens_context.mode == "committee" else "## 8. 证据附录"
+    lines.append(appendix_heading)
+    lines.append(f"- activated_modules: {', '.join(lens_context.activated_modules)}")
+    lines.append(f"- lens_adjustments: {modules.get('_meta', {}).get('lens_weight_adjustments', {})}")
+    if lens_context.mode == "committee":
+        lines.append(f"- community_sources: {sentiment.get('source_coverage', {})}")
+        lines.append(f"- key_sentiment_sources: {sentiment.get('key_sentiment_sources', [])[:3]}")
+    lines.append("")
+    lines.append("免责声明：以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。")
+
+    disclaimer = "免责声明：以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。"
+    if report_format == "summary":
+        compact = _section_prefix(lines, "## 4. 财务深度分析")
+        if disclaimer not in compact:
+            compact.extend(["", disclaimer])
+        return sanitize_research_report("\n".join(compact))
+    if report_format == "key-points":
+        stop_heading = "## 7. 风险，催化剂与缓解措施" if lens_context.mode == "committee" else "## 6. 风险，催化剂与缓解措施"
+        compact = _section_prefix(lines, stop_heading)
+        if disclaimer not in compact:
+            compact.extend(["", disclaimer])
+        return sanitize_research_report("\n".join(compact))
+    return sanitize_research_report("\n".join(lines))
+
+
+def _report_metadata(
+    *,
+    trade_date: str,
+    session_label: str,
+    quality: EvidenceQuality,
+    lens_context: LensContext,
+    default_committee: bool,
+    fallback: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    adjusted = lens_context.adjusted_evidence
+    metadata = {
+        "report_date": _display_date(trade_date),
+        "session": session_label,
+        "analysis_mode": lens_context.mode,
+        "analysis_mode_label": _mode_label(lens_context.mode, default_committee=default_committee),
+        "lenses": list(lens_context.lenses),
+        "lens_labels": _lens_names(lens_context),
+        "activated_modules": list(lens_context.activated_modules),
+        "quality_score": quality.total_score,
+        "missing_modules": quality.missing_modules,
+        "committee_deep_analysis": {
+            "m1": ((adjusted.get("M1") or {}).get("committee_deep_analysis") or {}),
+            "m6": ((adjusted.get("M6") or {}).get("committee_deep_analysis") or {}),
+        },
+        "community_sentiment_summary": lens_context.community_sentiment_summary,
+        "debate_or_synthesis_notes": lens_context.debate_or_synthesis_notes,
+        "lens_adjustments": (adjusted.get("_meta") or {}).get("lens_weight_adjustments", {}),
+    }
+    if fallback:
+        metadata["fallback"] = fallback
+    return metadata
+
+
+def _display_date(value: Any) -> str:
+    digits = "".join(character for character in str(value or "") if character.isdigit())
+    if len(digits) >= 8:
+        return f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}"
+    return str(value or "")
+
+
+def _mode_label(mode: str, *, default_committee: bool) -> str:
+    if mode == "committee":
+        return "投委会（默认）" if default_committee else "投委会"
+    if mode == "single":
+        return "单一专家"
+    return "对抗辩论"
+
+
+def _lens_names(context: LensContext) -> list[str]:
+    return [context.lens_labels.get(lens_id, lens_id) for lens_id in context.lenses]
+
+
+def _index_rows(m1: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for key in ("a_indices", "hk_indices", "us_indices"):
+        rows.extend(item for item in m1.get(key, []) if isinstance(item, dict))
+    return [row for row in rows if row.get("name") and row.get("price") is not None]
+
+
+def _executive_summary(
+    m1: dict[str, Any],
+    m3: dict[str, Any],
+    m4: dict[str, Any],
+    m6: dict[str, Any],
+    context: LensContext,
+    quality: EvidenceQuality,
+) -> str:
+    trend = ((m1.get("committee_deep_analysis") or {}).get("trend_consistency") or {}).get("direction")
+    risk_score = ((m6.get("committee_deep_analysis") or {}).get("risk_score"))
+    zt_count = ((m3.get("pool_stats") or {}).get("zt_count") or m3.get("zt_count") or 0)
+    blowup = ((m4.get("pool_stats") or {}).get("blowup_ratio") or 0)
+    confidence = "中等"
+    if quality.total_score >= 85 and (risk_score is None or risk_score < 50):
+        confidence = "较高"
+    elif quality.total_score < 70 or (risk_score is not None and risk_score >= 70):
+        confidence = "偏低"
+    conclusion = "维持观察，等待趋势、成交和风险项进一步确认"
+    if confidence == "较高":
+        conclusion = "可在既定风控内分批评估"
+    return (
+        f"投资确信度：{confidence}。推荐结论：{conclusion}。"
+        f"盘面趋势为{trend or '待确认'}，涨停样本 {zt_count} 家，炸板率约 {float(blowup):.1%}。"
+        f"当前采用 {context.mode} 模式，结论已按 lens 权重调和。"
+    )
+
+
+def _format_m1_committee_analysis(m1: dict[str, Any]) -> str:
+    analysis = m1.get("committee_deep_analysis") or {}
+    trend = analysis.get("trend_consistency") or {}
+    cross = analysis.get("cross_validation") or {}
+    anomalies = analysis.get("anomalies") or []
+    return (
+        "m1 综合深度分析："
+        f"{cross.get('lens_count', 0)} 个 lens 交叉验证；"
+        f"趋势一致性={trend.get('direction', '数据不足')}，"
+        f"样本数={trend.get('sample_count', 0)}，区间={trend.get('range_pct')}%；"
+        f"异常点={'；'.join(str(item) for item in anomalies)}"
+    )
+
+
+def _format_m6_committee_analysis(m6: dict[str, Any]) -> str:
+    analysis = m6.get("committee_deep_analysis") or {}
+    conflicts = analysis.get("conflict_reconciliation") or []
+    return (
+        "m6 综合风险评分："
+        f"{analysis.get('risk_score', '缺失')} / 100。"
+        f"冲突调和：{'；'.join(str(item) for item in conflicts)}"
+    )
+
+
+def _community_sentiment_lines(sentiment: dict[str, Any]) -> list[str]:
+    lines = [
+        f"- 整体情绪得分：{sentiment.get('overall_sentiment_score', 0)}（{sentiment.get('overall_sentiment_band', 'Neutral')}，置信度 {sentiment.get('confidence', 'low')}）",
+        f"- 关键情绪来源：{_compact_list(sentiment.get('key_sentiment_sources') or [])}",
+        f"- 情绪与基本面分歧：{_compact_list(sentiment.get('fundamental_sentiment_divergences') or [])}",
+        f"- 潜在影响：{_compact_list(sentiment.get('sentiment_catalysts_or_risks') or [])}",
+    ]
+    source_breakdown = sentiment.get("source_breakdown") or {}
+    if source_breakdown:
+        lines.append(f"- 来源覆盖：{source_breakdown}")
+    return lines
+
+
+def _compact_list(values: list[Any]) -> str:
+    if not values:
+        return "暂无"
+    rendered = []
+    for value in values[:3]:
+        if isinstance(value, dict):
+            label = value.get("symbol") or value.get("source") or "样本"
+            score = value.get("score")
+            rendered.append(f"{label}({score})" if score is not None else str(label))
+        else:
+            rendered.append(str(value))
+    return "；".join(rendered)
+
+
+def _risk_and_catalyst_lines(
+    m3: dict[str, Any],
+    m4: dict[str, Any],
+    m6: dict[str, Any],
+    sentiment: dict[str, Any],
+) -> list[str]:
+    stats = m3.get("pool_stats") or {}
+    risk_stats = m4.get("pool_stats") or stats
+    lines = [
+        f"上涨催化剂：涨停 {stats.get('zt_count', m3.get('zt_count', 0))} 家，主线需要次日成交继续确认。",
+        f"风险项：跌停 {risk_stats.get('dt_count', 0)} 家，炸板率约 {float(risk_stats.get('blowup_ratio') or 0):.1%}。",
+    ]
+    resilient = [value for value in m6.get("resilient", []) if value]
+    if resilient:
+        lines.append("缓解措施：优先观察抗跌方向 " + "、".join(resilient) + "。")
+    if sentiment.get("sentiment_catalysts_or_risks"):
+        lines.append("情绪催化/风险：" + _compact_list(sentiment.get("sentiment_catalysts_or_risks") or []))
+    return lines
+
+
+def _append_lens_advice(lines: list[str], evidence: EvidenceBundle, portfolio_snapshot: dict[str, Any]) -> None:
+    advice = evidence.meta.get("portfolio_advice_sections") or {}
+    if not any(advice.values()):
+        details = portfolio_snapshot.get("details") or []
+        if details:
+            lines.append("- 已加载持仓，但缺少足够建议证据；先按仓位集中度和相对强弱做条件化跟踪。")
+        else:
+            lines.append("- 未加载持仓；本次只给市场层面的观察结论。")
+        return
+    for key in ("current", "benchmark", "position_actions", "watchlist", "risks"):
+        _append_bullets(lines, advice.get(key, []))
 
 
 def render_report(

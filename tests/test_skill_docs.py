@@ -3,7 +3,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_skill_documents_independent_style_entry_contracts():
+def test_package_does_not_require_young_stock_cli_dependency():
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert "young-stock-cli" not in pyproject
+
+
+def test_skill_documents_stock_analysis_entry_contracts():
     skill = (ROOT / "skills" / "stock-analysis" / "SKILL.md").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
@@ -13,8 +18,23 @@ def test_skill_documents_independent_style_entry_contracts():
         assert "确定性" in text
         assert "浏览器" in text
 
-    assert "模块边界" in readme
     assert "不要求用户安装任何外部行情 CLI" in readme
+    assert "M1-M6" in readme
+    assert "内置 lens 与 committee 边界" in readme
+
+
+def test_skill_documents_lens_engine_natural_language_committee_contract():
+    skill = (ROOT / "skills" / "stock-analysis" / "SKILL.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    for text in (skill, readme):
+        assert "默认使用 committee 模式" in text
+        assert "LensEngine 是报告生成的核心编排器" in text
+        assert "用巴菲特模式分析" in text
+        assert "用 adversarial 模式让巴菲特和芒格辩论" in text
+        assert "m1/m6 综合深度分析" in text
+        assert "社区情绪分析" in text
+        assert "committee 失败时降级为 single" in text
 
 
 def test_skill_documents_user_triggered_complete_holding_contract():
@@ -86,7 +106,7 @@ def test_skill_documents_new_user_holdings_override_saved_memory_contract():
     assert "不完整的新信息不得覆盖已有完整投资记忆" in skill
 
 
-def test_skill_documents_builtin_investor_framework_contract():
+def test_skill_documents_builtin_investor_lens_contract():
     skill = (ROOT / "skills" / "stock-analysis" / "SKILL.md").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     output_discipline = (
@@ -124,9 +144,11 @@ def test_skill_documents_builtin_investor_framework_contract():
         assert "多专家" in text
         assert "不得模仿身份声明或虚构专家发言" in text
 
-    assert "15 个内置投资框架" in skill
-    assert "专家名称、英文名、中文名、别名或 lens id" not in skill
-    assert "专家名称、英文名、中文名、别名或框架 id" in skill
+    assert "15 个 stock-analysis 内置投资专家 lens" in skill
+    assert "config/lenses/*.json" in skill
+    assert "scripts/lens_registry.py" in skill
+    assert "不要求用户安装任何外部行情 CLI" in skill
+    assert "专家名称、英文名、中文名、别名或 lens id" in skill
     assert "## {专家中文名}持仓建议与风险提示" in skill
     assert "交易计划草案" in skill
     assert "组合经理最终意见" in skill

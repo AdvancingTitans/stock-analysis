@@ -25,7 +25,7 @@ from .integrations import (
 from .market_time import detect_market_session, resolve_trade_date
 from .portfolio import build_portfolio_snapshot
 from .profile import load_holdings_from_profile
-from .reporting import render_diagnostics, render_report
+from .reporting import render_diagnostics, render_report_with_metadata
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -47,6 +47,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--disable-mootdx", action="store_true")
     parser.add_argument("--enable-mootdx", action="store_true")
     parser.add_argument("--emit-evidence", action="store_true")
+    parser.add_argument("--lens", help="Investor lens id for single mode, e.g. buffett")
+    parser.add_argument("--mode", choices=["single", "committee", "adversarial"], help="Lens analysis mode")
+    parser.add_argument("--lenses", help="Comma-separated lens ids for committee or adversarial mode")
     parser.add_argument("--symbol", help="Symbol for --market stock or --market fund")
     parser.add_argument("--stock", dest="symbol", help="Alias for --symbol with --market stock")
     parser.add_argument("--fund", dest="symbol", help="Alias for --symbol with --market fund")
@@ -234,15 +237,19 @@ def run(argv: list[str] | None = None) -> int:
     report_format = args.report_format
     if report_format == "auto":
         report_format = {"light": "summary", "medium": "key-points", "full": "full"}[session.depth]
-    report = render_report(
+    lenses = tuple(item.strip() for item in (args.lenses or "").split(",") if item.strip()) or None
+    result = render_report_with_metadata(
         trade_date=trade_date,
         session_label=session.label,
         evidence=evidence,
         quality=quality,
         portfolio_snapshot=portfolio_snapshot,
         report_format=report_format,
+        lens=args.lens,
+        lenses=lenses,
+        mode=args.mode,
     )
-    print(report)
+    print(result.markdown)
     if args.emit_evidence:
         base = Path.cwd()
         (base / f"evidence_{trade_date}.json").write_text(

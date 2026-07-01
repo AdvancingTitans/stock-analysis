@@ -6,7 +6,7 @@
 - `simonlin1212/global-stock-data` 的新浪/腾讯/东财港美股映射
 - `a-stock-daily-market-sense` 的 6 模块 Evidence Pack 方法
 
-当前 CLI 版本为 `4.3.1`；Skill 规则版本为 `4.3.5`。
+当前 CLI 版本为 `4.3.1`；Skill 规则版本为 `4.4.0`。
 
 ## 已实现
 
@@ -18,7 +18,8 @@
 - 东财 `em_get()` 统一无代理 Session、1 秒间隔、抖动和最多 3 次指数退避
 - 最近交易日与 A股/港股/美股时段识别，`--format auto` 自动选择报告深度
 - 投资记忆优先的股票/基金持仓、汇率折算、浮盈亏、集中度、重复暴露和基准比较
-- 内置 15 个投资框架视角，支持用户明确指定专家风格后全篇切换视角
+- 内置 15 个结构化投资专家 lens，默认使用 committee 模式综合互补视角
+- committee 模式自动进行 m1/m6 综合深度分析，并加入社区情绪分析
 - Futu 免登录新闻与社区数据，形成持仓公开信息脉冲和可审计原文链接
 - Evidence Pack、6 个模块 JSON、100 分质量评分和降级报告
 - 确定性入口纪律：`daily`、`stock`、`fund` 默认不需要 LLM，不把浏览器或慢源伪装成主路径
@@ -62,6 +63,9 @@ Yahoo 已从推荐路径和当前技术分析路径移除。
 # 用户明确指定历史交易日
 ~/.local/bin/uv run python -m stock_analysis --market a --date 20260618
 
+# 默认投委会综合；也可显式指定模式或 lens
+~/.local/bin/uv run python -m stock_analysis --market global --format full
+
 # 确定性单股/基金速览，不触发 LLM
 ~/.local/bin/uv run python -m stock_analysis --market stock --symbol 600519
 ~/.local/bin/uv run python -m stock_analysis --market fund --symbol 161725
@@ -80,7 +84,7 @@ Yahoo 已从推荐路径和当前技术分析路径移除。
 
 `--market stock --symbol <代码>` 与 `--market fund --symbol <代码>` 是确定性证据视图：
 只输出当前价/估值、涨跌、交易日、关键交易字段和基金重仓股报价；字段缺失时保留空单元格并提示缺口。
-如果用户需要研报式判断，再运行 `daily`、`a`、`global --format full --emit-evidence`，或由任意 Agent 基于 evidence pack 生成观点层报告。
+如果用户需要研报式判断，再运行 `daily`、`a`、`global --format full --emit-evidence`；专家风格和 committee 综合使用 `src/stock_analysis/lens_engine.py`、`skills/stock-analysis/config/lenses` 与 `skills/stock-analysis/scripts/lens_registry.py`。
 
 兼容入口：
 
@@ -116,15 +120,47 @@ m6_YYYYMMDD.json
 
 评分为 M1 20、M2 20、M3 20、M4 15、M5 15、M6 10。空模块不再计分，低于 60 分只输出指数、持仓和风险提示。
 
-### 模块边界
+### 内置 lens 与 committee 边界
 
-`stock-analysis` 固定负责 M1-M6 的证据包、评分和研报正文；聊天、发送、外部发布和真实交易都属于集成方的上层产品工作流。需要多专家综合时，应先用本包产出可审计 evidence，再由 Agent 或宿主应用基于内置投资框架做综合判断；不要在本包里新增交易、发送或聊天外壳。
+`stock-analysis` 固定负责 M1-M6 的证据包、评分和研报正文；投资专家 lens、默认 committee 成员和综合规则
+固定在 `skills/stock-analysis/config/lenses/*.json` 与 `skills/stock-analysis/scripts/lens_registry.py`。
+不要为了 lens 或 committee 流程安装、调用或转交给外部行情 CLI。
+本包仍不新增交易、发送或聊天外壳。
 
-### 内置投资框架
+### LensEngine 与自然语言调用
+
+LensEngine 是报告生成的核心编排器。LLM 或上层 Agent 可以把自然语言直接归一化为 `mode`、`lens`、`lenses` 参数，然后调用 `stock_analysis.reporting.generate_report()`；CLI 也通过同一条报告路径输出 Markdown + evidence JSON 元数据。
+
+- 默认使用 committee 模式：用户没有指定 lens 或 mode 时，自动使用 `buffett + munger + duan_yongping + zhang_kun + graham + dalio`。
+- committee 模式的新增价值：自动执行 m1/m6 综合深度分析。m1 做多 lens 交叉验证、趋势一致性分析和异常点识别；m6 做多视角风险汇总、冲突点调和和最终风险评分。
+- committee 模式必含社区情绪分析：聚合 Futu 新闻、Futu 社区、可扩展中文新闻与雪球/股吧/微博等社区来源，输出情绪得分、关键来源、情绪与基本面分歧、潜在催化剂或风险。
+- single 模式：适合“用巴菲特模式分析 XXX”“按段永平视角看茅台”。可传 `lens="巴菲特"`、`lens="buffett"` 或常见中文别名。
+- adversarial 模式：适合“用 adversarial 模式让巴菲特和芒格辩论 XXX”。必须传两个 lens，例如 `mode="adversarial", lenses=("巴菲特", "芒格")`。
+- 降级机制：committee 失败时降级为 single，优先使用用户给出的第一个有效 lens；如果没有有效 lens，则降级到 `buffett`，并在报告 metadata 的 `fallback` 字段记录原因。
+
+### 内置投资专家 lens
 
 当用户明确提出想用哪位投资专家的风格生成报告时，必须完全以相关专家的视角输出报告：整篇报告的证据优先级、判断顺序、风险表达、持仓建议和观察清单都服从该专家框架，不得只在结尾追加专家点评。
 
-支持 `buffett`、`munger`、`graham`、`klarman`、`lynch`、`o_neil`、`wood`、`dalio`、`soros`、`livermore`、`minervini`、`simons`、`duan_yongping`、`zhang_kun`、`feng_liu`。可识别专家名称、英文名、中文名、别名或框架 id。
+支持 `buffett`、`munger`、`graham`、`klarman`、`lynch`、`o_neil`、`wood`、`dalio`、`soros`、`livermore`、`minervini`、`simons`、`duan_yongping`、`zhang_kun`、`feng_liu`。可识别专家名称、英文名、中文名、别名或 lens id。结构化定义以 skill 内 JSON 为准。
+
+简要能力：
+
+- `buffett` 巴菲特：护城河、管理层、资本配置、安全边际。
+- `munger` 芒格：风险清单、反向推演、激励错配、机会成本。
+- `graham` 格雷厄姆：资产负债表、估值纪律、下行保护。
+- `klarman` 卡拉曼：绝对回报、复杂性折价、催化剂、永久损失。
+- `lynch` 彼得·林奇：可理解增长、PEG、盈利兑现。
+- `o_neil` 欧奈尔：盈利加速、行业龙头、量价确认。
+- `wood` 伍德：颠覆式创新、渗透率、技术成本曲线。
+- `dalio` 达利欧：宏观周期、流动性、组合风险平衡。
+- `soros` 索罗斯：反身性、预期差、政策拐点。
+- `livermore` 利弗莫尔：趋势确认、关键价位、仓位纪律。
+- `minervini` 米勒维尼：强势模板、VCP、风险收益比。
+- `simons` 西蒙斯：数据定义、样本外稳健性、交易成本。
+- `duan_yongping` 段永平：商业本质、用户价值、企业文化。
+- `zhang_kun` 张坤：长期质量、自由现金流、组合机会成本。
+- `feng_liu` 冯柳：市场认知、预期差、困境反转赔率。
 
 单专家视角不输出多专家委员会小节，也不输出交易计划草案、风险管理意见、组合经理最终意见等委员会内容；最后章节使用 `## {专家中文名}持仓建议与风险提示`。报告不得模仿身份声明或虚构专家发言，所有结论仍必须回到 evidence 和公开市场数据。
 
@@ -142,6 +178,7 @@ m6_YYYYMMDD.json
 - 法定休市日当前使用内置日历，跨年份运行前应更新交易日表。
 - 龙虎榜、解禁、两融、大宗、股东户数、研报和新闻属于可扩展独有端点，并非全部进入每日日报默认抓取。
 - 项目内置行情适配器、缓存、投资记忆、证据评分和路由编排；不要求用户安装任何外部行情 CLI。
+- 投资专家 lens 和 committee 规则已随本 skill 固定分发；执行这些视角不依赖外部行情 CLI。
 
 ## 开发验证
 

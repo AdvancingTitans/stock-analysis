@@ -1,7 +1,7 @@
 from stock_analysis.app import _portfolio_advice_sections, _style_distribution
 from stock_analysis.evidence import EvidenceBundle
 from stock_analysis.quality import EvidenceQuality
-from stock_analysis.reporting import render_report
+from stock_analysis.reporting import generate_report, render_report, render_report_with_metadata
 
 
 def _sample_evidence() -> EvidenceBundle:
@@ -71,6 +71,7 @@ def _sample_evidence() -> EvidenceBundle:
             "M6": {"available": True, "summary": "部分方向抗跌。", "resilient": []},
         },
         meta={
+            "trade_date": "20260617",
             "portfolio_advice_sections": {
                 "current": ["贵州茅台跌1.25%，当日浮亏1,575元。"],
                 "benchmark": ["贵州茅台跑输上证指数1.65个百分点。"],
@@ -143,6 +144,101 @@ def test_report_uses_tables_and_hides_source_language():
     assert "标普500" in report
     assert "成交额 --" not in report
     assert "| 标普500 | 7,420.10 | -90.20 | -1.21% |  |" in report
+
+
+def test_report_result_defaults_to_committee_and_returns_metadata_json():
+    evidence = _sample_evidence()
+    evidence.meta["portfolio_public_pulse"] = [
+        {
+            "symbol": "600519",
+            "news_tone": "偏正面",
+            "news_count": 2,
+            "event_title": "贵州茅台回购计划获市场关注",
+            "community_label": "分歧",
+            "community_sample_count": 4,
+            "community_bull_pct": 50.0,
+            "community_bear_pct": 50.0,
+            "evidence_url": "https://news.futunn.com/post/1",
+        }
+    ]
+
+    result = render_report_with_metadata(
+        trade_date="20260617",
+        session_label="盘后",
+        evidence=evidence,
+        quality=EvidenceQuality(
+            module_scores={"M1": 20, "M2": 20, "M3": 20, "M4": 15, "M5": 15, "M6": 10},
+            missing_modules=[],
+        ),
+        portfolio_snapshot={"details": []},
+        report_format="full",
+    )
+
+    assert "**报告日期**：2026-06-17" in result.markdown
+    assert "**分析模式**：投委会（默认）" in result.markdown
+    assert "## 1. 执行摘要" in result.markdown
+    assert "## 2. 分析视角说明" in result.markdown
+    assert "## 6. 社区情绪分析" in result.markdown
+    assert "m1 综合深度分析" in result.markdown
+    assert "m6 综合风险评分" in result.markdown
+    assert "情绪与基本面分歧" in result.markdown
+    assert result.metadata["analysis_mode"] == "committee"
+    assert result.metadata["analysis_mode_label"] == "投委会（默认）"
+    assert result.metadata["lenses"][:4] == ["buffett", "munger", "duan_yongping", "zhang_kun"]
+    assert result.metadata["committee_deep_analysis"]["m1"]["trend_consistency"]["direction"]
+    assert result.metadata["committee_deep_analysis"]["m6"]["risk_score"] >= 0
+    assert result.metadata["community_sentiment_summary"]["overall_sentiment_score"] >= 0
+    assert evidence.meta["report_metadata"]["analysis_mode"] == "committee"
+
+
+def test_generate_report_is_simple_llm_facing_entrypoint():
+    result = generate_report(evidence=_sample_evidence(), trade_date="20260617")
+
+    assert "**分析模式**：投委会（默认）" in result.markdown
+    assert result.metadata["analysis_mode"] == "committee"
+
+
+def test_committee_report_falls_back_to_single_when_committee_context_fails():
+    result = render_report_with_metadata(
+        trade_date="20260617",
+        session_label="盘后",
+        evidence=_sample_evidence(),
+        quality=EvidenceQuality(
+            module_scores={"M1": 20, "M2": 20, "M3": 20, "M4": 15, "M5": 15, "M6": 10},
+            missing_modules=[],
+        ),
+        portfolio_snapshot={"details": []},
+        report_format="full",
+        mode="committee",
+        lenses=("not_a_lens", "buffett"),
+    )
+
+    assert "**分析模式**：单一专家" in result.markdown
+    assert "**使用视角**：巴菲特" in result.markdown
+    assert result.metadata["analysis_mode"] == "single"
+    assert result.metadata["fallback"]["from_mode"] == "committee"
+    assert result.metadata["fallback"]["to_mode"] == "single"
+    assert "not_a_lens" in result.metadata["fallback"]["reason"]
+
+
+def test_single_lens_report_hides_using_lens_when_user_did_not_request_committee_members():
+    result = render_report_with_metadata(
+        trade_date="20260617",
+        session_label="盘后",
+        evidence=_sample_evidence(),
+        quality=EvidenceQuality(
+            module_scores={"M1": 20, "M2": 20, "M3": 20, "M4": 15, "M5": 15, "M6": 10},
+            missing_modules=[],
+        ),
+        portfolio_snapshot={"details": []},
+        report_format="full",
+        lens="buffett",
+    )
+
+    assert "**分析模式**：单一专家" in result.markdown
+    assert "**使用视角**：巴菲特" in result.markdown
+    assert "## 6. 社区情绪分析" not in result.markdown
+    assert result.metadata["analysis_mode"] == "single"
 
 
 def test_report_renders_specific_portfolio_advice_sections():
