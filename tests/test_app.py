@@ -67,8 +67,8 @@ def test_pool_statistics_use_actual_board_count_and_standard_blowup_rate():
     assert stats["blowup_ratio"] == 1 / 3
 
 
-def test_a_market_loads_holdings_by_default():
-    assert _should_include_holdings("a", explicitly_requested=False) is True
+def test_market_loads_holdings_only_when_explicitly_requested():
+    assert _should_include_holdings("a", explicitly_requested=False) is False
     assert _should_include_holdings("hk", explicitly_requested=False) is False
     assert _should_include_holdings("hk", explicitly_requested=True) is True
 

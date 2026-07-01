@@ -1,12 +1,7 @@
 from stock_analysis import integrations
 
 
-def test_historical_board_list_never_uses_live_endpoint(monkeypatch):
-    monkeypatch.setattr(
-        integrations,
-        "load_young_core",
-        lambda: (_ for _ in ()).throw(AssertionError("live endpoint must not be loaded")),
-    )
+def test_historical_board_list_never_uses_live_endpoint():
     result = integrations.fetch_board_list("industry", "20200102")
     assert result["rows"] == []
     assert "禁止混用实时数据" in result["_unavailable"]

@@ -155,13 +155,61 @@ def test_report_renders_specific_portfolio_advice_sections():
             module_scores={"M1": 20, "M2": 20, "M3": 20, "M4": 15, "M5": 15, "M6": 10},
             missing_modules=[],
         ),
-        portfolio_snapshot={"details": [], "top3_ratio": 0, "dominant_ratio": 0},
+        portfolio_snapshot={
+            "details": [
+                {
+                    "symbol": "600519",
+                    "name": "贵州茅台",
+                    "market": "a",
+                    "buy_date": "2026-01-15",
+                    "quantity": 100,
+                    "current_price": 1240,
+                    "change_pct": -1.25,
+                    "currency": "CNY",
+                    "daily_pnl_original": -1575,
+                    "trend": "震荡",
+                    "benchmark_name": "上证指数",
+                    "relative_label": "跑输",
+                    "relative_pct": -1.65,
+                }
+            ],
+            "top3_ratio": 1,
+            "dominant_ratio": 1,
+        },
         report_format="full",
     )
+    assert "## 二、持仓分析" in report
+    assert "## 四、综合持仓建议与风险提示" in report
     assert "现状总结" in report
     assert "贵州茅台跌1.25%" in report
     assert "基准跑赢/跑输" in report
     assert "仓位动作建议" in report
+    assert "观察清单" in report
+    assert "风险提示" in report
+
+
+def test_report_omits_portfolio_sections_without_holdings():
+    evidence = _sample_evidence()
+    report = render_report(
+        trade_date="20260617",
+        session_label="盘后",
+        evidence=evidence,
+        quality=EvidenceQuality(
+            module_scores={"M1": 20, "M2": 20, "M3": 20, "M4": 15, "M5": 15, "M6": 10},
+            missing_modules=[],
+        ),
+        portfolio_snapshot={"details": [], "top3_ratio": 0, "dominant_ratio": 0},
+        report_format="full",
+    )
+    assert "## 二、持仓分析" not in report
+    assert "| 代码 | 名称 | 市场 | 买入日 | 数量 | 现价 | 当日涨跌 | 当日浮盈/亏 | 趋势 |" not in report
+    assert "| 总市值(CNY) | 总浮盈/亏 | 前三大占比 | 单一市场最高暴露 | 风格暴露 |" not in report
+    assert "| 代码 | 名称 | 基准指数 | 跑赢/跑输(pp) |" not in report
+    assert "## 二、六模块深度复盘" in report
+    assert "## 三、通用市场建议与风险提示" in report
+    assert "现状总结" not in report
+    assert "基准跑赢/跑输" not in report
+    assert "仓位动作建议" not in report
     assert "观察清单" in report
     assert "风险提示" in report
 
@@ -179,11 +227,11 @@ def test_summary_keeps_mandatory_disclaimer():
         portfolio_snapshot={"details": []},
         report_format="summary",
     )
-    assert "## 二、持仓分析" in report
-    assert "| 代码 | 名称 | 市场 | 买入日 | 数量 | 现价 | 当日涨跌 | 当日浮盈/亏 | 趋势 |" in report
-    assert "| 总市值(CNY) | 总浮盈/亏 | 前三大占比 | 单一市场最高暴露 | 风格暴露 |" in report
-    assert "| 代码 | 名称 | 基准指数 | 跑赢/跑输(pp) |" in report
-    assert "## 三、六模块深度复盘" not in report
+    assert "## 二、持仓分析" not in report
+    assert "| 代码 | 名称 | 市场 | 买入日 | 数量 | 现价 | 当日涨跌 | 当日浮盈/亏 | 趋势 |" not in report
+    assert "| 总市值(CNY) | 总浮盈/亏 | 前三大占比 | 单一市场最高暴露 | 风格暴露 |" not in report
+    assert "| 代码 | 名称 | 基准指数 | 跑赢/跑输(pp) |" not in report
+    assert "## 二、六模块深度复盘" not in report
     assert "以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。" in report
 
 

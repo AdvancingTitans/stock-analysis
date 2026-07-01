@@ -309,16 +309,21 @@ def render_report(
     lines.append("")
 
     details = portfolio_snapshot.get("details", [])
-    lines.append("## 二、持仓分析")
-    _append_holdings_table(lines, details)
-    lines.append("")
-    _append_portfolio_summary_table(lines, portfolio_snapshot)
-    lines.append("")
-    _append_relative_strength_table(lines, details)
-    lines.append("")
-    _append_public_pulse_table(lines, details)
-    lines.append("")
+    has_holdings = bool(details)
+    if has_holdings:
+        lines.append("## 二、持仓分析")
+        _append_holdings_table(lines, details)
+        lines.append("")
+        _append_portfolio_summary_table(lines, portfolio_snapshot)
+        lines.append("")
+        _append_relative_strength_table(lines, details)
+        lines.append("")
+        _append_public_pulse_table(lines, details)
+        lines.append("")
 
+    deep_heading = "## 三、六模块深度复盘" if has_holdings else "## 二、六模块深度复盘"
+    advice_heading = "## 四、综合持仓建议与风险提示" if has_holdings else "## 三、通用市场建议与风险提示"
+    summary_stop_heading = advice_heading
     if quality.degrade_mode != "simplified":
         m2 = evidence.modules.get("M2", {})
         m3 = evidence.modules.get("M3", {})
@@ -330,7 +335,8 @@ def render_report(
         risk_stats = m4.get("pool_stats", {})
         features = m5.get("feature_groups", {})
 
-        lines.append("## 三、六模块深度复盘")
+        lines.append(deep_heading)
+        summary_stop_heading = deep_heading
         lines.append("### 1. 盘面趋势")
         lines.append(f"=={m2.get('summary', '市场以结构性轮动为主。')}==")
         lines.append(
@@ -387,31 +393,40 @@ def render_report(
         lines.append("")
 
     advice = evidence.meta.get("portfolio_advice_sections") or {}
-    lines.append("## 四、综合持仓建议与风险提示")
-    lines.append("### 现状总结")
-    _append_bullets(lines, advice.get("current", []))
-    lines.append("")
-    lines.append("### 基准跑赢/跑输")
-    benchmark = advice.get("benchmark", [])
-    if benchmark:
-        _append_bullets(lines, benchmark)
-    else:
-        lines.append("- 当前没有足够数据形成可靠的相对基准判断。")
-    lines.append("")
-    lines.append("### 仓位动作建议")
-    _append_bullets(lines, advice.get("position_actions", []))
-    lines.append("")
+    lines.append(advice_heading)
+    if has_holdings:
+        lines.append("### 现状总结")
+        _append_bullets(lines, advice.get("current", []))
+        lines.append("")
+        lines.append("### 基准跑赢/跑输")
+        benchmark = advice.get("benchmark", [])
+        if benchmark:
+            _append_bullets(lines, benchmark)
+        else:
+            lines.append("- 当前没有足够数据形成可靠的相对基准判断。")
+        lines.append("")
+        lines.append("### 仓位动作建议")
+        _append_bullets(lines, advice.get("position_actions", []))
+        lines.append("")
     lines.append("### 观察清单")
-    _append_bullets(lines, advice.get("watchlist", []))
+    watchlist = advice.get("watchlist", [])
+    if watchlist:
+        _append_bullets(lines, watchlist)
+    else:
+        lines.append("- 继续观察指数强弱、成交额变化和主线板块持续性。")
     lines.append("")
     lines.append("### 风险提示")
-    _append_bullets(lines, advice.get("risks", []))
+    risks = advice.get("risks", [])
+    if risks:
+        _append_bullets(lines, risks)
+    else:
+        lines.append("- 控制追涨节奏，避免在单日情绪极端后忽视次日分化风险。")
     lines.append("")
     lines.append("免责声明：以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。")
 
     disclaimer = "免责声明：以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。"
     if report_format == "summary":
-        compact = _section_prefix(lines, "## 三、六模块深度复盘")
+        compact = _section_prefix(lines, summary_stop_heading)
         if disclaimer not in compact:
             compact.extend(["", disclaimer])
         return sanitize_research_report("\n".join(compact))

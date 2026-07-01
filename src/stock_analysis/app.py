@@ -43,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="auto",
         choices=["auto", "summary", "key-points", "full"],
     )
-    parser.add_argument("--with-holdings", action="store_true", help="Force loading holdings from young profile")
+    parser.add_argument("--with-holdings", action="store_true", help="Load local stock-analysis investment memory")
     parser.add_argument("--disable-mootdx", action="store_true")
     parser.add_argument("--enable-mootdx", action="store_true")
     parser.add_argument("--emit-evidence", action="store_true")
@@ -258,7 +258,8 @@ def run(argv: list[str] | None = None) -> int:
 
 
 def _should_include_holdings(market: str, explicitly_requested: bool) -> bool:
-    return explicitly_requested or market in {"daily", "a"}
+    del market
+    return explicitly_requested
 
 
 def _render_stock_snapshot(symbol: str, trade_date: str) -> str:

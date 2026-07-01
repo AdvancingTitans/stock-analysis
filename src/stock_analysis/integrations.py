@@ -8,6 +8,7 @@ from typing import Any
 
 import requests
 
+from . import market_core
 from .models import QuoteData
 from .normalize import normalize_code
 
@@ -171,21 +172,6 @@ def _fetch_sina_us_history(symbol: str, trade_date: str) -> QuoteData | None:
     )
 
 
-def load_young_core():
-    try:
-        from young_stock import _core  # type: ignore
-    except ModuleNotFoundError:
-        import sys
-        from pathlib import Path
-
-        candidate = Path("/Users/yjw/agent/young-stock-cli/src")
-        if candidate.exists():
-            sys.path.insert(0, str(candidate))
-        from young_stock import _core  # type: ignore
-
-    return _core
-
-
 def adapt_quote(raw: Any) -> QuoteData | None:
     if raw is None:
         return None
@@ -255,7 +241,7 @@ def fetch_single_quote(symbol: str, trade_date: str) -> QuoteData | None:
                 trade_date=trade_date,
             )
         return _fetch_sina_us_history(normalized, trade_date)
-    core = load_young_core()
+    core = market_core
     return adapt_quote(core.get_single_stock_quote(symbol, trade_date))
 
 
@@ -285,7 +271,7 @@ def fetch_a_indices(trade_date: str) -> list[dict[str, Any]]:
                     }
                 )
         return result
-    core = load_young_core()
+    core = market_core
     rows = core._fetch_a_indices_tencent()
     source = "tencent"
     if not all(_valid_index_row(row) for row in rows) or len(rows) < 4:
@@ -317,7 +303,7 @@ def fetch_hk_indices(trade_date: str) -> list[QuoteData]:
                 )
             )
         ]
-    core = load_young_core()
+    core = market_core
     mapping = {
         "^HSI": "恒生指数",
         "^HSCE": "国企指数",
@@ -342,7 +328,7 @@ def fetch_us_indices(trade_date: str) -> list[QuoteData]:
                 quote.name = name
                 rows.append(quote)
         return rows
-    core = load_young_core()
+    core = market_core
     mapping = {
         "^GSPC": "标普500",
         "^IXIC": "纳斯达克",
@@ -364,7 +350,7 @@ def fetch_board_list(board_type: str, trade_date: str, limit: int = 20) -> dict[
             "rows": [],
             "_unavailable": "板块榜接口不支持历史日期，已禁止混用实时数据",
         }
-    core = load_young_core()
+    core = market_core
     result = core.fetch_eastmoney_board_list(board_type, trade_date, limit=limit)
     if not result.get("rows"):
         result = core.camofox_board_list(board_type)
@@ -374,11 +360,11 @@ def fetch_board_list(board_type: str, trade_date: str, limit: int = 20) -> dict[
 
 
 def fetch_fund_flow(trade_date: str) -> dict[str, Any]:
-    return load_young_core().get_fund_flow(trade_date, strict_date=True)
+    return market_core.get_fund_flow(trade_date, strict_date=True)
 
 
 def fetch_northbound_flow(trade_date: str) -> dict[str, Any]:
-    result = load_young_core().fetch_northbound_flow_snapshot(trade_date)
+    result = market_core.fetch_northbound_flow_snapshot(trade_date)
     source_date = str(result.get("date") or "").replace("-", "")
     latest_time = str(result.get("latest_time") or "")
     points = int(result.get("points") or 0)
@@ -390,7 +376,7 @@ def fetch_northbound_flow(trade_date: str) -> dict[str, Any]:
 
 
 def fetch_limit_pools(trade_date: str) -> dict[str, Any]:
-    core = load_young_core()
+    core = market_core
     return {
         "zt": core.get_zt_pool(trade_date),
         "dt": core.get_dt_pool(trade_date),
@@ -399,22 +385,22 @@ def fetch_limit_pools(trade_date: str) -> dict[str, Any]:
 
 
 def fetch_fund_estimate(code: str, trade_date: str) -> dict[str, Any]:
-    return load_young_core().fetch_fund_estimate(code, trade_date)
+    return market_core.fetch_fund_estimate(code, trade_date)
 
 
 def fetch_fund_holdings(code: str, trade_date: str, limit: int = 10) -> dict[str, Any]:
-    return load_young_core().fetch_fund_holdings(code, trade_date, limit=limit)
+    return market_core.fetch_fund_holdings(code, trade_date, limit=limit)
 
 
 def fetch_fund_holding_quotes(holdings: list[dict[str, Any]], trade_date: str) -> dict[str, QuoteData]:
-    core = load_young_core()
+    core = market_core
     raw = core.fetch_fund_holding_quotes(holdings, trade_date)
     return {symbol: adapt_quote(q) for symbol, q in raw.items() if adapt_quote(q)}
 
 
 def fetch_stock_buy_reference(symbol: str, buy_date: str) -> dict[str, Any]:
-    return load_young_core().fetch_stock_close_on_or_after(symbol, buy_date)
+    return market_core.fetch_stock_close_on_or_after(symbol, buy_date)
 
 
 def fetch_fund_buy_reference(code: str, buy_date: str) -> dict[str, Any]:
-    return load_young_core().fetch_fund_nav_on_or_after(code, buy_date)
+    return market_core.fetch_fund_nav_on_or_after(code, buy_date)

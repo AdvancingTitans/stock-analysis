@@ -12,7 +12,6 @@ license = { text = "MIT" }
 authors = [{ name = "AdvancingTitans" }]
 dependencies = [
   "requests>=2.31",
-  "young-stock-cli>=0.1.22",
 ]
 
 [project.optional-dependencies]
