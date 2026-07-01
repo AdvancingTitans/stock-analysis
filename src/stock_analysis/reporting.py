@@ -327,7 +327,13 @@ def render_report_with_metadata(
     if lens_context:
         context = lens_context
     else:
-        context, fallback = _build_lens_context_with_fallback(evidence, lens=lens, lenses=lenses, mode=mode)
+        context, fallback = _build_lens_context_with_fallback(
+            evidence,
+            lens=lens,
+            lenses=lenses,
+            mode=mode,
+            portfolio_snapshot=portfolio_snapshot,
+        )
     markdown = _render_lens_report(
         trade_date=trade_date,
         session_label=session_label,
@@ -358,9 +364,14 @@ def _build_lens_context_with_fallback(
     lens: str | None,
     lenses: tuple[str, ...] | list[str] | None,
     mode: str | None,
+    portfolio_snapshot: dict[str, Any] | None = None,
 ) -> tuple[LensContext, dict[str, Any] | None]:
+    public_pulses = _portfolio_public_pulses(portfolio_snapshot)
     try:
-        return LensEngine(lens=lens, lenses=lenses, mode=mode).build_context(evidence), None
+        return LensEngine(lens=lens, lenses=lenses, mode=mode).build_context(
+            evidence,
+            public_pulses=public_pulses or None,
+        ), None
     except Exception as exc:
         requested_mode = (mode or ("single" if (lens or lenses) else "committee")).strip().lower()
         if requested_mode != "committee":
@@ -384,6 +395,11 @@ def _fallback_lens(*, lens: str | None, lenses: tuple[str, ...] | list[str] | No
         except Exception:
             continue
     return "buffett"
+
+
+def _portfolio_public_pulses(portfolio_snapshot: dict[str, Any] | None) -> list[dict[str, Any]]:
+    details = (portfolio_snapshot or {}).get("details") or []
+    return [detail["public_pulse"] for detail in details if isinstance(detail.get("public_pulse"), dict)]
 
 
 def _render_lens_report(
@@ -427,6 +443,23 @@ def _render_lens_report(
     m5 = modules.get("M5", {})
     m6 = modules.get("M6", {})
     sentiment = lens_context.community_sentiment_summary
+
+    if lens_context.mode == "committee":
+        return _render_committee_review_report(
+            header_lines=lines,
+            evidence=evidence,
+            quality=quality,
+            portfolio_snapshot=portfolio_snapshot,
+            report_format=report_format,
+            m1=m1,
+            m2=m2,
+            m3=m3,
+            m4=m4,
+            m5=m5,
+            m6=m6,
+            sentiment=sentiment,
+            lens_context=lens_context,
+        )
 
     lines.append("## 1. 执行摘要")
     lines.append(_executive_summary(m1, m3, m4, m6, lens_context, quality))
@@ -504,6 +537,166 @@ def _render_lens_report(
     return sanitize_research_report("\n".join(lines))
 
 
+def _render_committee_review_report(
+    *,
+    header_lines: list[str],
+    evidence: EvidenceBundle,
+    quality: EvidenceQuality,
+    portfolio_snapshot: dict[str, Any],
+    report_format: str,
+    m1: dict[str, Any],
+    m2: dict[str, Any],
+    m3: dict[str, Any],
+    m4: dict[str, Any],
+    m5: dict[str, Any],
+    m6: dict[str, Any],
+    sentiment: dict[str, Any],
+    lens_context: LensContext,
+) -> str:
+    lines = list(header_lines)
+    lines.append("## 执行摘要")
+    lines.append(_executive_summary(m1, m3, m4, m6, lens_context, quality))
+    lines.append("投委会结论已综合多 lens 分工：护城河与安全边际、风险清单、商业本质、长期质量和宏观情景。")
+    lines.append("")
+
+    lines.append("## 一、大盘指数概览")
+    _append_index_table(lines, _index_rows(m1))
+    _append_northbound_table(lines, m1.get("northbound") or {})
+    _append_breadth_table(lines, m1.get("breadth") or {})
+    lines.append("")
+    lines.append(f"=={m1.get('cross_market_comment', '三地市场强弱分化，风险偏好仍需结合成交额确认。')}==")
+    lines.append(_format_m1_committee_analysis(m1))
+    lines.append("")
+
+    details = portfolio_snapshot.get("details", [])
+    has_holdings = bool(details)
+    if has_holdings:
+        lines.append("## 二、持仓分析")
+        _append_holdings_table(lines, details)
+        lines.append("")
+        _append_portfolio_summary_table(lines, portfolio_snapshot)
+        lines.append("")
+        _append_relative_strength_table(lines, details)
+        lines.append("")
+        _append_public_pulse_table(lines, details)
+        lines.append("")
+
+    deep_heading = "## 三、六模块深度复盘" if has_holdings else "## 二、六模块深度复盘"
+    advice_heading = "## 四、综合持仓建议与风险提示" if has_holdings else "## 三、通用市场建议与风险提示"
+    summary_stop_heading = advice_heading
+    if quality.degrade_mode != "simplified":
+        concentration = m2.get("concentration", {})
+        stats = m3.get("pool_stats", {})
+        risk_stats = m4.get("pool_stats", {})
+        features = m5.get("feature_groups", {})
+
+        lines.append(deep_heading)
+        summary_stop_heading = deep_heading
+        lines.append("### M1. 基础数据与核心指标")
+        lines.append(_format_m1_committee_analysis(m1))
+        lines.append("")
+
+        lines.append("### M2. 板块资金与集中度")
+        lines.append(f"=={m2.get('summary', '市场以结构性轮动为主。')}==")
+        sector_rows = m2.get("industry_top20") or m2.get("concept_top20") or []
+        _append_sector_table(lines, sector_rows)
+        lines.append(
+            f"涨停主题 TOP1 占比 {float(concentration.get('top1_ratio') or 0):.1%}，"
+            f"TOP3 占比 {float(concentration.get('top3_ratio') or 0):.1%}。"
+        )
+        lines.append("")
+
+        lines.append("### M3. 赚钱效应与上涨主线")
+        lines.append(f"=={m3.get('summary', '活跃资金仍在寻找高辨识度方向。')}==")
+        _append_leader_table(lines, stats.get("leaders", []))
+        lines.append(
+            f"\n涨停 {stats.get('zt_count', 0)} 家，其中首板 {stats.get('first_board_count', 0)} 家、"
+            f"连板 {stats.get('multi_board_count', 0)} 家。"
+        )
+        lines.append("")
+
+        lines.append("### M4. 爆量下跌风险")
+        lines.append(f"=={m4.get('summary', '风险主要集中在高位分歧。')}==")
+        lines.append(
+            f"跌停 {risk_stats.get('dt_count', 0)} 家、炸板 {risk_stats.get('zb_count', 0)} 家，"
+            f"炸板率约 {float(risk_stats.get('blowup_ratio') or 0):.1%}。"
+        )
+        lines.append("")
+
+        lines.append("### M5. 特征分组")
+        lines.append(f"=={m5.get('summary', '成长与低位扩散特征较明显。')}==")
+        lines.append(
+            f"10:30 前涨停 {features.get('early_limit_up_count', 0)} 家，"
+            f"低位异动 {features.get('low_position_active_count', 0)} 家，"
+            f"科创/创业板活跃样本 {features.get('growth_board_count', 0)} 家。"
+        )
+        lines.append("")
+
+        lines.append("### M6. 综合风险与抗跌方向")
+        lines.append(f"=={m6.get('summary', '抗跌样本主要来自仍有业绩或产业趋势支撑的方向。')}==")
+        lines.append(_format_m6_committee_analysis(m6))
+        resilient = [value for value in m6.get("resilient", []) if value]
+        if resilient:
+            lines.append("可继续观察：" + "、".join(resilient) + "。")
+        lines.append("")
+
+        lines.append("### M7. 社区情绪分析")
+        lines.extend(_community_sentiment_lines(sentiment))
+        lines.append("")
+
+    advice = evidence.meta.get("portfolio_advice_sections") or {}
+    lines.append(advice_heading)
+    if has_holdings:
+        lines.append("### 现状总结")
+        _append_bullets(lines, advice.get("current", []))
+        lines.append("")
+        lines.append("### 基准跑赢/跑输")
+        benchmark = advice.get("benchmark", [])
+        if benchmark:
+            _append_bullets(lines, benchmark)
+        else:
+            lines.append("- 当前没有足够数据形成可靠的相对基准判断。")
+        lines.append("")
+        lines.append("### 仓位动作建议")
+        _append_bullets(lines, advice.get("position_actions", []))
+        lines.append("")
+    lines.append("### 观察清单")
+    watchlist = advice.get("watchlist", [])
+    if watchlist:
+        _append_bullets(lines, watchlist)
+    else:
+        lines.append("- 继续观察指数强弱、成交额变化、主线板块持续性和 M7 情绪是否与基本面互相确认。")
+    lines.append("")
+    lines.append("### 风险提示")
+    risks = advice.get("risks", [])
+    if risks:
+        _append_bullets(lines, risks)
+    else:
+        lines.append("- 控制追涨节奏，避免在单日情绪极端后忽视次日分化风险。")
+    _append_bullets(lines, _risk_and_catalyst_lines(m3, m4, m6, sentiment))
+    lines.append("")
+    lines.append("### 证据附录")
+    lines.append(f"- activated_modules: {', '.join(lens_context.activated_modules)} + M7")
+    lines.append(f"- lens_adjustments: {(lens_context.adjusted_evidence.get('_meta') or {}).get('lens_weight_adjustments', {})}")
+    lines.append(f"- m7_score: {_m7_quality_score(sentiment)}")
+    lines.append(f"- key_sentiment_sources: {sentiment.get('key_sentiment_sources', [])[:3]}")
+    lines.append("")
+    lines.append("免责声明：以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。")
+
+    disclaimer = "免责声明：以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。"
+    if report_format == "summary":
+        compact = _section_prefix(lines, summary_stop_heading)
+        if disclaimer not in compact:
+            compact.extend(["", disclaimer])
+        return sanitize_research_report("\n".join(compact))
+    if report_format == "key-points":
+        compact = _section_prefix(lines, "### M5. 特征分组")
+        if disclaimer not in compact:
+            compact.extend(["", disclaimer])
+        return sanitize_research_report("\n".join(compact))
+    return sanitize_research_report("\n".join(lines))
+
+
 def _report_metadata(
     *,
     trade_date: str,
@@ -514,6 +707,7 @@ def _report_metadata(
     fallback: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     adjusted = lens_context.adjusted_evidence
+    module_scores_with_m7 = {**quality.module_scores, "M7": _m7_quality_score(lens_context.community_sentiment_summary)}
     metadata = {
         "report_date": _display_date(trade_date),
         "session": session_label,
@@ -524,6 +718,10 @@ def _report_metadata(
         "activated_modules": list(lens_context.activated_modules),
         "quality_score": quality.total_score,
         "missing_modules": quality.missing_modules,
+        "evidence_quality_with_m7": {
+            "module_scores": module_scores_with_m7,
+            "total_score": sum(module_scores_with_m7.values()),
+        },
         "committee_deep_analysis": {
             "m1": ((adjusted.get("M1") or {}).get("committee_deep_analysis") or {}),
             "m6": ((adjusted.get("M6") or {}).get("committee_deep_analysis") or {}),
@@ -535,6 +733,17 @@ def _report_metadata(
     if fallback:
         metadata["fallback"] = fallback
     return metadata
+
+
+def _m7_quality_score(sentiment: dict[str, Any]) -> int:
+    if sentiment.get("status") != "ok":
+        return 0
+    confidence = str(sentiment.get("confidence") or "").lower()
+    if confidence == "high":
+        return 10
+    if confidence == "medium":
+        return 8
+    return 4
 
 
 def _display_date(value: Any) -> str:

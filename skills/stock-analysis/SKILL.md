@@ -91,13 +91,16 @@ uv run python -m stock_analysis --market diagnose
 
 用户明确要求“复盘、深度复盘、6 模块、证据驱动复盘”时，优先输出 `full`。
 
-普通市场复盘固定顺序：
+默认 committee 市场复盘固定顺序：
 
-1. 大盘指数概览
-2. 6 模块深度复盘
-3. 通用市场建议与风险提示
+1. 执行摘要
+2. 大盘指数概览
+3. 持仓分析（仅当本地投资记忆完整，或用户主动提供并确认完整持仓信息）
+4. 6 模块深度复盘：M1-M6
+5. M7 社区情绪分析
+6. 综合持仓建议与风险提示；无持仓时为通用市场建议与风险提示
 
-当本地投资记忆完整，或用户主动提供并确认了完整持仓信息时，才在报告中插入“持仓绩效分析”，并把结尾改为“综合持仓建议与风险提示”。
+single 或 adversarial 模式不强制套用 committee 固定顺序，应以对应专家投资风格组织正文。
 
 ## Evidence Pack
 
@@ -106,7 +109,7 @@ uv run python -m stock_analysis --market diagnose
 - `evidence_YYYYMMDD.json`
 - `m1_YYYYMMDD.json` 至 `m6_YYYYMMDD.json`
 
-评分权重：M1 20、M2 20、M3 20、M4 15、M5 15、M6 10。
+基础评分权重：M1 20、M2 20、M3 20、M4 15、M5 15、M6 10。默认 committee 报告额外计算 M7 社区情绪质量分，并在 metadata 的 `evidence_quality_with_m7` 中输出 M1-M7 综合分。
 
 - `>=80`：完整报告。
 - `60-79`：完整报告，并列出缺失模块。
@@ -123,9 +126,9 @@ uv run python -m stock_analysis --market diagnose
 LensEngine 是报告生成的核心编排器。LLM 或上层 Agent 可以用自然语言触发能力，再归一化为 `mode`、`lens`、`lenses` 参数调用 `stock_analysis.reporting.generate_report()`；CLI 的 full report 也走同一条 LensEngine 报告路径，并在 evidence `_meta.report_metadata` 中写入结构化结果。
 
 - 默认使用 committee 模式：用户未传入 lens 或 mode 时，自动使用 `buffett + munger + duan_yongping + zhang_kun + graham + dalio`。
-- committee 模式会自动做 m1/m6 综合深度分析 + 社区情绪分析。
+- committee 模式会自动做 m1/m6 综合深度分析 + M7 社区情绪分析。
 - m1/m6 综合深度分析：m1 做多 lens 交叉验证、趋势一致性分析、异常点识别；m6 做多视角风险汇总、冲突点调和、最终风险评分。
-- 社区情绪分析：聚合 Futu 新闻、Futu 社区讨论，以及可扩展的财联社、东方财富、雪球、股吧、微博等中文来源框架，输出整体情绪得分、关键情绪来源、情绪与基本面的分歧、潜在催化剂或风险。
+- M7 社区情绪分析：聚合 Futu 新闻、Futu 社区讨论，以及可扩展的财联社、东方财富、雪球、股吧、微博等中文来源框架，输出整体情绪得分、关键情绪来源、情绪与基本面的分歧、潜在催化剂或风险。
 - single 模式：单一 lens 深度模式。自然语言例子：“用巴菲特模式分析 茅台”“按段永平视角看 腾讯”。可识别 `buffett`、`巴菲特`、`巴菲特模式` 等常见写法。
 - committee 模式：多 lens 综合模式，也是默认模式。自然语言例子：“用投委会模式分析 NVDA”“多专家综合复盘今天市场”。
 - adversarial 模式：两个 lens 对抗辩论模式。自然语言例子：“用 adversarial 模式让巴菲特和芒格辩论 腾讯”。必须提供两个 lens。

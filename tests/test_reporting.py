@@ -176,9 +176,9 @@ def test_report_result_defaults_to_committee_and_returns_metadata_json():
 
     assert "**报告日期**：2026-06-17" in result.markdown
     assert "**分析模式**：投委会（默认）" in result.markdown
-    assert "## 1. 执行摘要" in result.markdown
-    assert "## 2. 分析视角说明" in result.markdown
-    assert "## 6. 社区情绪分析" in result.markdown
+    assert "## 执行摘要" in result.markdown
+    assert "## 一、大盘指数概览" in result.markdown
+    assert "### M7. 社区情绪分析" in result.markdown
     assert "m1 综合深度分析" in result.markdown
     assert "m6 综合风险评分" in result.markdown
     assert "情绪与基本面分歧" in result.markdown
@@ -189,6 +189,85 @@ def test_report_result_defaults_to_committee_and_returns_metadata_json():
     assert result.metadata["committee_deep_analysis"]["m6"]["risk_score"] >= 0
     assert result.metadata["community_sentiment_summary"]["overall_sentiment_score"] >= 0
     assert evidence.meta["report_metadata"]["analysis_mode"] == "committee"
+
+
+def test_default_committee_report_uses_m1_m7_deep_review_structure():
+    evidence = _sample_evidence()
+    evidence.meta["portfolio_public_pulse"] = [
+        {
+            "symbol": "600519",
+            "news_tone": "偏正面",
+            "news_count": 2,
+            "event_title": "贵州茅台回购计划获市场关注",
+            "community_label": "偏多",
+            "community_sample_count": 5,
+            "community_bull_pct": 60.0,
+            "community_bear_pct": 20.0,
+            "evidence_url": "https://news.futunn.com/post/1",
+        }
+    ]
+
+    result = render_report_with_metadata(
+        trade_date="20260617",
+        session_label="盘后",
+        evidence=evidence,
+        quality=EvidenceQuality(
+            module_scores={"M1": 20, "M2": 20, "M3": 20, "M4": 15, "M5": 15, "M6": 10},
+            missing_modules=[],
+        ),
+        portfolio_snapshot={"details": []},
+        report_format="full",
+    )
+
+    headings = [
+        "## 执行摘要",
+        "## 一、大盘指数概览",
+        "## 二、六模块深度复盘",
+        "### M7. 社区情绪分析",
+        "## 三、通用市场建议与风险提示",
+    ]
+    positions = [result.markdown.index(heading) for heading in headings]
+    assert positions == sorted(positions)
+    assert "## 2. 分析视角说明" not in result.markdown
+    assert "M7" in result.metadata["evidence_quality_with_m7"]["module_scores"]
+    assert result.metadata["evidence_quality_with_m7"]["total_score"] > result.metadata["quality_score"]
+
+
+def test_committee_sentiment_uses_portfolio_snapshot_pulses_when_meta_is_missing():
+    result = render_report_with_metadata(
+        trade_date="20260617",
+        session_label="盘后",
+        evidence=_sample_evidence(),
+        quality=EvidenceQuality(
+            module_scores={"M1": 20, "M2": 20, "M3": 20, "M4": 15, "M5": 15, "M6": 10},
+            missing_modules=[],
+        ),
+        portfolio_snapshot={
+            "details": [
+                {
+                    "symbol": "600519",
+                    "name": "贵州茅台",
+                    "public_pulse": {
+                        "symbol": "600519",
+                        "news_tone": "偏正面",
+                        "news_count": 1,
+                        "event_title": "贵州茅台回购计划获市场关注",
+                        "community_label": "偏多",
+                        "community_sample_count": 4,
+                        "community_bull_pct": 75.0,
+                        "community_bear_pct": 0.0,
+                    },
+                }
+            ]
+        },
+        report_format="full",
+    )
+
+    sentiment = result.metadata["community_sentiment_summary"]
+    assert sentiment["status"] == "ok"
+    assert sentiment["source_coverage"]["news"] == "available"
+    assert sentiment["source_coverage"]["community"] == "available"
+    assert "缺少 Futu news/community pulse" not in result.markdown
 
 
 def test_generate_report_is_simple_llm_facing_entrypoint():

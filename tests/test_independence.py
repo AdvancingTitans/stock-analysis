@@ -48,7 +48,6 @@ def test_user_facing_docs_do_not_route_to_young_stock_cli():
         "young profile",
         "~/.young_stock",
         "YOUNG_STOCK_PROFILE",
-        "M7",
         "--lens",
     )
     for token in forbidden:
