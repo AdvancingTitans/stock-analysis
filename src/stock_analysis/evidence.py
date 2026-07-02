@@ -61,10 +61,16 @@ def _score_m1(payload: dict, weight: int) -> tuple[int, list[str], bool]:
     else:
         gaps.append("a_indices")
 
-    if any(row.get("turnover") for row in a_indices + hk_indices + us_indices):
+    index_rows = a_indices + hk_indices + us_indices
+    activity_gaps = _index_activity_gaps(index_rows)
+    active_count = len(index_rows) - len(activity_gaps)
+    if index_rows and active_count == len(index_rows):
         score += 4
+    elif active_count:
+        score += 2
     else:
         gaps.append("turnover")
+    gaps.extend(activity_gaps)
 
     if hk_indices:
         score += 4
@@ -78,6 +84,16 @@ def _score_m1(payload: dict, weight: int) -> tuple[int, list[str], bool]:
 
     available = bool(a_indices or hk_indices or us_indices) and score >= 8
     return min(score, weight), gaps, available
+
+
+def _index_activity_gaps(rows: list[dict]) -> list[str]:
+    gaps: list[str] = []
+    for row in rows:
+        has_turnover = float(row.get("turnover") or 0) > 0
+        has_volume = float(row.get("volume") or 0) > 0
+        if not has_turnover and not has_volume:
+            gaps.append(f"index_activity:{row.get('name') or row.get('symbol') or 'unknown'}")
+    return gaps
 
 
 def _score_m2(payload: dict, weight: int) -> tuple[int, list[str], bool]:

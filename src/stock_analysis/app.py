@@ -90,6 +90,7 @@ def _quote_payload(quote) -> dict[str, Any]:
         "price": quote.price,
         "change": quote.change,
         "change_pct": quote.change_pct,
+        "volume": quote.volume,
         "turnover": quote.turnover,
         "trade_date": _normalize_trade_date(quote.trade_date),
         "source": quote.source,

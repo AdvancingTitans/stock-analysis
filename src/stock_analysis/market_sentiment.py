@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 import re
 from typing import Any
 
@@ -21,6 +22,16 @@ MARKET_COMMUNITY_KEYWORDS = (
     "大盘",
     "沪指",
     "创业板",
+)
+
+COMMUNITY_RELEVANCE_TERMS = (
+    "A股",
+    "大盘",
+    "沪指",
+    "创业板",
+    "北向",
+    "涨停",
+    "深成指",
 )
 
 
@@ -74,6 +85,21 @@ def _community_source(source: Any) -> str:
     if "微博" in raw:
         return "微博"
     return "财经社区聚合"
+
+
+def _is_recent_community_date(publish_date: str, trade_date: str) -> bool:
+    if not publish_date:
+        return True
+    try:
+        trade_day = datetime.strptime(trade_date, "%Y%m%d")
+        item_day = datetime.strptime(publish_date, "%Y%m%d")
+    except ValueError:
+        return publish_date == trade_date
+    return trade_day - timedelta(days=1) <= item_day <= trade_day
+
+
+def _is_market_discussion(text: str) -> bool:
+    return any(term in text for term in COMMUNITY_RELEVANCE_TERMS)
 
 
 def fetch_market_news_items(trade_date: str, *, size_per_keyword: int = 5) -> list[dict[str, Any]]:
@@ -150,11 +176,35 @@ def fetch_market_community_items(trade_date: str, *, size_per_keyword: int = 3) 
                         "publish_date": market_core._news_date(raw.get("publish_time")),
                     }
                 )
+    if len(items) < 3:
+        for keyword in MARKET_COMMUNITY_KEYWORDS:
+            payload = market_core.combined_news_search(
+                f"{keyword} 投资者讨论",
+                size=size_per_keyword,
+                lang="zh-CN",
+                date_str=None,
+            )
+            for raw in payload.get("data") or []:
+                text = " ".join(str(raw.get("title") or raw.get("content") or "").split())
+                publish_date = market_core._news_date(raw.get("publish_time"))
+                if len(text) <= 8 or not _is_market_discussion(text):
+                    continue
+                if not _is_recent_community_date(publish_date, trade_date):
+                    continue
+                items.append(
+                    {
+                        "source": _community_source(raw.get("source")),
+                        "text": text,
+                        "url": raw.get("url") or "",
+                        "sentiment_score": _title_sentiment(text),
+                        "publish_date": publish_date,
+                    }
+                )
     return _dedupe_news(
         [
             {**item, "title": item["text"]}
             for item in items
-            if not item.get("publish_date") or item.get("publish_date") == trade_date
+            if _is_recent_community_date(str(item.get("publish_date") or ""), trade_date)
         ]
     )[:20]
 

@@ -127,7 +127,7 @@ def test_report_uses_tables_and_hides_source_language():
         },
         report_format="full",
     )
-    assert "| 大盘 | 收盘 | 涨跌 | 涨跌幅 | 成交额 |" in report
+    assert "| 大盘 | 收盘 | 涨跌 | 涨跌幅 | 成交额/量 |" in report
     assert "| 资金项 | 净流向 |" in report
     assert "| 市场广度 | 上涨家数 | 下跌家数 | 涨跌比 |" in report
     assert "| 板块 | 涨跌幅 | 上涨家数 | 下跌家数 |" in report
@@ -145,7 +145,26 @@ def test_report_uses_tables_and_hides_source_language():
     assert "最新统计时点" not in report
     assert "标普500" in report
     assert "成交额 --" not in report
-    assert "| 标普500 | 7,420.10 | -90.20 | -1.21% |  |" in report
+
+
+def test_index_table_renders_volume_when_turnover_is_missing():
+    evidence = _sample_evidence()
+    evidence.modules["M1"]["us_indices"][0]["volume"] = 3_687_282_528
+
+    report = render_report(
+        trade_date="20260617",
+        session_label="盘后",
+        evidence=evidence,
+        quality=EvidenceQuality(
+            module_scores={"M1": 20, "M2": 20, "M3": 20, "M4": 15, "M5": 15, "M6": 10},
+            missing_modules=[],
+        ),
+        portfolio_snapshot={"details": []},
+        report_format="full",
+    )
+
+    assert "| 大盘 | 收盘 | 涨跌 | 涨跌幅 | 成交额/量 |" in report
+    assert "| 标普500 | 7,420.10 | -90.20 | -1.21% | 3,687,282,528 |" in report
 
 
 def test_report_result_defaults_to_committee_and_returns_metadata_json():

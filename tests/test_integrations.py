@@ -67,3 +67,26 @@ def test_searchapi_resolves_global_stock_secid_from_eastmoney_payload(monkeypatc
 
     assert market_core.resolve_global_stock_secid("BABA", "us_market") == ("106.BABA", "阿里巴巴")
     assert market_core.resolve_global_stock_secid("9988.HK", "hk_market") == ("116.09988", "阿里巴巴-W")
+
+
+def test_stock_get_quote_preserves_turnover_from_f48():
+    quote = market_core._stock_get_to_quote(
+        {
+            "f43": 123.4,
+            "f44": 125,
+            "f45": 120,
+            "f46": 121,
+            "f47": 4567,
+            "f48": 890000000,
+            "f58": "样本指数",
+            "f60": 122,
+            "f169": 1.4,
+            "f170": 1.15,
+        },
+        "^SAMPLE",
+        "us_market",
+        "20260702",
+    )
+
+    assert quote.volume == 4567
+    assert quote.turnover == 890000000

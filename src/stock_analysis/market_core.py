@@ -1195,6 +1195,7 @@ def _stock_get_to_quote(payload: dict[str, Any], symbol: str, market_type: str, 
         high=_safe_float(payload.get("f44")),
         low=_safe_float(payload.get("f45")),
         volume=_safe_int(payload.get("f47")),
+        turnover=_safe_float(payload.get("f48")),
         currency=currency,
         source="eastmoney_stock_get",
     )

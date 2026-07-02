@@ -82,3 +82,38 @@ def test_fetch_market_community_items_falls_back_to_news_search(monkeypatch):
 
     assert items
     assert items[0]["source"] == "雪球"
+
+
+def test_fetch_market_community_items_uses_recent_discussion_proxy(monkeypatch):
+    monkeypatch.setattr(
+        "stock_analysis.market_sentiment.market_core.futu_stock_feed",
+        lambda *args, **kwargs: {"data": []},
+    )
+
+    def fake_search(keyword, size=3, lang="zh-CN", date_str=None, aliases=None):
+        if date_str:
+            return {"data": []}
+        return {
+            "data": [
+                {
+                    "title": "A股上半年收官，投资者讨论回购分红",
+                    "source": "futu_news",
+                    "publish_time": "1782893233",
+                    "url": "https://example.com/recent",
+                },
+                {
+                    "title": "霍尼韦尔投资者电话会议",
+                    "source": "futu_news",
+                    "publish_time": "1782893233",
+                    "url": "https://example.com/offtopic",
+                },
+            ]
+        }
+
+    monkeypatch.setattr("stock_analysis.market_sentiment.market_core.combined_news_search", fake_search)
+
+    items = fetch_market_community_items("20260702", size_per_keyword=1)
+
+    assert len(items) == 1
+    assert items[0]["source"] == "财经社区聚合"
+    assert "A股" in items[0]["text"]

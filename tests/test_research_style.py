@@ -78,7 +78,7 @@ def test_render_report_applies_final_research_style_filter():
     )
     assert all(term.lower() not in report.lower() for term in FORBIDDEN_TERMS)
     assert "本模块证据暂缺" in report
-    assert "| 大盘 | 收盘 | 涨跌 | 涨跌幅 | 成交额 |" in report
+    assert "| 大盘 | 收盘 | 涨跌 | 涨跌幅 | 成交额/量 |" in report
 
 
 def test_evidence_pack_declares_research_report_style():

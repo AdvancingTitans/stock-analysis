@@ -73,6 +73,14 @@ def _fmt_amount_yi(value: Any) -> str:
     return f"{float(value) / 1e8:,.2f}亿"
 
 
+def _fmt_activity(value: Any, volume: Any = None) -> str:
+    if value is not None and float(value) > 0:
+        return _fmt_amount_yi(value)
+    if volume is not None and float(volume) > 0:
+        return _fmt_quantity(volume)
+    return "暂缺"
+
+
 def _fmt_quantity(value: Any) -> str:
     if value is None:
         return ""
@@ -90,12 +98,12 @@ def _fmt_daily_pnl(detail: dict[str, Any]) -> str:
 def _append_index_table(lines: list[str], rows: list[dict[str, Any]]) -> None:
     lines.extend(
         [
-            "| 大盘 | 收盘 | 涨跌 | 涨跌幅 | 成交额 |",
+            "| 大盘 | 收盘 | 涨跌 | 涨跌幅 | 成交额/量 |",
             "|---|---:|---:|---:|---:|",
         ]
     )
     for row in rows:
-        turnover = _fmt_amount_yi(row.get("turnover")) or ""
+        turnover = _fmt_activity(row.get("turnover"), row.get("volume"))
         lines.append(
             "| {name} | {price} | {change} | {change_pct} | {turnover} |".format(
                 name=row.get("name") or "",
