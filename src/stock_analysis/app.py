@@ -149,9 +149,11 @@ def build_evidence(trade_date: str, market: str, session_label: str, include_hol
         "pool_stats": pool_stats,
         "summary": _module3_summary(pool_stats),
     }
+    dt_data = pools.get("dt", {}).get("data") or {}
+    zb_data = pools.get("zb", {}).get("data") or {}
     m4 = {
-        "available": bool((pools.get("dt", {}).get("data") or {}).get("pool")) or bool((pools.get("zb", {}).get("data") or {}).get("pool")),
-        "dt_count": (pools.get("dt", {}).get("data") or {}).get("tc", 0),
+        "available": bool(dt_data) or bool(zb_data),
+        "dt_count": dt_data.get("tc", 0),
         "pool_stats": pool_stats,
         "summary": _module4_summary(pool_stats),
     }

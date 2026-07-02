@@ -4,7 +4,7 @@ import re
 from typing import Any
 
 from . import market_core
-from .futu_public import NEGATIVE_CUES, POSITIVE_CUES
+from .futu_public import NEGATIVE_CUES, POSITIVE_CUES, classify_community_posts
 
 MARKET_NEWS_KEYWORDS = (
     "A股",
@@ -63,6 +63,19 @@ def _dedupe_news(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return unique
 
 
+def _community_source(source: Any) -> str:
+    raw = str(source or "").strip()
+    if raw in {"雪球", "东方财富股吧", "微博"}:
+        return raw
+    if "雪球" in raw:
+        return "雪球"
+    if "股吧" in raw or "东方财富" in raw:
+        return "东方财富股吧"
+    if "微博" in raw:
+        return "微博"
+    return "财经社区聚合"
+
+
 def fetch_market_news_items(trade_date: str, *, size_per_keyword: int = 5) -> list[dict[str, Any]]:
     collected: list[dict[str, Any]] = []
     for keyword in MARKET_NEWS_KEYWORDS:
@@ -116,6 +129,27 @@ def fetch_market_community_items(trade_date: str, *, size_per_keyword: int = 3) 
                     "publish_date": market_core._news_date(raw.get("publish_time")),
                 }
             )
+    if len(items) < 3:
+        for keyword in MARKET_COMMUNITY_KEYWORDS:
+            payload = market_core.combined_news_search(
+                f"{keyword} 投资者讨论",
+                size=size_per_keyword,
+                lang="zh-CN",
+                date_str=trade_date,
+            )
+            for raw in payload.get("data") or []:
+                text = " ".join(str(raw.get("title") or raw.get("content") or "").split())
+                if len(text) <= 8:
+                    continue
+                items.append(
+                    {
+                        "source": _community_source(raw.get("source")),
+                        "text": text,
+                        "url": raw.get("url") or "",
+                        "sentiment_score": _title_sentiment(text),
+                        "publish_date": market_core._news_date(raw.get("publish_time")),
+                    }
+                )
     return _dedupe_news(
         [
             {**item, "title": item["text"]}
@@ -125,7 +159,10 @@ def fetch_market_community_items(trade_date: str, *, size_per_keyword: int = 3) 
     )[:20]
 
 
-def build_market_public_pulse(news_items: list[dict[str, Any]]) -> dict[str, Any] | None:
+def build_market_public_pulse(
+    news_items: list[dict[str, Any]],
+    community_items: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
     if not news_items:
         return None
     scores = [float(item.get("sentiment_score") or 0.0) for item in news_items]
@@ -137,13 +174,19 @@ def build_market_public_pulse(news_items: list[dict[str, Any]]) -> dict[str, Any
     else:
         tone = "中性"
     top = max(news_items, key=lambda item: abs(float(item.get("sentiment_score") or 0.0)))
+    community = classify_community_posts(
+        [{"text": item.get("text") or item.get("title") or ""} for item in (community_items or [])]
+    )
     return {
         "symbol": "MARKET",
         "name": "A股市场",
         "news_tone": tone,
         "news_count": len(news_items),
-        "community_label": "证据不足",
-        "community_sample_count": 0,
+        "community_label": community["label"],
+        "community_sample_count": community["sample_count"],
+        "community_bull_pct": community.get("bull_pct"),
+        "community_bear_pct": community.get("bear_pct"),
+        "community_neutral_pct": community.get("neutral_pct"),
         "event_title": top.get("title") or "",
         "evidence_url": top.get("url") or "",
         "generated_at": trade_date_iso(news_items),
@@ -162,7 +205,7 @@ def trade_date_iso(news_items: list[dict[str, Any]]) -> str:
 def fetch_market_sentiment(trade_date: str) -> dict[str, Any]:
     news_items = fetch_market_news_items(trade_date)
     community_items = fetch_market_community_items(trade_date)
-    market_pulse = build_market_public_pulse(news_items)
+    market_pulse = build_market_public_pulse(news_items, community_items)
     return {
         "chinese_news_items": news_items,
         "chinese_community_items": community_items,

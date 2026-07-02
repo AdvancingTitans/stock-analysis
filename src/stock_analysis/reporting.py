@@ -524,11 +524,7 @@ def _render_lens_report(
 
     appendix_heading = "## 9. 证据附录" if lens_context.mode == "committee" else "## 8. 证据附录"
     lines.append(appendix_heading)
-    lines.append(f"- activated_modules: {', '.join(lens_context.activated_modules)}")
-    lines.append(f"- lens_adjustments: {modules.get('_meta', {}).get('lens_weight_adjustments', {})}")
-    if lens_context.mode == "committee":
-        lines.append(f"- community_sources: {sentiment.get('source_coverage', {})}")
-        lines.append(f"- key_sentiment_sources: {sentiment.get('key_sentiment_sources', [])[:3]}")
+    _append_evidence_appendix(lines, evidence, quality, lens_context, sentiment)
     lines.append("")
     lines.append("免责声明：以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。")
 
@@ -695,10 +691,7 @@ def _render_committee_review_report(
     _append_bullets(lines, _risk_and_catalyst_lines(m3, m4, m6, sentiment))
     lines.append("")
     lines.append("### 证据附录")
-    lines.append(f"- activated_modules: {', '.join(lens_context.activated_modules)} + M7")
-    lines.append(f"- lens_adjustments: {(lens_context.adjusted_evidence.get('_meta') or {}).get('lens_weight_adjustments', {})}")
-    lines.append(f"- m7_score: {_m7_quality_score(sentiment)}")
-    lines.append(f"- key_sentiment_sources: {sentiment.get('key_sentiment_sources', [])[:3]}")
+    _append_evidence_appendix(lines, evidence, quality, lens_context, sentiment)
     lines.append("")
     lines.append("免责声明：以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。")
 
@@ -907,7 +900,51 @@ def _community_sentiment_lines(sentiment: dict[str, Any]) -> list[str]:
     source_breakdown = sentiment.get("source_breakdown") or {}
     if source_breakdown:
         lines.append(f"- 来源覆盖：{source_breakdown}")
+        community_count = int((source_breakdown.get("community") or {}).get("sample_count") or 0)
+        if 0 < community_count < 3:
+            lines.append("- 社区有效样本少于 3 条，情绪结论仅作低置信度参考。")
     return lines
+
+
+def _append_evidence_appendix(
+    lines: list[str],
+    evidence: EvidenceBundle,
+    quality: EvidenceQuality,
+    lens_context: LensContext,
+    sentiment: dict[str, Any],
+) -> None:
+    meta = evidence.meta or {}
+    adjusted = lens_context.adjusted_evidence
+    module_names = [module for module in (*MODULE_LABELS, "M7") if module == "M7" or module in evidence.modules]
+    diagnostics = meta.get("module_diagnostics") or {}
+    source_events = meta.get("source_events") or []
+    lines.append(
+        "- m1–m7 原始数据及本次报告调整记录："
+        f"模块={', '.join(module_names)}；质量分={quality.total_score}；"
+        f"缺失={quality.missing_modules or '无'}；诊断={diagnostics}；"
+        f"来源事件数={len(source_events)}；M7评分={_m7_quality_score(sentiment)}。"
+    )
+    lines.append(
+        "- 社区情绪分析数据来源与方法说明："
+        f"来源覆盖={sentiment.get('source_coverage', {})}；"
+        f"新闻/社区样本={sentiment.get('source_breakdown', {})}；"
+        "方法=预抓新闻与社区样本，区分事件与观点，按样本量、方向分歧和置信度调和。"
+    )
+    lines.append(
+        "- 各 lens 证据权重调整明细："
+        f"{(adjusted.get('_meta') or {}).get('lens_weight_adjustments', {})}。"
+    )
+    lines.append(
+        "- 主要交叉验证与分歧调和记录："
+        f"M1={((adjusted.get('M1') or {}).get('committee_deep_analysis') or {}).get('anomalies', [])}；"
+        f"M6={((adjusted.get('M6') or {}).get('committee_deep_analysis') or {}).get('conflict_reconciliation', [])}；"
+        f"M7={sentiment.get('cross_source_divergences', [])}。"
+    )
+    lines.append(
+        "- 免责声明与数据来源："
+        "行情、新闻和社区讨论来自公开市场数据与已注册中文财经来源；"
+        "以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。"
+    )
 
 
 def _compact_list(values: list[Any]) -> str:

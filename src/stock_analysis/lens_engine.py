@@ -371,7 +371,7 @@ def _community_sentiment_summary(
         "confidence": _sentiment_confidence(pulses, news_count, community_count),
         "source_coverage": {
             "news": "available" if news_count else "missing",
-            "community": "available" if community_count else "missing",
+            "community": _community_coverage(community_count),
             "stocktwits": "not_integrated",
             "reddit": "not_integrated",
         },
@@ -436,6 +436,14 @@ def _sentiment_confidence(pulses: list[dict[str, Any]], news_count: int, communi
     if len(pulses) >= 3 and news_count >= 5 and community_count >= 15:
         return "high"
     return "medium"
+
+
+def _community_coverage(sample_count: int) -> str:
+    if sample_count >= 3:
+        return "available"
+    if sample_count > 0:
+        return "partial"
+    return "missing"
 
 
 def _direction_from_score(score: float) -> str:

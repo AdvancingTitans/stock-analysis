@@ -169,3 +169,35 @@ def test_m1_remains_available_when_indices_exist_but_breadth_is_missing():
     assert evidence.modules["M1"]["breadth"]["available"] is False
     assert evidence.modules["M2"]["available"] is False
     assert fetch_board_list.call_count == 2
+
+
+def test_m4_remains_available_when_risk_pool_returns_counts_without_rows():
+    with (
+        patch("stock_analysis.app.fetch_a_indices", return_value=[]),
+        patch("stock_analysis.app.fetch_hk_indices", return_value=[]),
+        patch("stock_analysis.app.fetch_us_indices", return_value=[]),
+        patch("stock_analysis.app.fetch_northbound_flow", return_value={}),
+        patch("stock_analysis.app.fetch_fund_flow", return_value={}),
+        patch("stock_analysis.app.fetch_board_list", side_effect=[{"rows": []}, {"rows": []}]),
+        patch(
+            "stock_analysis.app.fetch_limit_pools",
+            return_value={
+                "zt": {"data": {"tc": 0, "pool": []}},
+                "dt": {"data": {"tc": 2, "pool": []}},
+                "zb": {"data": {"tc": 0, "pool": []}},
+            },
+        ),
+        patch(
+            "stock_analysis.app.fetch_market_sentiment",
+            return_value={
+                "chinese_news_items": [],
+                "chinese_community_items": [],
+                "market_public_pulse": None,
+                "source_events": [],
+            },
+        ),
+    ):
+        evidence, _ = build_evidence("20260618", "a", "午间", False)
+
+    assert evidence.modules["M4"]["available"] is True
+    assert evidence.modules["M4"]["dt_count"] == 2
