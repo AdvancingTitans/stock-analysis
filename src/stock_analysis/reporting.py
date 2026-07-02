@@ -310,6 +310,14 @@ def _append_bullets(lines: list[str], values: list[str]) -> None:
             lines.append(f"- {value}")
 
 
+def _append_bullets_or_default(lines: list[str], values: list[str], default: str) -> None:
+    rendered = [value for value in values if value]
+    if rendered:
+        _append_bullets(lines, rendered)
+    else:
+        lines.append(f"- {default}")
+
+
 def _section_prefix(lines: list[str], stop_heading: str) -> list[str]:
     try:
         stop = lines.index(stop_heading)
@@ -599,96 +607,116 @@ def _render_committee_review_report(
         lines.append("")
 
     deep_heading = "## 三、六模块深度复盘" if has_holdings else "## 二、六模块深度复盘"
-    advice_heading = "## 四、综合持仓建议与风险提示" if has_holdings else "## 三、通用市场建议与风险提示"
+    m7_heading = "## 四、M7 社区情绪分析" if has_holdings else "## 三、M7 社区情绪分析"
+    advice_heading = "## 五、综合持仓建议与风险提示" if has_holdings else "## 四、通用市场建议与风险提示"
     summary_stop_heading = advice_heading
-    if quality.degrade_mode != "simplified":
-        concentration = m2.get("concentration", {})
-        stats = m3.get("pool_stats", {})
-        risk_stats = m4.get("pool_stats", {})
-        features = m5.get("feature_groups", {})
 
-        lines.append(deep_heading)
-        summary_stop_heading = deep_heading
-        lines.append("### M1. 基础数据与核心指标")
-        _append_index_table(lines, _index_rows(m1))
-        _append_northbound_table(lines, m1.get("northbound") or {})
-        _append_breadth_table(lines, m1.get("breadth") or {})
-        lines.append(_format_m1_committee_analysis(m1))
-        lines.append(_market_trend_narrative(m1, m3, m4))
-        lines.append("")
+    concentration = m2.get("concentration", {})
+    stats = m3.get("pool_stats", {})
+    risk_stats = m4.get("pool_stats") or stats
+    features = m5.get("feature_groups", {})
 
-        lines.append("### M2. 板块资金与集中度")
+    lines.append(deep_heading)
+    summary_stop_heading = deep_heading
+    lines.append("### M1. 基础数据与核心指标")
+    _append_index_table(lines, _index_rows(m1))
+    _append_northbound_table(lines, m1.get("northbound") or {})
+    _append_breadth_table(lines, m1.get("breadth") or {})
+    lines.append(_format_m1_committee_analysis(m1))
+    lines.append(_market_trend_narrative(m1, m3, m4))
+    lines.append("")
+
+    lines.append("### M2. 板块资金与集中度")
+    if m2.get("available") is False:
+        lines.append("==本模块证据暂缺，板块资金和集中度仅保留观察框架。==")
+    else:
         lines.append(f"=={m2.get('summary', '市场以结构性轮动为主。')}==")
-        sector_rows = m2.get("industry_top20") or m2.get("concept_top20") or []
-        if not sector_rows:
-            lines.append("> 行业/概念板块榜暂缺；以下集中度来自涨跌停主题统计。")
-        _append_sector_table(lines, sector_rows)
-        lines.append(
-            f"涨停主题 TOP1 占比 {float(concentration.get('top1_ratio') or 0):.1%}，"
-            f"TOP3 占比 {float(concentration.get('top3_ratio') or 0):.1%}。"
-        )
-        lines.append("")
+    sector_rows = m2.get("industry_top20") or m2.get("concept_top20") or []
+    if not sector_rows:
+        lines.append("> 行业/概念板块榜暂缺；以下集中度来自涨跌停主题统计。")
+    _append_sector_table(lines, sector_rows)
+    lines.append(
+        f"涨停主题 TOP1 占比 {float(concentration.get('top1_ratio') or 0):.1%}，"
+        f"TOP3 占比 {float(concentration.get('top3_ratio') or 0):.1%}。"
+    )
+    lines.append("")
 
-        lines.append("### M3. 赚钱效应与上涨主线")
+    lines.append("### M3. 赚钱效应与上涨主线")
+    if m3.get("available") is False:
+        lines.append("==本模块证据暂缺，赚钱效应和上涨主线暂不外推。==")
+    else:
         lines.append(f"=={m3.get('summary', '活跃资金仍在寻找高辨识度方向。')}==")
-        _append_leader_table(lines, stats.get("leaders", []))
-        lines.append(
-            f"\n涨停 {stats.get('zt_count', 0)} 家，其中首板 {stats.get('first_board_count', 0)} 家、"
-            f"连板 {stats.get('multi_board_count', 0)} 家。"
-        )
-        lines.append("")
+    _append_leader_table(lines, stats.get("leaders", []))
+    lines.append(
+        f"\n涨停 {stats.get('zt_count', 0)} 家，其中首板 {stats.get('first_board_count', 0)} 家、"
+        f"连板 {stats.get('multi_board_count', 0)} 家。"
+    )
+    lines.append("")
 
-        lines.append("### M4. 爆量下跌风险")
+    lines.append("### M4. 爆量下跌风险")
+    if m4.get("available") is False:
+        lines.append("==本模块证据暂缺，下跌风险以仓位纪律和次日验证为主。==")
+    else:
         lines.append(f"=={m4.get('summary', '风险主要集中在高位分歧。')}==")
-        lines.append(
-            f"跌停 {risk_stats.get('dt_count', 0)} 家、炸板 {risk_stats.get('zb_count', 0)} 家，"
-            f"炸板率约 {float(risk_stats.get('blowup_ratio') or 0):.1%}。"
-        )
-        lines.append("")
+    lines.append(
+        f"跌停 {risk_stats.get('dt_count', 0)} 家、炸板 {risk_stats.get('zb_count', 0)} 家，"
+        f"炸板率约 {float(risk_stats.get('blowup_ratio') or 0):.1%}。"
+    )
+    lines.append("")
 
-        lines.append("### M5. 特征分组")
+    lines.append("### M5. 特征分组")
+    if m5.get("available") is False:
+        lines.append("==本模块证据暂缺，风格分组只保留下一交易日验证项。==")
+    else:
         lines.append(f"=={m5.get('summary', '成长与低位扩散特征较明显。')}==")
-        lines.append(
-            f"10:30 前涨停 {features.get('early_limit_up_count', 0)} 家，"
-            f"低位异动 {features.get('low_position_active_count', 0)} 家，"
-            f"科创/创业板活跃样本 {features.get('growth_board_count', 0)} 家。"
-        )
-        lines.append("")
+    lines.append(
+        f"10:30 前涨停 {features.get('early_limit_up_count', 0)} 家，"
+        f"低位异动 {features.get('low_position_active_count', 0)} 家，"
+        f"科创/创业板活跃样本 {features.get('growth_board_count', 0)} 家。"
+    )
+    lines.append("")
 
-        lines.append("### M6. 综合风险与抗跌方向")
+    lines.append("### M6. 综合风险与抗跌方向")
+    if m6.get("available") is False:
+        lines.append("==本模块证据暂缺，抗跌方向需要等待价格、成交和情绪交叉确认。==")
+    else:
         lines.append(f"=={m6.get('summary', '抗跌样本主要来自仍有业绩或产业趋势支撑的方向。')}==")
-        lines.append(_format_m6_committee_analysis(m6))
-        resilient = [value for value in m6.get("resilient", []) if value]
-        if resilient:
-            lines.append("可继续观察：" + "、".join(resilient) + "。")
-        lines.append("")
+    lines.append(_format_m6_committee_analysis(m6))
+    resilient = [value for value in m6.get("resilient", []) if value]
+    if resilient:
+        lines.append("可继续观察：" + "、".join(resilient) + "。")
+    lines.append("")
 
-        lines.append("### M7. 社区情绪分析")
-        lines.extend(_community_sentiment_lines(sentiment))
-        lines.append("")
+    lines.append(m7_heading)
+    lines.extend(_community_sentiment_lines(sentiment))
+    lines.append("")
 
     advice = evidence.meta.get("portfolio_advice_sections") or {}
     lines.append(advice_heading)
+    lines.append("### 现状总结")
     if has_holdings:
-        lines.append("### 现状总结")
-        _append_bullets(lines, advice.get("current", []))
-        lines.append("")
-        lines.append("### 基准跑赢/跑输")
-        benchmark = advice.get("benchmark", [])
-        if benchmark:
-            _append_bullets(lines, benchmark)
-        else:
-            lines.append("- 当前没有足够数据形成可靠的相对基准判断。")
-        lines.append("")
-        lines.append("### 仓位动作建议")
-        _append_bullets(lines, advice.get("position_actions", []))
-        lines.append("")
-    lines.append("### 观察清单")
-    watchlist = advice.get("watchlist", [])
-    if watchlist:
-        _append_bullets(lines, watchlist)
+        _append_bullets_or_default(lines, advice.get("current", []), "已加载持仓；现状以当日浮盈亏、集中度和相对基准表现为准。")
     else:
-        lines.append("- 继续观察指数强弱、成交额变化、主线板块持续性和 M7 情绪是否与基本面互相确认。")
+        lines.append(f"- {_market_trend_narrative(m1, m3, m4)}")
+    lines.append("")
+    lines.append("### 基准跑赢/跑输")
+    if has_holdings:
+        _append_bullets_or_default(lines, advice.get("benchmark", []), "当前没有足够数据形成可靠的相对基准判断。")
+    else:
+        lines.append("- 未加载持仓；以主要指数、市场广度和主线持续性作为通用市场基准。")
+    lines.append("")
+    lines.append("### 条件化仓位动作")
+    if has_holdings:
+        _append_bullets_or_default(lines, advice.get("position_actions", []), "若持仓继续跑输对应基准且成交未改善，优先降低新增暴露；若放量修复，再评估分批调整。")
+    else:
+        lines.append("- 若指数强弱、成交额和 M7 情绪同向改善，再考虑提高进攻性；若主线收缩或炸板率上升，维持防守仓位。")
+    lines.append("")
+    lines.append("### 下一交易日观察清单")
+    _append_bullets_or_default(
+        lines,
+        advice.get("watchlist", []),
+        "继续观察指数强弱、成交额变化、主线板块持续性和 M7 情绪是否与基本面互相确认。",
+    )
     lines.append("")
     lines.append("### 风险提示")
     risks = advice.get("risks", [])

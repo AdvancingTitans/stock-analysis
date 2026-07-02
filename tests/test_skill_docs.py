@@ -66,6 +66,29 @@ def test_skill_documents_lens_engine_natural_language_committee_contract():
         assert "committee 失败时降级为 single" in text
 
 
+def test_skill_documents_fixed_committee_report_structure_and_advice_sections():
+    skill = (ROOT / "skills" / "stock-analysis" / "SKILL.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    output_discipline = (
+        ROOT / "skills" / "stock-analysis" / "references" / "output_discipline.md"
+    ).read_text(encoding="utf-8")
+
+    for text in (skill, readme, output_discipline):
+        assert "执行摘要" in text
+        assert "大盘指数概览" in text
+        assert "六模块深度复盘" in text
+        assert "M7 社区情绪分析" in text
+        assert "现状总结" in text
+        assert "基准跑赢/跑输" in text
+        assert "条件化仓位动作" in text
+        assert "下一交易日观察清单" in text
+        assert "风险提示" in text
+
+    assert "证据暂缺" in skill
+    assert "证据暂缺" in readme
+    assert "不得直接跳过大盘、六模块或 M7" in output_discipline
+
+
 def test_skill_documents_user_triggered_complete_holding_contract():
     skill = (ROOT / "skills" / "stock-analysis" / "SKILL.md").read_text(encoding="utf-8")
     output_discipline = (

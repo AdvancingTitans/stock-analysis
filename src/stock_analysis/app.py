@@ -22,10 +22,10 @@ from .integrations import (
     fetch_single_quote,
     fetch_us_indices,
 )
+from .market_sentiment import fetch_market_sentiment
 from .market_time import detect_market_session, resolve_trade_date
 from .portfolio import build_portfolio_snapshot
 from .profile import load_holdings_from_profile
-from .market_sentiment import fetch_market_sentiment
 from .reporting import render_diagnostics, render_report_with_metadata
 
 
@@ -782,10 +782,17 @@ def _portfolio_advice_sections(
     index_rows = m1.get("a_indices", [])
     extreme = [row for row in index_rows if row.get("change_pct") is not None and abs(float(row["change_pct"])) >= 3]
     for row in extreme:
-        risks.append(f"{row.get('name')}单日涨幅达到{float(row['change_pct']):.2f}%，情绪偏极端，需警惕次日分化。")
-        watchlist.append(
-            f"观察{row.get('name')}次日能否在高位维持成交承接；若冲高回落并放量，成长风格可能进入分化。"
-        )
+        change_pct = float(row["change_pct"])
+        move_label = "涨幅" if change_pct >= 0 else "跌幅"
+        risks.append(f"{row.get('name')}单日{move_label}达到{abs(change_pct):.2f}%，情绪偏极端，需警惕次日分化。")
+        if change_pct >= 0:
+            watchlist.append(
+                f"观察{row.get('name')}次日能否在高位维持成交承接；若冲高回落并放量，成长风格可能进入分化。"
+            )
+        else:
+            watchlist.append(
+                f"观察{row.get('name')}次日能否止跌修复；若继续放量下行，成长风格可能延续分化。"
+            )
     blowup_ratio = float((m4.get("pool_stats") or {}).get("blowup_ratio") or 0)
     if blowup_ratio >= 0.25:
         risks.append(f"炸板率达到{blowup_ratio:.1%}，高位接力容错率下降，追涨风险明显高于指数表面表现。")

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
 import re
+from datetime import datetime, timedelta
 from typing import Any
 
 from . import market_core

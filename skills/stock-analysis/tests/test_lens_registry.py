@@ -4,7 +4,6 @@ import importlib.util
 import pathlib
 import unittest
 
-
 SKILL_ROOT = pathlib.Path(__file__).resolve().parents[1]
 REGISTRY_PATH = SKILL_ROOT / "scripts" / "lens_registry.py"
 EXPECTED_LENSES = {
