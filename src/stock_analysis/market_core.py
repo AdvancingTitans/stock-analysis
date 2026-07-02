@@ -49,11 +49,26 @@ def route_board_data(
     current_trade_date: str | None = None,
     browser_fallback: bool = False,
 ) -> dict[str, Any]:
+    normalized_type = "concept" if board_type == "concept" else "industry"
+    if current_trade_date and trade_date != current_trade_date:
+        cached = cache_load("board_list", f"{trade_date}_{normalized_type}", "eastmoney_clist")
+        if cached and cached.get("rows"):
+            cached = dict(cached)
+            cached["_source_note"] = "历史板块榜来自本地缓存"
+            return cached
+        requested = datetime.strptime(trade_date, "%Y%m%d")
+        if (datetime.now() - requested).days > 7:
+            return {
+                "board_type": board_type,
+                "rows": [],
+                "_unavailable": "远期历史板块榜无缓存，禁止混用实时数据",
+            }
     result = direct(board_type, trade_date, limit)
     if isinstance(result, dict) and result.get("rows"):
+        if current_trade_date and trade_date != current_trade_date:
+            result = dict(result)
+            result["_stale_warning"] = "板块榜为实时接口回填，历史复盘请优先使用缓存"
         return result
-    if current_trade_date and trade_date != current_trade_date:
-        return {"board_type": board_type, "rows": [], "_unavailable": "历史数据不可得"}
     if not browser_fallback:
         return result or {"board_type": board_type, "rows": [], "_unavailable": "本模块证据暂缺"}
     for browser_source in (browser_service, playwright):
@@ -82,7 +97,7 @@ CACHE_DIR = Path(os.environ.get("STOCK_ANALYSIS_CACHE_DIR", Path.home() / ".cach
 
 # 全局开关：是否强制忽略缓存
 NO_CACHE = False
-BROWSER_FALLBACK = False
+BROWSER_FALLBACK = os.environ.get("STOCK_ANALYSIS_BROWSER_FALLBACK", "").strip().lower() in {"1", "true", "yes", "on"}
 
 # A股配置
 INDEX_SECIDS = "1.000001,0.399001,0.399006,1.000688,0.399005,0.899050"

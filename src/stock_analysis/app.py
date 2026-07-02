@@ -25,7 +25,8 @@ from .integrations import (
 from .market_time import detect_market_session, resolve_trade_date
 from .portfolio import build_portfolio_snapshot
 from .profile import load_holdings_from_profile
-from .reporting import render_diagnostics, render_report, render_report_with_metadata
+from .market_sentiment import fetch_market_sentiment
+from .reporting import render_diagnostics, render_report_with_metadata
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -54,7 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--report-style",
         default="committee",
         choices=["classic", "committee"],
-        help="classic: six-module recap; committee: lens committee report (default)",
+        help="deprecated alias; all reports use committee structure (default)",
     )
     parser.add_argument("--symbol", help="Symbol for --market stock or --market fund")
     parser.add_argument("--stock", dest="symbol", help="Alias for --symbol with --market stock")
@@ -148,9 +149,11 @@ def build_evidence(trade_date: str, market: str, session_label: str, include_hol
         "pool_stats": pool_stats,
         "summary": _module3_summary(pool_stats),
     }
+    dt_data = pools.get("dt", {}).get("data") or {}
+    zb_data = pools.get("zb", {}).get("data") or {}
     m4 = {
-        "available": bool((pools.get("dt", {}).get("data") or {}).get("pool")) or bool((pools.get("zb", {}).get("data") or {}).get("pool")),
-        "dt_count": (pools.get("dt", {}).get("data") or {}).get("tc", 0),
+        "available": bool(dt_data) or bool(zb_data),
+        "dt_count": dt_data.get("tc", 0),
         "pool_stats": pool_stats,
         "summary": _module4_summary(pool_stats),
     }
@@ -170,7 +173,14 @@ def build_evidence(trade_date: str, market: str, session_label: str, include_hol
         for detail in portfolio_snapshot.get("details", [])
         if detail.get("public_pulse")
     ]
+    market_sentiment = fetch_market_sentiment(trade_date)
+    chinese_news_items = market_sentiment.get("chinese_news_items") or []
+    chinese_community_items = market_sentiment.get("chinese_community_items") or []
+    market_pulse = market_sentiment.get("market_public_pulse")
+    if market_pulse:
+        public_pulses = [market_pulse, *public_pulses]
     source_events = _source_events(a_indices, hk_indices, us_indices, industry, concept)
+    source_events.extend(market_sentiment.get("source_events") or [])
     if public_pulses:
         source_events.append(
             {
@@ -188,6 +198,9 @@ def build_evidence(trade_date: str, market: str, session_label: str, include_hol
             "session": session_label,
             "source_events": source_events,
             "portfolio_public_pulse": public_pulses,
+            "chinese_news_items": chinese_news_items,
+            "chinese_community_items": chinese_community_items,
+            "market_public_pulse": market_pulse,
             "portfolio_advice_sections": _portfolio_advice_sections(portfolio_snapshot, m1, m2, m3, m4),
         },
     )
@@ -253,38 +266,18 @@ def run(argv: list[str] | None = None) -> int:
     if report_format == "auto":
         report_format = {"light": "summary", "medium": "key-points", "full": "full"}[session.depth]
     lenses = tuple(item.strip() for item in (args.lenses or "").split(",") if item.strip()) or None
-    if args.report_style == "classic":
-        report_md = render_report(
-            trade_date=trade_date,
-            session_label=session.label,
-            evidence=evidence,
-            quality=quality,
-            portfolio_snapshot=portfolio_snapshot,
-            report_format=report_format,
-        )
-        evidence.meta["report_metadata"] = {
-            "report_date": trade_date,
-            "session": session.label,
-            "analysis_mode": "classic",
-            "analysis_mode_label": "经典六模块",
-            "quality_score": quality.total_score,
-            "missing_modules": quality.missing_modules,
-            "module_diagnostics": evidence.meta.get("module_diagnostics", {}),
-        }
-        print(report_md)
-    else:
-        result = render_report_with_metadata(
-            trade_date=trade_date,
-            session_label=session.label,
-            evidence=evidence,
-            quality=quality,
-            portfolio_snapshot=portfolio_snapshot,
-            report_format=report_format,
-            lens=args.lens,
-            lenses=lenses,
-            mode=args.mode,
-        )
-        print(result.markdown)
+    result = render_report_with_metadata(
+        trade_date=trade_date,
+        session_label=session.label,
+        evidence=evidence,
+        quality=quality,
+        portfolio_snapshot=portfolio_snapshot,
+        report_format=report_format,
+        lens=args.lens,
+        lenses=lenses,
+        mode=args.mode,
+    )
+    print(result.markdown)
     if args.emit_evidence:
         base = Path.cwd()
         (base / f"evidence_{trade_date}.json").write_text(

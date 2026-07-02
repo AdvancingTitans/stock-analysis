@@ -140,6 +140,55 @@ def test_committee_adds_tradingagents_cn_news_framework():
     assert summary["chinese_data_source_framework"]["source_status"]["微博"] == "available"
 
 
+def test_committee_can_score_market_level_community_without_holdings():
+    context = LensEngine().build_context(
+        _sample_evidence(),
+        public_pulses=[
+            {
+                "symbol": "MARKET",
+                "name": "A股市场",
+                "news_tone": "偏正面",
+                "news_count": 4,
+                "event_title": "A股放量反弹",
+                "community_label": "偏多",
+                "community_sample_count": 3,
+                "community_bull_pct": 66.7,
+                "community_bear_pct": 0.0,
+                "scope": "market_level",
+            }
+        ],
+        chinese_news_items=_sample_chinese_news_items(),
+        chinese_community_items=_sample_chinese_community_items(),
+    )
+
+    summary = context.community_sentiment_summary
+    assert summary["status"] == "ok"
+    assert summary["source_coverage"]["community"] == "available"
+    assert summary["key_sentiment_sources"][0]["symbol"] == "MARKET"
+    assert summary["sentiment_signal_table"][0]["source"] in {"news", "community"}
+
+
+def test_committee_marks_community_coverage_partial_below_three_samples():
+    context = LensEngine().build_context(
+        _sample_evidence(),
+        public_pulses=[
+            {
+                "symbol": "MARKET",
+                "news_tone": "中性",
+                "news_count": 4,
+                "event_title": "A股震荡整理",
+                "community_label": "证据不足",
+                "community_sample_count": 2,
+                "scope": "market_level",
+            }
+        ],
+    )
+
+    summary = context.community_sentiment_summary
+    assert summary["source_coverage"]["community"] == "partial"
+    assert summary["confidence"] == "low"
+
+
 def test_single_lens_constructor_keeps_legacy_call_shape():
     context = LensEngine(lens=" Buffett ").build_context(_sample_evidence())
 

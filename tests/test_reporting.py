@@ -138,8 +138,10 @@ def test_report_uses_tables_and_hides_source_language():
     assert "| 代码 | 新闻倾向 | 最新高信号事件 | 社区情绪 | 有效样本 | 证据 |" in report
     assert "[原文](https://news.futunn.com/post/1)" in report
     assert "| 股票 | 连板 | 封单金额 |" in report
-    assert "来源" not in report
+    assert "来源：API" not in report
     assert "口径来自" not in report
+    assert "### M7. 社区情绪分析" in report
+    assert "社区有效样本少于 3 条" in report
     assert "最新统计时点" not in report
     assert "标普500" in report
     assert "成交额 --" not in report
@@ -231,6 +233,11 @@ def test_default_committee_report_uses_m1_m7_deep_review_structure():
     assert "## 2. 分析视角说明" not in result.markdown
     assert "M7" in result.metadata["evidence_quality_with_m7"]["module_scores"]
     assert result.metadata["evidence_quality_with_m7"]["total_score"] > result.metadata["quality_score"]
+    assert "- m1–m7 原始数据及本次报告调整记录：" in result.markdown
+    assert "- 社区情绪分析数据来源与方法说明：" in result.markdown
+    assert "- 各 lens 证据权重调整明细：" in result.markdown
+    assert "- 主要交叉验证与分歧调和记录：" in result.markdown
+    assert "- 免责声明与数据来源：" in result.markdown
 
 
 def test_committee_sentiment_uses_portfolio_snapshot_pulses_when_meta_is_missing():
@@ -423,8 +430,8 @@ def test_key_points_stops_after_downside_module():
         portfolio_snapshot={"details": []},
         report_format="key-points",
     )
-    assert "### 4. 爆量下跌风险" in report
-    assert "### 5. 特征分组" not in report
+    assert "### M4. 爆量下跌风险" in report
+    assert "### M5. 特征分组" not in report
     assert "以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。" in report
 
 
