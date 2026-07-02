@@ -3607,7 +3607,7 @@ def parse_fund_profile_js(fund_code: str, raw: str) -> dict[str, Any]:
         "average_score": _safe_number(performance_raw.get("avr")),
         "metrics": {
             str(name): _safe_number(score)
-            for name, score in zip(categories, scores, strict=False)
+            for name, score in zip(categories, scores)
             if name and _safe_number(score) is not None
         },
     }
