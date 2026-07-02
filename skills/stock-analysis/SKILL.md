@@ -15,7 +15,7 @@ metadata:
 
 ```bash
 uv run python -m stock_analysis --market daily
-uv run python -m stock_analysis --market daily --format full --report-style classic
+uv run python -m stock_analysis --market daily --format full
 uv run python -m stock_analysis --market a --format full --emit-evidence
 uv run python -m stock_analysis --market stock --symbol 600519
 uv run python -m stock_analysis --market fund --symbol 161725
@@ -23,7 +23,7 @@ uv run python -m stock_analysis --market diagnose
 ```
 
 - 默认 `--format auto`：根据当前北京时间自动选择 `summary`、`key-points` 或 `full`。
-- 默认 `--report-style committee`；用户明确要求「六模块/经典复盘」时使用 `--report-style classic`。
+- 默认输出投委会（committee）统一报告结构（执行摘要 + M1–M7 + 证据附录）；`--report-style classic` 仅为兼容别名。
 - `--date YYYYMMDD` 仅在用户明确指定日期时使用；未指定时自动解析最近 A股交易日。
 - `--emit-evidence` 保留 `evidence_YYYYMMDD.json` 与 6 个模块 JSON。
 - 持仓相关请求优先读取本技能投资记忆：只有用户要求分析持仓，或 CLI 显式传入 `--with-holdings` 时，才读取 `~/.stock_analysis/profile.json` 或 `STOCK_ANALYSIS_PROFILE`；没有完整投资记忆时等待用户交互输入。

@@ -1,5 +1,13 @@
 # Changelog
 
+## v4.3.6 - 2026-07-02
+
+- 新增市场级 M7 情绪管线：`fetch_market_sentiment()` 聚合东财/新浪/富途市场新闻，写入 `chinese_news_items` 与 `market_public_pulse`。
+- 历史复盘补强：A 股指数成交额 merge 东财 `get_index`；港股指数支持最近可用 K 线 + 实时回退；板块榜支持历史缓存与实时回填（带 `_stale_warning`）。
+- 统一报告结构：`--report-style classic` 降级为 committee 别名；`render_report()` 始终输出投委会结构。
+- 修复质量分 60–79 时缺失模块列表为空仍显示「本模块证据暂缺：。」的文案 bug。
+- `STOCK_ANALYSIS_BROWSER_FALLBACK=1` 可启用板块榜浏览器降级。
+
 ## v4.3.2 - 2026-07-01
 
 - 新增 `--report-style classic|committee`：经典六模块与投委会报告可显式切换。

@@ -40,6 +40,15 @@ def is_historical_date(trade_date: str) -> bool:
     return trade_date < datetime.now().strftime("%Y%m%d")
 
 
+def _days_from_today(trade_date: str) -> int:
+    requested = datetime.strptime(trade_date, "%Y%m%d")
+    return (datetime.now() - requested).days
+
+
+def _is_recent_historical(trade_date: str, max_days: int = 7) -> bool:
+    return is_historical_date(trade_date) and _days_from_today(trade_date) <= max_days
+
+
 def _valid_index_row(row: dict[str, Any]) -> bool:
     try:
         price = float(row.get("f2"))
@@ -76,17 +85,28 @@ def _quote_from_history_rows(
     trade_date: str,
     source: str,
     turnover_from_last: bool = False,
+    allow_nearest: bool = False,
+    max_gap_days: int = 5,
 ) -> QuoteData | None:
     target = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
     eligible = [row for row in rows if row and str(row[0]) <= target]
-    if not eligible or str(eligible[-1][0]) != target:
+    if not eligible:
         return None
+    if str(eligible[-1][0]) != target:
+        if not allow_nearest:
+            return None
+        from datetime import datetime
+
+        actual = datetime.strptime(str(eligible[-1][0]), "%Y-%m-%d")
+        requested = datetime.strptime(target, "%Y-%m-%d")
+        if (requested - actual).days > max_gap_days:
+            return None
     last = eligible[-1]
     previous_close = float(eligible[-2][2]) if len(eligible) >= 2 else None
     price = float(last[2])
     change = price - previous_close if previous_close not in (None, 0) else None
     change_pct = change / previous_close * 100 if change is not None and previous_close else None
-    return QuoteData(
+    quote = QuoteData(
         symbol=symbol,
         name=name,
         market=market,
@@ -104,6 +124,10 @@ def _quote_from_history_rows(
         source=source,
         source_chain=[source],
     )
+    if str(last[0]) != target:
+        quote.quality_flags.append("nearest_available_kline")
+        quote.fallback_reason = f"kline_date={last[0]}"
+    return quote
 
 
 def _fetch_tencent_historical_quote(
@@ -115,6 +139,7 @@ def _fetch_tencent_historical_quote(
     currency: str,
     trade_date: str,
     turnover_from_last: bool = False,
+    allow_nearest: bool = False,
 ) -> QuoteData | None:
     try:
         rows, payload = _tencent_history(code, trade_date)
@@ -129,7 +154,8 @@ def _fetch_tencent_historical_quote(
         currency=currency,
         trade_date=trade_date,
         source="tencent-kline",
-        turnover_from_last=turnover_from_last,
+        turnover_from_last=turnover_from_last or code.startswith(("sh", "sz", "hk")),
+        allow_nearest=allow_nearest,
     )
 
 
@@ -245,6 +271,26 @@ def fetch_single_quote(symbol: str, trade_date: str) -> QuoteData | None:
     return adapt_quote(core.get_single_stock_quote(symbol, trade_date))
 
 
+def _merge_index_turnover(rows: list[dict[str, Any]], trade_date: str) -> list[dict[str, Any]]:
+    if not rows or any(row.get("f6") for row in rows):
+        return rows
+    try:
+        em_rows = market_core.get_index(trade_date)
+    except Exception:
+        return rows
+    turnover_by_symbol = {
+        str(item.get("f12") or ""): item.get("f6")
+        for item in em_rows
+        if item.get("f12") and item.get("f6") is not None
+    }
+    for row in rows:
+        em_turnover = turnover_by_symbol.get(str(row.get("f12") or ""))
+        if em_turnover is not None:
+            row["f6"] = em_turnover
+            row["_turnover_source"] = "eastmoney"
+    return rows
+
+
 def fetch_a_indices(trade_date: str) -> list[dict[str, Any]]:
     if is_historical_date(trade_date):
         result = []
@@ -268,9 +314,11 @@ def fetch_a_indices(trade_date: str) -> list[dict[str, Any]]:
                         "f6": quote.turnover,
                         "_source": quote.source,
                         "_source_date": trade_date,
+                        "_quality_flags": list(quote.quality_flags),
+                        "_fallback_reason": quote.fallback_reason,
                     }
                 )
-        return result
+        return _merge_index_turnover(result, trade_date)
     core = market_core
     rows = core._fetch_a_indices_tencent()
     source = "tencent"
@@ -288,7 +336,7 @@ def fetch_a_indices(trade_date: str) -> list[dict[str, Any]]:
 
 def fetch_hk_indices(trade_date: str) -> list[QuoteData]:
     if is_historical_date(trade_date):
-        return [
+        rows = [
             quote
             for code, (symbol, name) in HK_INDEX_HISTORY.items()
             if (
@@ -300,9 +348,18 @@ def fetch_hk_indices(trade_date: str) -> list[QuoteData]:
                     currency="HKD",
                     trade_date=trade_date,
                     turnover_from_last=True,
+                    allow_nearest=True,
                 )
             )
         ]
+        if rows:
+            return rows
+        # 腾讯 K 线滞后时，回退到实时港股指数并标注最近可用。
+        live_rows = fetch_hk_indices(datetime.now().strftime("%Y%m%d"))
+        for quote in live_rows:
+            quote.quality_flags.append("nearest_available_live")
+            quote.fallback_reason = f"requested={trade_date}"
+        return live_rows
     core = market_core
     mapping = {
         "^HSI": "恒生指数",
@@ -344,13 +401,27 @@ def fetch_us_indices(trade_date: str) -> list[QuoteData]:
 
 
 def fetch_board_list(board_type: str, trade_date: str, limit: int = 20) -> dict[str, Any]:
-    if is_historical_date(trade_date):
+    normalized_type = "concept" if board_type == "concept" else "industry"
+    if is_historical_date(trade_date) and not _is_recent_historical(trade_date):
         return {
-            "board_type": board_type,
+            "board_type": normalized_type,
             "rows": [],
-            "_unavailable": "板块榜接口不支持历史日期，已禁止混用实时数据",
+            "_unavailable": "远期历史板块榜无缓存，禁止混用实时数据",
         }
-    return market_core.get_board_list(board_type, trade_date, limit=limit)
+    if is_historical_date(trade_date):
+        cached = market_core.cache_load("board_list", f"{trade_date}_{normalized_type}", "eastmoney_clist")
+        if cached and cached.get("rows"):
+            cached = dict(cached)
+            cached["_source_note"] = "历史板块榜来自本地缓存"
+            return cached
+    result = market_core.get_board_list(board_type, trade_date, limit=limit)
+    if is_historical_date(trade_date) and not result.get("rows"):
+        result = dict(result or {"board_type": normalized_type, "rows": []})
+        result.setdefault(
+            "_unavailable",
+            "历史板块榜无缓存；请在交易日收盘后运行一次以写入缓存，或启用 STOCK_ANALYSIS_BROWSER_FALLBACK=1",
+        )
+    return result
 
 
 def fetch_fund_flow(trade_date: str) -> dict[str, Any]:

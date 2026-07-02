@@ -367,7 +367,7 @@ def _build_lens_context_with_fallback(
     mode: str | None,
     portfolio_snapshot: dict[str, Any] | None = None,
 ) -> tuple[LensContext, dict[str, Any] | None]:
-    public_pulses = _portfolio_public_pulses(portfolio_snapshot)
+    public_pulses = _public_pulses(evidence, portfolio_snapshot)
     try:
         return LensEngine(lens=lens, lenses=lenses, mode=mode).build_context(
             evidence,
@@ -403,6 +403,13 @@ def _portfolio_public_pulses(portfolio_snapshot: dict[str, Any] | None) -> list[
     return [detail["public_pulse"] for detail in details if isinstance(detail.get("public_pulse"), dict)]
 
 
+def _public_pulses(evidence: EvidenceBundle, portfolio_snapshot: dict[str, Any] | None) -> list[dict[str, Any]]:
+    meta_pulses = (evidence.meta or {}).get("portfolio_public_pulse") or []
+    if meta_pulses:
+        return [pulse for pulse in meta_pulses if isinstance(pulse, dict)]
+    return _portfolio_public_pulses(portfolio_snapshot)
+
+
 def _render_lens_report(
     *,
     trade_date: str,
@@ -431,9 +438,11 @@ def _render_lens_report(
     if fallback:
         lines.append(f"**降级说明**：committee 构建失败，已降级为 single/{fallback['fallback_lens']}。")
     lines.append("")
-    if quality.degrade_mode == "degraded":
+    if quality.degrade_mode == "degraded" and quality.missing_modules:
         missing = "、".join(MODULE_LABELS.get(value, value) for value in quality.missing_modules)
         lines.extend([f"> 本模块证据暂缺：{missing}。正文仅呈现可验证信息。", ""])
+    elif quality.degrade_mode == "degraded":
+        lines.extend(["> 部分证据字段不完整，正文仅呈现可验证信息。", ""])
     elif quality.degrade_mode == "simplified":
         lines.extend(["> 本模块证据暂缺，报告聚焦指数、持仓和风险控制。", ""])
 
@@ -949,6 +958,26 @@ def _append_lens_advice(lines: list[str], evidence: EvidenceBundle, portfolio_sn
 
 
 def render_report(
+    *,
+    trade_date: str,
+    session_label: str,
+    evidence: EvidenceBundle,
+    quality: EvidenceQuality,
+    portfolio_snapshot: dict[str, Any],
+    report_format: str,
+) -> str:
+    """Backward-compatible alias; all reports use the committee structure."""
+    return render_report_with_metadata(
+        trade_date=trade_date,
+        session_label=session_label,
+        evidence=evidence,
+        quality=quality,
+        portfolio_snapshot=portfolio_snapshot,
+        report_format=report_format,
+    ).markdown
+
+
+def _render_classic_report_legacy(
     *,
     trade_date: str,
     session_label: str,

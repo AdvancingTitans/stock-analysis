@@ -1,68 +1,58 @@
-# fix: report quality, graded evidence scoring, and classic report style
+# fix: M7 market sentiment, M2/HK evidence gaps, unified committee report (v4.3.6)
 
-## 背景
+## 问题与根因
 
-基于 2026-07-01 实盘复盘与 Agent 集成反馈，当前 v4.3.1/v4.4.0 存在以下用户可见问题：
-
-1. **M1「看起来缺失」**：投委会报告 M1 小节只有 committee 文案，指数表被挪到前一节；成交额/广度/港股缺失但 M1 仍满分。
-2. **M2 真缺失**：板块榜空时 `missing_modules=["M2"]`，但 summary 仍像有板块数据；抗跌方向实际来自涨跌停主题 fallback。
-3. **M7 误导文案**：无持仓时 pulses 为空，却统一提示「缺少 Futu pulse」。
-4. **结论与证据矛盾**：经典六模块硬编码「A股整体强于港美、指数普涨」，与当日创业板/科创50 下跌不符。
-5. **产品契约错位**：用户要「六模块复盘」却默认输出投委会 9 章结构。
+| # | 现象 | 根因 |
+|---|---|---|
+| 1 | M7 社区情绪无数据 | `build_evidence()` 未跑市场级新闻管线；M7 仅依赖 `--with-holdings` 持仓 Futu pulse |
+| 2 | M2 板块榜暂缺 | 历史日期 `fetch_board_list()` 硬阻断 + `route_board_data` 对非当日直接返回空 |
+| 3 | 港股指数暂缺 | 历史 K 线要求精确交易日匹配；腾讯港股 K 线滞后 1 日时返回空 |
+| 4 | classic/committee 结构不一致 | `--report-style classic` 走独立 `render_report()` 六模块模板 |
+| 5 | 成交额为空/偏小 | 历史 A 股指数走 tencent-kline，未 merge 东财 `get_index` 的 `f6` 成交额 |
+| 6 | 顶部「本模块证据暂缺：。」 | `degrade_mode=degraded` 但 `missing_modules=[]` 时仍输出空列表文案 |
 
 ## 本 PR 改动
 
-### P0 正确性
+### M7 市场级情绪管线（P0）
+- 新增 `market_sentiment.py`：`fetch_market_sentiment()` 聚合富途/新浪/东财市场关键词新闻
+- `build_evidence()` 写入 `chinese_news_items`、`market_public_pulse`，并注入 `portfolio_public_pulse`
+- Committee M7 现可输出 `status: ok`、新闻样本数、关键标题（无持仓时也可用）
 
-| 改动 | 文件 |
-|---|---|
-| 删除硬编码盘面句，新增 `_market_trend_narrative()` 基于指数涨跌/炸板率生成 | `reporting.py` |
-| `cross_market_comment` 在港股/美股缺失时不做虚假三地比较 | `app.py` |
-| M1/M2 **分级评分** + `module_diagnostics` 写入 evidence `_meta` | `evidence.py` |
-| 板块榜缺失时报告标注「集中度来自涨跌停主题统计」 | `reporting.py` |
-| `sanitize_research_report` 不再把「来源：暂无」替换成「据公开市场数据」 | `research_style.py` |
-| M7 空样本区分 `market_sentiment_pipeline_not_run` vs `insufficient_samples` | `lens_engine.py` |
+### M2 板块榜（P0）
+- 近 7 日历史：优先读缓存 → 允许东财/同花顺实时回填（带 `_stale_warning`）
+- 远期历史（>7 日）：禁止混用实时数据，返回明确 `_unavailable`
+- `STOCK_ANALYSIS_BROWSER_FALLBACK=1` 启用浏览器降级
 
-### P1 产品化
+### 港股指数（P0）
+- 历史 K 线支持 `allow_nearest`（最近可用交易日，≤5 日）
+- K 线全空时回退实时港股指数并标注 `nearest_available_live`
 
-| 改动 | 文件 |
-|---|---|
-| 新增 `--report-style classic\|committee`（默认 committee） | `app.py` |
-| Committee 报告 `### M1` 补回指数/北向/广度表 | `reporting.py` |
-| `activated_modules` 仅反映 `available=true` 模块，不再混入 lens emphasize | `lens_engine.py` |
-| 缺失模块统一顶部告警 `_missing_module_notice()` | `reporting.py` |
-| M2 `available` 认可 fund_flow + concentration 部分可用 | `app.py` |
+### 报告结构统一（P1）
+- 移除 classic 独立输出路径；`render_report()` 统一委托 `render_report_with_metadata()`
+- `--report-style classic` 保留为兼容别名，实际输出投委会结构
 
-### 测试
+### 其他
+- A 股历史指数成交额强制 merge 东财 `get_index.f6`
+- 修复 degraded 空缺失列表顶部告警文案
 
-- `tests/test_evidence_quality.py` — M1/M2 分级评分
-- `tests/test_market_trend_narrative.py` — 动态盘面句
-- `tests/test_report_style_cli.py` — CLI 新参数
+## 验证
 
 ```bash
-uv run --with pytest pytest -q   # 72 passed
+uv run --with pytest pytest -q   # 79 passed
+
+uv run python -m stock_analysis --market daily --date 20260701 --format full --emit-evidence
+# 港股 3 项、M2 板块榜、M7 新闻 16 条、统一 committee 结构
 ```
 
-## 使用方式
+## 已知限制（后续 PR）
 
-```bash
-# 经典六模块（推荐给用户说「复盘报告」时）
-uv run python -m stock_analysis --market daily --format full --report-style classic --emit-evidence
-
-# 投委会（默认）
-uv run python -m stock_analysis --market daily --format full --report-style committee --emit-evidence
-```
-
-## 已知未覆盖（建议后续 PR）
-
-- [ ] 市场级 M7 新闻/社区抓取（财联社/东财 RSS 最小链路）
-- [ ] 指数报价 merge 成交额（避免 `tencent-kline` 路径 turnover=null）
-- [ ] MCP tool 暴露 `stock_daily_recap`，减少 Agent 对 shell CLI 依赖
-- [ ] `STOCK_ANALYSIS_BROWSER_FALLBACK=1` 文档化 + diagnose 板块榜探测
+- [ ] 社区情绪（雪球/股吧）仍为 registered 无样本；需独立抓取器
+- [ ] 历史板块榜依赖交易日缓存，首次远期复盘仍可能空
+- [ ] 港股 `nearest_available_kline` 与请求日可能差 1 个交易日
+- [ ] MCP tool 暴露 `stock_daily_recap` 减少 Agent shell 依赖
 
 ## Checklist
 
-- [x] 测试通过
-- [x] CHANGELOG 更新（v4.3.2）
-- [x] SKILL.md 补充 `--report-style`
-- [ ] Reviewer 确认分级评分阈值（M2 available >= 8 分）
+- [x] 79 tests passed
+- [x] CHANGELOG v4.3.6
+- [x] SKILL.md 更新（统一 committee 结构）

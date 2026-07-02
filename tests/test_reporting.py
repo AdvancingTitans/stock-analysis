@@ -138,8 +138,9 @@ def test_report_uses_tables_and_hides_source_language():
     assert "| 代码 | 新闻倾向 | 最新高信号事件 | 社区情绪 | 有效样本 | 证据 |" in report
     assert "[原文](https://news.futunn.com/post/1)" in report
     assert "| 股票 | 连板 | 封单金额 |" in report
-    assert "来源" not in report
+    assert "来源：" not in report
     assert "口径来自" not in report
+    assert "### M7. 社区情绪分析" in report
     assert "最新统计时点" not in report
     assert "标普500" in report
     assert "成交额 --" not in report
@@ -423,8 +424,8 @@ def test_key_points_stops_after_downside_module():
         portfolio_snapshot={"details": []},
         report_format="key-points",
     )
-    assert "### 4. 爆量下跌风险" in report
-    assert "### 5. 特征分组" not in report
+    assert "### M4. 爆量下跌风险" in report
+    assert "### M5. 特征分组" not in report
     assert "以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。" in report
 
 
