@@ -25,7 +25,7 @@ from .integrations import (
 from .market_time import detect_market_session, resolve_trade_date
 from .portfolio import build_portfolio_snapshot
 from .profile import load_holdings_from_profile
-from .reporting import render_diagnostics, render_report_with_metadata
+from .reporting import render_diagnostics, render_report, render_report_with_metadata
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -50,6 +50,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lens", help="Investor lens id for single mode, e.g. buffett")
     parser.add_argument("--mode", choices=["single", "committee", "adversarial"], help="Lens analysis mode")
     parser.add_argument("--lenses", help="Comma-separated lens ids for committee or adversarial mode")
+    parser.add_argument(
+        "--report-style",
+        default="committee",
+        choices=["classic", "committee"],
+        help="classic: six-module recap; committee: lens committee report (default)",
+    )
     parser.add_argument("--symbol", help="Symbol for --market stock or --market fund")
     parser.add_argument("--stock", dest="symbol", help="Alias for --symbol with --market stock")
     parser.add_argument("--fund", dest="symbol", help="Alias for --symbol with --market fund")
@@ -117,14 +123,23 @@ def build_evidence(trade_date: str, market: str, session_label: str, include_hol
         "cross_market_comment": _cross_market_comment(a_indices, hk_indices, us_indices),
     }
     _enrich_portfolio_benchmarks(portfolio_snapshot, m1)
+    has_board_rows = bool(industry.get("rows") or concept.get("rows"))
+    has_fund_flow = bool(
+        fund_flow.get("_concept_in")
+        or fund_flow.get("_concept_out")
+        or fund_flow.get("rows")
+    )
+    has_concentration = concentration.get("top1_ratio") is not None or concentration.get("top3_ratio") is not None
     m2 = {
-        "available": bool(industry.get("rows") or concept.get("rows")),
+        "available": has_board_rows or (has_fund_flow and has_concentration),
         "industry_top20": industry.get("rows", [])[:20],
         "concept_top20": concept.get("rows", [])[:20],
         "fund_flow": fund_flow,
         "concentration": concentration,
         "summary": _module2_summary(industry, concept, fund_flow, concentration),
         "fallback": industry.get("_fallback") or concept.get("_fallback"),
+        "board_rankings_available": has_board_rows,
+        "fund_flow_available": has_fund_flow,
     }
     m3 = {
         "available": bool((pools.get("zt", {}).get("data") or {}).get("pool")),
@@ -238,18 +253,38 @@ def run(argv: list[str] | None = None) -> int:
     if report_format == "auto":
         report_format = {"light": "summary", "medium": "key-points", "full": "full"}[session.depth]
     lenses = tuple(item.strip() for item in (args.lenses or "").split(",") if item.strip()) or None
-    result = render_report_with_metadata(
-        trade_date=trade_date,
-        session_label=session.label,
-        evidence=evidence,
-        quality=quality,
-        portfolio_snapshot=portfolio_snapshot,
-        report_format=report_format,
-        lens=args.lens,
-        lenses=lenses,
-        mode=args.mode,
-    )
-    print(result.markdown)
+    if args.report_style == "classic":
+        report_md = render_report(
+            trade_date=trade_date,
+            session_label=session.label,
+            evidence=evidence,
+            quality=quality,
+            portfolio_snapshot=portfolio_snapshot,
+            report_format=report_format,
+        )
+        evidence.meta["report_metadata"] = {
+            "report_date": trade_date,
+            "session": session.label,
+            "analysis_mode": "classic",
+            "analysis_mode_label": "经典六模块",
+            "quality_score": quality.total_score,
+            "missing_modules": quality.missing_modules,
+            "module_diagnostics": evidence.meta.get("module_diagnostics", {}),
+        }
+        print(report_md)
+    else:
+        result = render_report_with_metadata(
+            trade_date=trade_date,
+            session_label=session.label,
+            evidence=evidence,
+            quality=quality,
+            portfolio_snapshot=portfolio_snapshot,
+            report_format=report_format,
+            lens=args.lens,
+            lenses=lenses,
+            mode=args.mode,
+        )
+        print(result.markdown)
     if args.emit_evidence:
         base = Path.cwd()
         (base / f"evidence_{trade_date}.json").write_text(
@@ -410,12 +445,25 @@ def _source_events(
 
 
 def _cross_market_comment(a_indices: list[dict[str, Any]], hk_indices: list[dict[str, Any]], us_indices: list[dict[str, Any]]) -> str:
-    a_avg = _avg_pct(a_indices)
-    hk_avg = _avg_pct(hk_indices)
-    us_avg = _avg_pct(us_indices)
-    if us_avg > hk_avg > a_avg:
+    markets: list[tuple[str, float]] = []
+    if a_indices:
+        markets.append(("A股", _avg_pct(a_indices)))
+    if hk_indices:
+        markets.append(("港股", _avg_pct(hk_indices)))
+    if us_indices:
+        markets.append(("美股", _avg_pct(us_indices)))
+    if not markets:
+        return "主要市场指数暂不可用，建议先核验数据源后再做跨市场比较。"
+    if len(markets) < 3:
+        missing = sorted({"A股", "港股", "美股"} - {name for name, _ in markets})
+        leader = max(markets, key=lambda item: item[1])
+        return (
+            f"{'/'.join(missing)}指数暂缺；当前可得样本内{leader[0]}相对更强，跨市场结论仅供参考。"
+        )
+    ordered = sorted(markets, key=lambda item: item[1], reverse=True)
+    if ordered[0][0] == "美股" and ordered[1][0] == "港股" and ordered[2][0] == "A股":
         return "美股强于港股，港股强于A股，风险偏好更多集中在海外成长资产。"
-    if a_avg > hk_avg and a_avg > us_avg:
+    if ordered[0][0] == "A股":
         return "A股相对最强，若成交额配合，说明内资主线更清晰。"
     return "三地市场强弱分化，建议结合成交额和持仓暴露控制节奏。"
 

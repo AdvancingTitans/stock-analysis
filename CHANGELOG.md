@@ -1,5 +1,14 @@
 # Changelog
 
+## v4.3.2 - 2026-07-01
+
+- 新增 `--report-style classic|committee`：经典六模块与投委会报告可显式切换。
+- M1/M2 分级评分与 `module_diagnostics`：成交额、广度、板块榜缺失会扣分并写入 evidence `_meta`。
+- 删除经典/投委会报告中的硬编码盘面句，改为基于指数涨跌与炸板率动态生成。
+- 修复港股缺失时的 `cross_market_comment` 误判；板块榜缺失时标注「集中度来自涨跌停主题统计」。
+- Committee 报告 M1 小节补回指数/北向/广度表；`activated_modules` 与质量评分对齐。
+- M7 空样本文案区分「市场级情绪源未接入」与「样本不足」；sanitize 不再误伤「来源：暂无」。
+
 ## v4.3.5 - 2026-07-01
 
 - CLI 版本升至 `4.3.1`：M2 行业/概念板块榜新增同花顺公开页面 fallback，东财 `clist` 空响应时仍能生成板块证据。

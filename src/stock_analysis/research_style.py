@@ -19,7 +19,10 @@ STYLE_REPLACEMENTS = (
     (re.compile(r"fallback\s*到", re.IGNORECASE), "切换至"),
     (re.compile(r"被限流|被封(?:禁)?"), "数据源暂未更新"),
     (re.compile(r"口径来自[^，。；\n]+"), "据交易所及财经终端披露"),
-    (re.compile(r"(?:数据)?来源[：:]?\s*[^，。；\n]+", re.IGNORECASE), "据公开市场数据"),
+    (
+        re.compile(r"(?:数据)?来源[：:]\s*(?!暂无|缺失|不足|未接入)[^，。；\n]+", re.IGNORECASE),
+        "据公开市场数据",
+    ),
     (re.compile(r"\b(?:push2|exa)\b", re.IGNORECASE), "公开市场数据"),
     (re.compile(r"\baftermarket(?:\.py)?\b", re.IGNORECASE), ""),
     (re.compile(r"脚本"), ""),

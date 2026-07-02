@@ -212,9 +212,12 @@ def _attach_weight_adjustments(
 
 
 def _activated_modules(evidence: dict[str, Any], definitions: Any) -> tuple[str, ...]:
-    modules = {module for module in MODULES if isinstance(evidence.get(module), dict) and evidence[module].get("available", True)}
-    for definition in definitions:
-        modules.update(str(module).upper() for module in definition.get("analysis_modules_to_emphasize") or [])
+    del definitions
+    modules = {
+        module
+        for module in MODULES
+        if isinstance(evidence.get(module), dict) and evidence[module].get("available", True)
+    }
     return tuple(module for module in MODULES if module in modules)
 
 
@@ -299,8 +302,19 @@ def _community_sentiment_summary(
     chinese_framework = _chinese_data_source_framework(chinese_public)
     news_framework = _news_analysis_framework()
     if not pulses:
+        has_registered_news = bool(chinese_news_items)
+        has_registered_community = bool(chinese_community_items)
+        if has_registered_news or has_registered_community:
+            divergence_note = "已抓取部分中文新闻/社区样本，但有效标的样本不足，暂不放大情绪信号。"
+            reason = "insufficient_samples"
+        else:
+            divergence_note = (
+                "市场级情绪源未接入（默认日报未抓取新闻/社区；需持仓脉冲或显式开启市场情绪抓取）。"
+            )
+            reason = "market_sentiment_pipeline_not_run"
         return {
             "status": "insufficient",
+            "reason": reason,
             "overall_sentiment_score": 0.0,
             "overall_sentiment_band": "Neutral",
             "confidence": "low",
@@ -311,13 +325,13 @@ def _community_sentiment_summary(
                 "reddit": "not_integrated",
             },
             "source_breakdown": {
-                "news": {"sample_count": 0, "tone": "数据不足"},
-                "community": {"sample_count": 0, "tone": "数据不足"},
+                "news": {"sample_count": len(chinese_news_items or []), "tone": "数据不足"},
+                "community": {"sample_count": len(chinese_community_items or []), "tone": "数据不足"},
             },
             "key_sentiment_sources": [],
             "cross_source_divergences": [],
             "dominant_narratives": [],
-            "fundamental_sentiment_divergences": ["缺少 Futu news/community pulse，暂不放大情绪信号。"],
+            "fundamental_sentiment_divergences": [divergence_note],
             "sentiment_catalysts_or_risks": [],
             "sentiment_signal_table": [],
             "chinese_data_source_framework": chinese_framework,
