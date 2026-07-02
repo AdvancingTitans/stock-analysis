@@ -354,6 +354,7 @@ def render_report_with_metadata(
         default_committee=mode is None and not lens and not lenses and context.mode == "committee",
         fallback=fallback,
     )
+    metadata["module_diagnostics"] = evidence.meta.get("module_diagnostics", {})
     evidence.meta["report_metadata"] = metadata
     return ReportResult(markdown=markdown, metadata=metadata)
 
@@ -554,6 +555,9 @@ def _render_committee_review_report(
     lens_context: LensContext,
 ) -> str:
     lines = list(header_lines)
+    notice = _missing_module_notice(quality)
+    if notice:
+        lines.extend([notice, ""])
     lines.append("## 执行摘要")
     lines.append(_executive_summary(m1, m3, m4, m6, lens_context, quality))
     lines.append("投委会结论已综合多 lens 分工：护城河与安全边际、风险清单、商业本质、长期质量和宏观情景。")
@@ -593,12 +597,18 @@ def _render_committee_review_report(
         lines.append(deep_heading)
         summary_stop_heading = deep_heading
         lines.append("### M1. 基础数据与核心指标")
+        _append_index_table(lines, _index_rows(m1))
+        _append_northbound_table(lines, m1.get("northbound") or {})
+        _append_breadth_table(lines, m1.get("breadth") or {})
         lines.append(_format_m1_committee_analysis(m1))
+        lines.append(_market_trend_narrative(m1, m3, m4))
         lines.append("")
 
         lines.append("### M2. 板块资金与集中度")
         lines.append(f"=={m2.get('summary', '市场以结构性轮动为主。')}==")
         sector_rows = m2.get("industry_top20") or m2.get("concept_top20") or []
+        if not sector_rows:
+            lines.append("> 行业/概念板块榜暂缺；以下集中度来自涨跌停主题统计。")
         _append_sector_table(lines, sector_rows)
         lines.append(
             f"涨停主题 TOP1 占比 {float(concentration.get('top1_ratio') or 0):.1%}，"
@@ -718,6 +728,7 @@ def _report_metadata(
         "activated_modules": list(lens_context.activated_modules),
         "quality_score": quality.total_score,
         "missing_modules": quality.missing_modules,
+        "module_diagnostics": {},
         "evidence_quality_with_m7": {
             "module_scores": module_scores_with_m7,
             "total_score": sum(module_scores_with_m7.values()),
@@ -770,6 +781,60 @@ def _index_rows(m1: dict[str, Any]) -> list[dict[str, Any]]:
     for key in ("a_indices", "hk_indices", "us_indices"):
         rows.extend(item for item in m1.get(key, []) if isinstance(item, dict))
     return [row for row in rows if row.get("name") and row.get("price") is not None]
+
+
+def _change_pct_value(row: dict[str, Any]) -> float | None:
+    value = row.get("change_pct")
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _market_trend_narrative(m1: dict[str, Any], m3: dict[str, Any], m4: dict[str, Any]) -> str:
+    a_values = [
+        value
+        for row in m1.get("a_indices", [])
+        if (value := _change_pct_value(row)) is not None
+    ]
+    growth_values = [
+        value
+        for row in m1.get("a_indices", [])
+        if row.get("name") in {"创业板指", "科创50"} and (value := _change_pct_value(row)) is not None
+    ]
+    blowup = float((m4.get("pool_stats") or {}).get("blowup_ratio") or 0)
+    zt_count = int((m3.get("pool_stats") or {}).get("zt_count") or m3.get("zt_count") or 0)
+    parts: list[str] = []
+    if a_values:
+        positives = sum(1 for value in a_values if value > 0)
+        negatives = sum(1 for value in a_values if value < 0)
+        a_avg = sum(a_values) / len(a_values)
+        if positives and negatives:
+            parts.append("A股指数分化，权重端与成长端走势不一致")
+        elif growth_values and sum(growth_values) / len(growth_values) < 0 and a_avg > 0:
+            parts.append("A股指数分化，权重端与成长端走势不一致")
+        elif a_avg >= 0.3:
+            parts.append("A股主要指数均值偏强")
+        elif a_avg <= -0.3:
+            parts.append("A股主要指数均值偏弱")
+        else:
+            parts.append("A股主要指数窄幅波动")
+    if blowup >= 0.25:
+        parts.append(f"短线炸板率约 {blowup:.1%}，高位接力容错率偏低")
+    elif zt_count >= 80:
+        parts.append(f"涨停样本 {zt_count} 家，短线活跃度较高")
+    if not parts:
+        return str(m1.get("cross_market_comment") or "市场以结构性轮动为主，建议结合成交额与主线持续性确认。")
+    return "；".join(parts) + "。"
+
+
+def _missing_module_notice(quality: EvidenceQuality) -> str | None:
+    if not quality.missing_modules:
+        return None
+    labels = "、".join(MODULE_LABELS.get(module, module) for module in quality.missing_modules)
+    return f"> 本报告缺失模块：{labels}。相关判断已降级，并尽量标注数据来源。"
 
 
 def _executive_summary(
@@ -893,10 +958,10 @@ def render_report(
     report_format: str,
 ) -> str:
     lines: list[str] = [f"# 全球市场复盘研报（{trade_date} {session_label}）", ""]
-    if quality.degrade_mode == "degraded":
-        missing = "、".join(MODULE_LABELS.get(value, value) for value in quality.missing_modules)
-        lines.extend([f"> 本模块证据暂缺：{missing}。正文仅呈现可验证信息。", ""])
-    elif quality.degrade_mode == "simplified":
+    notice = _missing_module_notice(quality)
+    if notice:
+        lines.extend([notice, ""])
+    if quality.degrade_mode == "simplified":
         lines.extend(["> 本模块证据暂缺，报告聚焦指数、持仓和风险控制。", ""])
 
     m1 = evidence.modules.get("M1", {})
@@ -944,14 +1009,13 @@ def render_report(
         summary_stop_heading = deep_heading
         lines.append("### 1. 盘面趋势")
         lines.append(f"=={m2.get('summary', '市场以结构性轮动为主。')}==")
-        lines.append(
-            "A股主要指数整体强于港股和美股，成长风格的弹性更突出。指数普涨与高炸板率并存，"
-            "说明市场风险偏好回升，但短线筹码并未完全稳定。"
-        )
+        lines.append(_market_trend_narrative(m1, m3, m4))
         lines.append("")
 
         lines.append("### 2. 集中度分析")
         sector_rows = m2.get("industry_top20") or m2.get("concept_top20") or []
+        if not sector_rows:
+            lines.append("> 行业/概念板块榜暂缺；以下集中度来自涨跌停主题统计。")
         _append_sector_table(lines, sector_rows)
         lines.append(
             f"涨停主题 TOP1 占比 {float(concentration.get('top1_ratio') or 0):.1%}，"

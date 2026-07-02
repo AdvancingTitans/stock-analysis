@@ -1,6 +1,35 @@
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _project_version() -> str:
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    match = re.search(r'^version = "([^"]+)"$', pyproject, re.MULTILINE)
+    assert match
+    return match.group(1)
+
+
+def test_release_version_metadata_stays_in_sync():
+    version = _project_version()
+    init_file = (ROOT / "src" / "stock_analysis" / "__init__.py").read_text(encoding="utf-8")
+    futu_public = (ROOT / "src" / "stock_analysis" / "futu_public.py").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert f'__version__ = "{version}"' in init_file
+    assert f"stock-analysis/{version} (Skill)" in futu_public
+    assert f"当前 CLI 版本为 `{version}`" in readme
+
+
+def test_changelog_top_entry_matches_latest_project_version():
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    versions = re.findall(r"^## v(\d+\.\d+\.\d+) - ", changelog, re.MULTILINE)
+    assert versions
+    latest = max(tuple(int(part) for part in version.split(".")) for version in versions)
+
+    assert versions[0] == _project_version()
+    assert tuple(int(part) for part in versions[0].split(".")) == latest
 
 
 def test_package_does_not_require_young_stock_cli_dependency():
