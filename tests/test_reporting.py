@@ -203,6 +203,8 @@ def test_report_result_defaults_to_committee_and_returns_metadata_json():
     assert "社区情绪" not in result.markdown
     assert "m1 综合深度分析" in result.markdown
     assert "m6 综合风险评分" in result.markdown
+    assert "证据附录" not in result.markdown
+    assert "- m1–m6 原始数据及本次报告调整记录：" not in result.markdown
     assert result.metadata["analysis_mode"] == "committee"
     assert result.metadata["analysis_mode_label"] == "投委会（默认）"
     assert result.metadata["lenses"][:4] == ["buffett", "munger", "duan_yongping", "zhang_kun"]
@@ -251,11 +253,12 @@ def test_default_committee_report_uses_m1_m6_deep_review_structure():
     assert positions == sorted(positions)
     assert "## 2. 分析视角说明" not in result.markdown
     assert "evidence_quality_with_m7" not in result.metadata
-    assert "- m1–m6 原始数据及本次报告调整记录：" in result.markdown
+    assert "证据附录" not in result.markdown
+    assert "- m1–m6 原始数据及本次报告调整记录：" not in result.markdown
     assert "社区情绪分析数据来源与方法说明" not in result.markdown
-    assert "- 各 lens 证据权重调整明细：" in result.markdown
-    assert "- 主要交叉验证与分歧调和记录：" in result.markdown
-    assert "- 免责声明与数据来源：" in result.markdown
+    assert "- 各 lens 证据权重调整明细：" not in result.markdown
+    assert "- 主要交叉验证与分歧调和记录：" not in result.markdown
+    assert "- 免责声明与数据来源：" not in result.markdown
 
 
 def test_committee_full_report_keeps_fixed_structure_when_holdings_quality_is_simplified():
@@ -493,7 +496,54 @@ def test_summary_keeps_mandatory_disclaimer():
     assert "## 一、盘前资讯与外围线索" in report
     assert "## 三、盘前预判与观察清单" in report
     assert "## 二、六模块深度复盘" not in report
+    assert "证据附录" not in report
+    assert "- m1–m6 原始数据及本次报告调整记录：" not in report
     assert "以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。" in report
+
+
+def test_summary_includes_holdings_section_when_portfolio_is_available():
+    evidence = _sample_evidence()
+    report = render_report(
+        trade_date="20260617",
+        session_label="早盘",
+        evidence=evidence,
+        quality=EvidenceQuality(
+            module_scores={"M1": 20, "M2": 20, "M3": 20, "M4": 15, "M5": 15, "M6": 10},
+            missing_modules=[],
+        ),
+        portfolio_snapshot={
+            "details": [
+                {
+                    "symbol": "600519",
+                    "name": "贵州茅台",
+                    "market": "a",
+                    "buy_date": "2026-01-15",
+                    "quantity": 100,
+                    "current_price": 1240,
+                    "change_pct": -1.25,
+                    "currency": "CNY",
+                    "daily_pnl_original": -1575,
+                    "trend": "震荡",
+                    "benchmark_name": "上证指数",
+                    "relative_label": "跑输",
+                    "relative_pct": -1.65,
+                }
+            ],
+            "top3_ratio": 1,
+            "dominant_ratio": 1,
+        },
+        report_format="summary",
+    )
+
+    headings = [
+        "## 一、盘前资讯与外围线索",
+        "## 二、行业动态与主线板块",
+        "## 三、持仓分析",
+        "## 四、盘前预判与观察清单",
+    ]
+    positions = [report.index(heading) for heading in headings]
+    assert positions == sorted(positions)
+    assert "| 代码 | 名称 | 市场 | 买入日 | 数量 | 现价 | 当日涨跌 | 当日浮盈/亏 | 趋势 |" in report
 
 
 def test_key_points_uses_intraday_briefing_structure():
@@ -513,7 +563,55 @@ def test_key_points_uses_intraday_briefing_structure():
     assert "## 三、赚钱效应与风险监控" in report
     assert "## 四、盘中预判与观察清单" in report
     assert "### M5. 特征分组" not in report
+    assert "证据附录" not in report
+    assert "- m1–m6 原始数据及本次报告调整记录：" not in report
     assert "以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。" in report
+
+
+def test_key_points_includes_holdings_section_when_portfolio_is_available():
+    evidence = _sample_evidence()
+    report = render_report(
+        trade_date="20260617",
+        session_label="盘中",
+        evidence=evidence,
+        quality=EvidenceQuality(
+            module_scores={"M1": 20, "M2": 20, "M3": 20, "M4": 15, "M5": 15, "M6": 10},
+            missing_modules=[],
+        ),
+        portfolio_snapshot={
+            "details": [
+                {
+                    "symbol": "600519",
+                    "name": "贵州茅台",
+                    "market": "a",
+                    "buy_date": "2026-01-15",
+                    "quantity": 100,
+                    "current_price": 1240,
+                    "change_pct": -1.25,
+                    "currency": "CNY",
+                    "daily_pnl_original": -1575,
+                    "trend": "震荡",
+                    "benchmark_name": "上证指数",
+                    "relative_label": "跑输",
+                    "relative_pct": -1.65,
+                }
+            ],
+            "top3_ratio": 1,
+            "dominant_ratio": 1,
+        },
+        report_format="key-points",
+    )
+
+    headings = [
+        "## 一、盘中市场快照",
+        "## 二、行业动态与主线板块",
+        "## 三、赚钱效应与风险监控",
+        "## 四、持仓分析",
+        "## 五、盘中预判与观察清单",
+    ]
+    positions = [report.index(heading) for heading in headings]
+    assert positions == sorted(positions)
+    assert "| 代码 | 名称 | 基准指数 | 跑赢/跑输(pp) |" in report
 
 
 def test_style_distribution_is_value_weighted():

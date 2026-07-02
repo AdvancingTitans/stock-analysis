@@ -13,6 +13,7 @@
 | 美股行情 | 新浪 | 腾讯 | 东财 searchapi + `stock/get` | 页面接管 |
 | 港股历史 K | 腾讯 `fqkline` | 东财可用数据 | - | - |
 | 美股历史 K | 新浪日 K | 东财可用数据 | - | - |
+| 基金画像 | 天天基金 `pingzhongdata` 公开 JS | 东财基金估值/持仓 | 新浪基金 | 页面接管 |
 
 Yahoo 不进入推荐路径、报告、示例或当前技术分析实现。
 
@@ -61,6 +62,12 @@ Yahoo 不进入推荐路径、报告、示例或当前技术分析实现。
 
 - 港美股东财 `stock/get` fallback 先用 searchapi `type=14` 解析 `MktNum`：`105/106/107` 为美股，`116` 为港股。
 - 静态大票映射仍保留；searchapi 用于补足 BABA、五位港股代码和未内置标的。
+
+## 基金画像
+
+- `https://fund.eastmoney.com/pingzhongdata/{code}.js` 免登录、无需 API key，可补充长期业绩、前端费率（前端申购费）、规模、业绩评价和现任基金经理画像。
+- 若字段缺失，只保留空单元格，不用同类均值或其他基金数据猜测。
+- 参考 `taxueseek/fund-investment-guide` 的基金三关框架时，只采纳公开免登录字段；其 `mkapi2` + `EASTMONEY_APIKEY` 路径不作为本技能默认数据源。
 
 ## 浏览器边界
 

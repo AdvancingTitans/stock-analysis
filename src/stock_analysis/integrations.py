@@ -453,6 +453,10 @@ def fetch_fund_estimate(code: str, trade_date: str) -> dict[str, Any]:
     return market_core.fetch_fund_estimate(code, trade_date)
 
 
+def fetch_fund_profile(code: str, trade_date: str) -> dict[str, Any]:
+    return market_core.fetch_fund_profile(code, trade_date)
+
+
 def fetch_fund_holdings(code: str, trade_date: str, limit: int = 10) -> dict[str, Any]:
     return market_core.fetch_fund_holdings(code, trade_date, limit=limit)
 

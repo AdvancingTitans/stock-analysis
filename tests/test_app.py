@@ -2,6 +2,7 @@ from datetime import datetime
 from unittest.mock import patch
 
 from stock_analysis.app import (
+    _append_fund_profile_tables,
     _market_breadth,
     _normalize_trade_date,
     _pool_statistics,
@@ -11,7 +12,7 @@ from stock_analysis.app import (
     run,
 )
 from stock_analysis.market_time import detect_market_session
-from stock_analysis.models import QuoteData
+from stock_analysis.models import Holding, QuoteData
 
 
 def test_report_format_defaults_to_session_aware_auto():
@@ -67,9 +68,12 @@ def test_pool_statistics_use_actual_board_count_and_standard_blowup_rate():
     assert stats["blowup_ratio"] == 1 / 3
 
 
-def test_market_loads_holdings_only_when_explicitly_requested():
-    assert _should_include_holdings("a", explicitly_requested=False) is False
-    assert _should_include_holdings("hk", explicitly_requested=False) is False
+def test_market_loads_memory_holdings_when_user_input_is_absent():
+    with patch(
+        "stock_analysis.trading.load_holdings_from_profile",
+        return_value=[Holding(symbol="600519", asset_type="stock", market="a", quantity=10, buy_date="20260601")],
+    ):
+        assert _should_include_holdings("a", explicitly_requested=False) is True
     assert _should_include_holdings("hk", explicitly_requested=True) is True
 
 
@@ -125,6 +129,7 @@ def test_fund_market_renders_deterministic_fund_view(capsys):
             "stock_analysis.app.fetch_fund_holding_quotes",
             return_value={"600519": QuoteData(symbol="600519", price=1240.5, change_pct=-1.25)},
         ),
+        patch("stock_analysis.app.fetch_fund_profile", return_value={}),
     ):
         assert run(["--market", "fund", "--fund", "161725", "--date", "20260618"]) == 0
 
@@ -132,6 +137,70 @@ def test_fund_market_renders_deterministic_fund_view(capsys):
     assert "# 基金速览（20260618）" in output
     assert "| 161725 | 招商中证白酒指数 | 1.23 CNY | +0.56% | 20260618 |" in output
     assert "| 600519 | 贵州茅台 | 14.20% | 1,240.50 | -1.25% |" in output
+
+
+def test_fund_market_renders_public_profile_enrichment(capsys):
+    with (
+        patch(
+            "stock_analysis.app.fetch_fund_estimate",
+            return_value={
+                "name": "易方达优质精选混合(QDII)",
+                "nav": 1.2345,
+                "date": "2026-06-18",
+                "_source": "天天基金实时估值",
+            },
+        ),
+        patch("stock_analysis.app.fetch_fund_holdings", return_value={"holdings": []}),
+        patch("stock_analysis.app.fetch_fund_holding_quotes", return_value={}),
+        patch(
+            "stock_analysis.app.fetch_fund_profile",
+            return_value={
+                "returns": {"近1月": -12.79, "近3月": -20.24, "近6月": -25.77, "近1年": -19.87},
+                "fees": {"front_end_source_rate_pct": 1.5, "front_end_rate_pct": 0.15},
+                "scale": {"latest_size_yi": 95.44, "asof": "2026-03-31", "mom": "-16.17%"},
+                "performance_evaluation": {"average_score": 77.75, "metrics": {"收益率": 80.0}},
+                "managers": [
+                    {
+                        "name": "张坤",
+                        "work_time": "13年又280天",
+                        "fund_size": "416.72亿(4只基金)",
+                        "score": 65.62,
+                        "tenure_return_pct": 295.6454,
+                    }
+                ],
+            },
+        ),
+    ):
+        assert run(["--market", "fund", "--fund", "110011", "--date", "20260618"]) == 0
+
+    output = capsys.readouterr().out
+    assert "## 长期业绩与费率" in output
+    assert "| 近1年 | -19.87% |" in output
+    assert "| 前端申购费 | 1.50% | 0.15% |" in output
+    assert "| 最新规模 | 95.44亿 | 2026-03-31 | -16.17% |" in output
+    assert "## 基金经理" in output
+    assert "| 张坤 | 13年又280天 | 416.72亿(4只基金) | 65.62 | +295.65% |" in output
+
+
+def test_fund_profile_tables_skip_empty_public_profile():
+    lines = []
+
+    _append_fund_profile_tables(
+        lines,
+        {
+            "returns": {},
+            "fees": {
+                "front_end_source_rate_pct": None,
+                "front_end_rate_pct": None,
+                "min_purchase_cny": None,
+            },
+            "scale": {},
+            "performance_evaluation": {"average_score": None, "metrics": {}},
+            "managers": [],
+        },
+    )
+
+    assert lines == []
 
 
 def test_m1_remains_available_when_indices_exist_but_breadth_is_missing():

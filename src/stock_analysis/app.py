@@ -16,6 +16,7 @@ from .integrations import (
     fetch_fund_flow,
     fetch_fund_holding_quotes,
     fetch_fund_holdings,
+    fetch_fund_profile,
     fetch_hk_indices,
     fetch_limit_pools,
     fetch_northbound_flow,
@@ -23,9 +24,11 @@ from .integrations import (
     fetch_us_indices,
 )
 from .market_time import detect_market_session, resolve_trade_date
+from .models import Holding
 from .portfolio import build_portfolio_snapshot
 from .profile import load_holdings_from_profile
 from .reporting import render_diagnostics, render_report_with_metadata
+from .trading import IncompleteHoldingsError, parse_user_holdings_json, plan_trading_task, resolve_holdings
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,6 +47,10 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["auto", "summary", "key-points", "full"],
     )
     parser.add_argument("--with-holdings", action="store_true", help="Load local stock-analysis investment memory")
+    parser.add_argument(
+        "--holdings-json",
+        help="Structured user holdings JSON; complete input overrides local investment memory",
+    )
     parser.add_argument("--disable-mootdx", action="store_true")
     parser.add_argument("--enable-mootdx", action="store_true")
     parser.add_argument("--emit-evidence", action="store_true")
@@ -97,8 +104,14 @@ def _quote_payload(quote) -> dict[str, Any]:
     }
 
 
-def build_evidence(trade_date: str, market: str, session_label: str, include_holdings: bool) -> tuple[EvidenceBundle, dict[str, Any]]:
-    holdings = load_holdings_from_profile() if include_holdings else []
+def build_evidence(
+    trade_date: str,
+    market: str,
+    session_label: str,
+    include_holdings: bool,
+    holdings: list[Holding] | None = None,
+) -> tuple[EvidenceBundle, dict[str, Any]]:
+    holdings = holdings if holdings is not None else (load_holdings_from_profile() if include_holdings else [])
     portfolio_snapshot = build_portfolio_snapshot(holdings, trade_date) if holdings else {"details": []}
 
     a_indices = _a_indices_payload(trade_date)
@@ -246,27 +259,39 @@ def run(argv: list[str] | None = None) -> int:
         print(_render_fund_snapshot(args.symbol, trade_date))
         return 0
 
+    lenses = tuple(item.strip() for item in (args.lenses or "").split(",") if item.strip()) or None
+    try:
+        user_holdings = parse_user_holdings_json(args.holdings_json) if args.holdings_json else None
+        plan = plan_trading_task(
+            cli_market=args.market,
+            session=session,
+            requested_format=args.report_format,
+            user_holdings=user_holdings,
+            lens=args.lens,
+            lenses=lenses,
+            mode=args.mode,
+        )
+    except (IncompleteHoldingsError, ValueError) as exc:
+        parser.error(str(exc))
+
     evidence, portfolio_snapshot = build_evidence(
         trade_date=trade_date,
         market=args.market,
-        session_label=session.label,
-        include_holdings=_should_include_holdings(args.market, args.with_holdings),
+        session_label=plan.session_label,
+        include_holdings=plan.include_holdings,
+        holdings=plan.holdings,
     )
     quality = evidence.quality()
-    report_format = args.report_format
-    if report_format == "auto":
-        report_format = {"light": "summary", "medium": "key-points", "full": "full"}[session.depth]
-    lenses = tuple(item.strip() for item in (args.lenses or "").split(",") if item.strip()) or None
     result = render_report_with_metadata(
         trade_date=trade_date,
-        session_label=session.label,
+        session_label=plan.session_label,
         evidence=evidence,
         quality=quality,
         portfolio_snapshot=portfolio_snapshot,
-        report_format=report_format,
+        report_format=plan.report_format,
         lens=args.lens,
         lenses=lenses,
-        mode=args.mode,
+        mode=plan.mode,
     )
     print(result.markdown)
     if args.emit_evidence:
@@ -285,7 +310,9 @@ def run(argv: list[str] | None = None) -> int:
 
 def _should_include_holdings(market: str, explicitly_requested: bool) -> bool:
     del market
-    return explicitly_requested
+    if explicitly_requested:
+        return True
+    return resolve_holdings(user_holdings=None).include_holdings
 
 
 def _render_stock_snapshot(symbol: str, trade_date: str) -> str:
@@ -329,6 +356,7 @@ def _render_stock_snapshot(symbol: str, trade_date: str) -> str:
 
 def _render_fund_snapshot(code: str, trade_date: str) -> str:
     estimate = fetch_fund_estimate(code, trade_date)
+    profile = fetch_fund_profile(code, trade_date)
     holdings = fetch_fund_holdings(code, trade_date, limit=5).get("holdings") or []
     quotes = fetch_fund_holding_quotes(holdings, trade_date)
     normalized_date = _normalize_trade_date(estimate.get("date")) or trade_date
@@ -348,6 +376,7 @@ def _render_fund_snapshot(code: str, trade_date: str) -> str:
             ),
         ]
     )
+    _append_fund_profile_tables(lines, profile)
     if holdings:
         lines.extend(
             [
@@ -373,6 +402,62 @@ def _render_fund_snapshot(code: str, trade_date: str) -> str:
         lines.extend(["", "重仓股暂不可用；已保留缺口，不用零值替代。"])
     lines.extend(["", "以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。"])
     return "\n".join(lines)
+
+
+def _append_fund_profile_tables(lines: list[str], profile: dict[str, Any]) -> None:
+    returns = profile.get("returns") or {}
+    fees = profile.get("fees") or {}
+    scale = profile.get("scale") or {}
+    performance = profile.get("performance_evaluation") or {}
+    managers = profile.get("managers") or []
+    has_fees = fees.get("front_end_source_rate_pct") is not None or fees.get("front_end_rate_pct") is not None
+    has_scale = scale.get("latest_size_yi") is not None or bool(scale.get("asof") or scale.get("mom"))
+    metrics = performance.get("metrics") or {}
+    has_performance = performance.get("average_score") is not None or bool(metrics)
+    if returns or has_fees or has_scale or has_performance:
+        lines.extend(["", "## 长期业绩与费率"])
+    if returns:
+        lines.extend(["| 区间 | 收益率 |", "|---|---:|"])
+        for label in ("近1月", "近3月", "近6月", "近1年"):
+            if label in returns:
+                lines.append(f"| {label} | {_format_pct(returns[label])} |")
+    if has_fees:
+        source_rate = fees.get("front_end_source_rate_pct")
+        current_rate = fees.get("front_end_rate_pct")
+        lines.extend(["", "| 费率项 | 原费率 | 当前费率 |", "|---|---:|---:|"])
+        lines.append(
+            f"| 前端申购费 | {_format_pct(source_rate, signed=False)} | "
+            f"{_format_pct(current_rate, signed=False)} |"
+        )
+    if has_scale:
+        lines.extend(["", "| 规模项 | 数值 | 截止日 | 环比 |", "|---|---:|---|---:|"])
+        size = _format_number(scale.get("latest_size_yi"))
+        lines.append(f"| 最新规模 | {f'{size}亿' if size else ''} | {scale.get('asof') or ''} | {scale.get('mom') or ''} |")
+    if has_performance:
+        lines.extend(["", "| 评价项 | 分数 |", "|---|---:|"])
+        if performance.get("average_score") is not None:
+            lines.append(f"| 综合评分 | {_format_number(performance.get('average_score'))} |")
+        for name, score in metrics.items():
+            lines.append(f"| {name} | {_format_number(score)} |")
+    if managers:
+        lines.extend(
+            [
+                "",
+                "## 基金经理",
+                "| 经理 | 从业/任职时间 | 管理规模 | 经理评分 | 任期收益 |",
+                "|---|---|---|---:|---:|",
+            ]
+        )
+        for manager in managers:
+            lines.append(
+                "| {name} | {work_time} | {fund_size} | {score} | {tenure_return} |".format(
+                    name=manager.get("name") or "",
+                    work_time=manager.get("work_time") or "",
+                    fund_size=manager.get("fund_size") or "",
+                    score=_format_number(manager.get("score")),
+                    tenure_return=_format_pct(manager.get("tenure_return_pct")),
+                )
+            )
 
 
 def _market_label(value: str) -> str:

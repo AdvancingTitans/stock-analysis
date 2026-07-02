@@ -90,3 +90,49 @@ def test_stock_get_quote_preserves_turnover_from_f48():
 
     assert quote.volume == 4567
     assert quote.turnover == 890000000
+
+
+def test_parse_fund_profile_js_extracts_public_performance_fee_and_manager_fields():
+    js = """
+    var fS_name = "易方达优质精选混合(QDII)";
+    var fS_code = "110011";
+    var fund_sourceRate="1.50";
+    var fund_Rate="0.15";
+    var fund_minsg="10";
+    var syl_1y="-12.79";
+    var syl_3y="-20.24";
+    var syl_6y="-25.77";
+    var syl_1n="-19.87";
+    var Data_fluctuationScale = {"categories":["2026-03-31"],"series":[{"y":95.44,"mom":"-16.17%"}]};
+    var Data_performanceEvaluation = {"avr":"77.75","categories":["选证能力","收益率"],"data":[50.0,80.0]};
+    var Data_currentFundManager =[
+      {"name":"张坤","star":4,"workTime":"13年又280天","fundSize":"416.72亿(4只基金)",
+       "power":{"avr":"65.62"},
+       "profit":{"series":[{"data":[{"y":295.6454},{"y":37.91},{"y":116.26}]}]}}
+    ] ;
+    """
+
+    profile = market_core.parse_fund_profile_js("110011", js)
+
+    assert profile["fundcode"] == "110011"
+    assert profile["name"] == "易方达优质精选混合(QDII)"
+    assert profile["returns"]["近1月"] == -12.79
+    assert profile["returns"]["近1年"] == -19.87
+    assert profile["fees"]["front_end_source_rate_pct"] == 1.5
+    assert profile["fees"]["front_end_rate_pct"] == 0.15
+    assert profile["scale"]["latest_size_yi"] == 95.44
+    assert profile["performance_evaluation"]["average_score"] == 77.75
+    assert profile["performance_evaluation"]["metrics"]["收益率"] == 80.0
+    assert profile["managers"][0]["name"] == "张坤"
+    assert profile["managers"][0]["tenure_return_pct"] == 295.6454
+
+
+def test_parse_fund_profile_js_ignores_null_manager_rows():
+    js = """
+    var fS_name = "样本基金";
+    var Data_currentFundManager =[null] ;
+    """
+
+    profile = market_core.parse_fund_profile_js("110011", js)
+
+    assert profile["managers"] == []

@@ -85,6 +85,27 @@ def test_skill_documents_fixed_committee_report_structure_and_advice_sections():
     assert "证据暂缺" in skill
     assert "证据暂缺" in readme
     assert "不得直接跳过大盘或六模块" in output_discipline
+    assert "证据附录不进入早盘、盘中、午间或盘后正文" in readme
+    assert "正文不输出证据附录" in skill
+    assert "不得输出“证据附录”章节" in output_discipline
+
+
+def test_skill_documents_public_fund_profile_source_contract():
+    skill = (ROOT / "skills" / "stock-analysis" / "SKILL.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    data_source_strategy = (
+        ROOT / "skills" / "stock-analysis" / "references" / "data-source-strategy.md"
+    ).read_text(encoding="utf-8")
+
+    for text in (skill, readme, data_source_strategy):
+        assert "pingzhongdata" in text
+        assert "长期业绩" in text
+        assert "前端费率" in text
+        assert "基金经理" in text
+        assert "无需 API key" in text or "不依赖登录或 API key" in text
+
+    assert "EASTMONEY_APIKEY" in data_source_strategy
+    assert "不作为本技能默认数据源" in data_source_strategy
 
 
 def test_skill_documents_user_triggered_complete_holding_contract():
@@ -97,12 +118,13 @@ def test_skill_documents_user_triggered_complete_holding_contract():
     ).read_text(encoding="utf-8")
 
     for text in (skill, output_discipline, portfolio_template):
-        assert "用户要求持仓分析" in text
+        assert "用户主动提供持仓" in text
         assert "股票代码、买入日期、买入数量或买入金额" in text
         assert "只提问一次" in text
         assert "普通市场复盘报告" in text
 
-    assert "没有主动要求持仓分析的用户不会被打扰" in skill
+    assert "用户本次输入的完整持仓" in skill
+    assert "不得回退使用旧投资记忆" in skill
     assert "缺失任意一项，不得进行收益计算" in skill
     assert "没有年份" in skill and "当前年份" in skill
     assert "人民币、港币还是美元" in skill
@@ -124,14 +146,15 @@ def test_skill_documents_explicit_investment_memory_contract():
         assert "STOCK_ANALYSIS_PROFILE" in text
         assert "股票代码、买入日期、买入数量或买入金额" in text
 
-    assert "持仓相关请求优先读取" in skill
-    assert "投资记忆不存在" in skill
+    assert "trading 入口" in skill
+    assert "用户完整持仓输入" in output_discipline
+    assert "投资记忆不存在或不完整" in skill
     assert "等待用户交互输入" in skill
-    assert "投资记忆有但信息不完整" in skill
+    assert "用户主动提供持仓相关内容但缺失核心字段" in skill
     assert "保存到本地投资记忆" in skill
     assert "投资记忆已保存本地" in skill
     assert "如需清空投资记忆请反馈" in skill
-    assert "普通行情复盘不得因为本机存在投资记忆而自动插入持仓绩效" in skill
+    assert "用户没有提供持仓时，才读取本地投资记忆" in skill
 
     assert "~/.young_stock/profile.json" not in skill
     assert "YOUNG_STOCK_PROFILE" not in skill

@@ -527,10 +527,6 @@ def _render_lens_report(
     _append_lens_advice(lines, evidence, portfolio_snapshot)
     lines.append("")
 
-    appendix_heading = "## 8. 证据附录"
-    lines.append(appendix_heading)
-    _append_evidence_appendix(lines, evidence, quality, lens_context, {})
-    lines.append("")
     lines.append("免责声明：以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。")
 
     disclaimer = "免责声明：以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。"
@@ -568,6 +564,7 @@ def _render_committee_review_report(
             header_lines=header_lines,
             evidence=evidence,
             quality=quality,
+            portfolio_snapshot=portfolio_snapshot,
             report_format=report_format,
             m1=m1,
             m2=m2,
@@ -721,9 +718,6 @@ def _render_committee_review_report(
         lines.append("- 控制追涨节奏，避免在单日情绪极端后忽视次日分化风险。")
     _append_bullets(lines, _risk_and_catalyst_lines(m3, m4, m6, {}))
     lines.append("")
-    lines.append("### 证据附录")
-    _append_evidence_appendix(lines, evidence, quality, lens_context, {})
-    lines.append("")
     lines.append("免责声明：以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。")
 
     return sanitize_research_report("\n".join(lines))
@@ -734,6 +728,7 @@ def _render_intraday_briefing_report(
     header_lines: list[str],
     evidence: EvidenceBundle,
     quality: EvidenceQuality,
+    portfolio_snapshot: dict[str, Any],
     report_format: str,
     m1: dict[str, Any],
     m2: dict[str, Any],
@@ -768,9 +763,22 @@ def _render_intraday_briefing_report(
         lines.append(f"- {_format_m6_committee_analysis(m6)}")
         lines.append(f"- {_market_trend_narrative(m1, m3, m4)}")
         lines.append("")
-        next_heading = "## 四、盘中预判与观察清单"
+        next_index = "四"
     else:
-        next_heading = "## 三、盘前预判与观察清单"
+        next_index = "三"
+
+    details = portfolio_snapshot.get("details") or []
+    if details:
+        lines.append(f"## {next_index}、持仓分析")
+        _append_holdings_table(lines, details)
+        lines.append("")
+        _append_portfolio_summary_table(lines, portfolio_snapshot)
+        lines.append("")
+        _append_relative_strength_table(lines, details)
+        lines.append("")
+        next_index = "五" if report_format == "key-points" else "四"
+
+    next_heading = f"## {next_index}、{'盘中' if report_format == 'key-points' else '盘前'}预判与观察清单"
 
     advice = evidence.meta.get("portfolio_advice_sections") or {}
     lines.append(next_heading)
@@ -782,9 +790,6 @@ def _render_intraday_briefing_report(
     lines.append("")
     lines.append("## 风险提示")
     _append_bullets(lines, _risk_and_catalyst_lines(m3, m4, m6, {}))
-    lines.append("")
-    lines.append("### 证据附录")
-    _append_evidence_appendix(lines, evidence, quality, lens_context, {})
     lines.append("")
     lines.append("免责声明：以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。")
     return sanitize_research_report("\n".join(lines))

@@ -232,6 +232,7 @@ FUND_NAV_HISTORY_URL = (
     "https://api.fund.eastmoney.com/f10/lsjz"
     "?fundCode={code}&pageIndex=1&pageSize=20&startDate={start}&endDate={end}&_={ts}"
 )
+FUND_PROFILE_URL = "https://fund.eastmoney.com/pingzhongdata/{code}.js?v={ts}"
 EM_KLINE_URL = (
     "https://push2his.eastmoney.com/api/qt/stock/kline/get"
     "?secid={secid}&fields1=f1,f2,f3,f4,f5,f6"
@@ -3589,6 +3590,107 @@ def fetch_fund_estimate(fund_code: str, date_str: str) -> dict[str, Any]:
         result["_date_note"] = "latest_available"
     cache_save(f"fund_estimate_{fund_code}", date_str, "eastmoney_fund", result)
     return result
+
+
+def parse_fund_profile_js(fund_code: str, raw: str) -> dict[str, Any]:
+    fund_code = normalize_fund_code(fund_code)
+    text = raw.lstrip("\ufeff")
+    returns = {
+        label: value
+        for label, var_name in (("近1月", "syl_1y"), ("近3月", "syl_3y"), ("近6月", "syl_6y"), ("近1年", "syl_1n"))
+        if (value := _safe_number(_js_string_var(text, var_name))) is not None
+    }
+    performance_raw = _js_json_var(text, "Data_performanceEvaluation") or {}
+    categories = performance_raw.get("categories") or []
+    scores = performance_raw.get("data") or []
+    performance = {
+        "average_score": _safe_number(performance_raw.get("avr")),
+        "metrics": {
+            str(name): _safe_number(score)
+            for name, score in zip(categories, scores, strict=False)
+            if name and _safe_number(score) is not None
+        },
+    }
+    scale_raw = _js_json_var(text, "Data_fluctuationScale") or {}
+    scale = _latest_fund_scale(scale_raw)
+    managers = [
+        _normalize_fund_manager(row)
+        for row in (_js_json_var(text, "Data_currentFundManager") or [])
+        if isinstance(row, dict)
+    ]
+    managers = [row for row in managers if row.get("name")]
+    return {
+        "fundcode": fund_code,
+        "name": _js_string_var(text, "fS_name") or fund_code,
+        "returns": returns,
+        "fees": {
+            "front_end_source_rate_pct": _safe_number(_js_string_var(text, "fund_sourceRate")),
+            "front_end_rate_pct": _safe_number(_js_string_var(text, "fund_Rate")),
+            "min_purchase_cny": _safe_number(_js_string_var(text, "fund_minsg")),
+        },
+        "scale": scale,
+        "performance_evaluation": performance,
+        "managers": managers,
+        "_source": "天天基金公开评估页",
+    }
+
+
+def fetch_fund_profile(fund_code: str, date_str: str) -> dict[str, Any]:
+    fund_code = normalize_fund_code(fund_code)
+    cached = cache_load(f"fund_profile_{fund_code}", date_str, "eastmoney_pingzhongdata", ttl=24 * 3600)
+    if cached:
+        return cached
+    url = FUND_PROFILE_URL.format(code=fund_code, ts=int(time.time() * 1000))
+    try:
+        raw = _fetch_raw(url, {"Referer": f"https://fund.eastmoney.com/{fund_code}.html"}, timeout=15)
+    except Exception as e:
+        diag(f"Fund profile {fund_code}: {e}")
+        return {"_error": str(e)}
+    result = parse_fund_profile_js(fund_code, raw)
+    cache_save(f"fund_profile_{fund_code}", date_str, "eastmoney_pingzhongdata", result)
+    return result
+
+
+def _js_string_var(text: str, name: str) -> str:
+    match = re.search(rf"var\s+{re.escape(name)}\s*=\s*\"(.*?)\"\s*;", text, re.DOTALL)
+    return html.unescape(match.group(1)) if match else ""
+
+
+def _js_json_var(text: str, name: str) -> Any:
+    match = re.search(rf"var\s+{re.escape(name)}\s*=\s*(.*?)\s*;", text, re.DOTALL)
+    if not match:
+        return None
+    try:
+        return json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return None
+
+
+def _latest_fund_scale(raw: dict[str, Any]) -> dict[str, Any]:
+    categories = raw.get("categories") or []
+    series = raw.get("series") or []
+    if not categories or not series:
+        return {}
+    latest = series[-1] or {}
+    return {
+        "asof": categories[-1],
+        "latest_size_yi": _safe_number(latest.get("y")),
+        "mom": latest.get("mom") or "",
+    }
+
+
+def _normalize_fund_manager(row: dict[str, Any]) -> dict[str, Any]:
+    profit_rows = (((row.get("profit") or {}).get("series") or [{}])[0].get("data") or [])
+    return {
+        "name": row.get("name") or "",
+        "star": row.get("star"),
+        "work_time": row.get("workTime") or "",
+        "fund_size": row.get("fundSize") or "",
+        "score": _safe_number((row.get("power") or {}).get("avr")),
+        "tenure_return_pct": _safe_number((profit_rows[0] if len(profit_rows) > 0 else {}).get("y")),
+        "same_type_avg_pct": _safe_number((profit_rows[1] if len(profit_rows) > 1 else {}).get("y")),
+        "benchmark_return_pct": _safe_number((profit_rows[2] if len(profit_rows) > 2 else {}).get("y")),
+    }
 
 
 def _html_to_text(value: str) -> str:
