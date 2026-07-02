@@ -1,5 +1,12 @@
 # Changelog
 
+## v4.3.7 - 2026-07-02
+
+- 删除默认报告中的 M7/社区情绪分析模块，报告 metadata 不再输出 `evidence_quality_with_m7` 或 `community_sentiment_summary`。
+- 默认 evidence 构建不再抓取市场级社区情绪，减少慢源和空样本对报告稳定性的影响。
+- `summary` 与 `key-points` 改为盘前/盘中简报结构：外围线索、主线板块、赚钱效应/风险监控和观察清单。
+- 持仓公开信息脉冲只展示新闻倾向、最新高信号事件和原文证据。
+
 ## v4.3.6 - 2026-07-02
 
 - 新增市场级 M7 情绪管线：`fetch_market_sentiment()` 聚合东财/新浪/富途市场新闻，写入 `chinese_news_items` 与 `market_public_pulse`。

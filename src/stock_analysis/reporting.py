@@ -245,8 +245,8 @@ def _append_public_pulse_table(lines: list[str], details: list[dict[str, Any]]) 
     lines.extend(
         [
             "### 持仓公开信息脉冲",
-            "| 代码 | 新闻倾向 | 最新高信号事件 | 社区情绪 | 有效样本 | 证据 |",
-            "|---|---|---|---|---:|---|",
+            "| 代码 | 新闻倾向 | 最新高信号事件 | 证据 |",
+            "|---|---|---|---|",
         ]
     )
     for detail in visible:
@@ -256,12 +256,8 @@ def _append_public_pulse_table(lines: list[str], details: list[dict[str, Any]]) 
         evidence = f"[原文]({url})" if url else ""
         lines.append(
             f"| {detail.get('symbol') or ''} | {pulse.get('news_tone') or ''} | "
-            f"{event} | {pulse.get('community_label') or ''} | "
-            f"{pulse.get('community_sample_count') if pulse.get('community_sample_count') is not None else ''} | "
-            f"{evidence} |"
+            f"{event} | {evidence} |"
         )
-    lines.append("")
-    lines.append("> 社区情绪仅代表富途公开讨论样本；少于 3 条精确匹配的有效帖子时不计算多空比例。")
 
 
 def _market_label(value: Any) -> str:
@@ -468,7 +464,6 @@ def _render_lens_report(
     m4 = modules.get("M4", {})
     m5 = modules.get("M5", {})
     m6 = modules.get("M6", {})
-    sentiment = lens_context.community_sentiment_summary
 
     if lens_context.mode == "committee":
         return _render_committee_review_report(
@@ -483,7 +478,6 @@ def _render_lens_report(
             m4=m4,
             m5=m5,
             m6=m6,
-            sentiment=sentiment,
             lens_context=lens_context,
         )
 
@@ -519,28 +513,23 @@ def _render_lens_report(
     _append_sector_table(lines, sector_rows)
     lines.append("")
 
-    if lens_context.mode == "committee":
-        lines.append("## 6. 社区情绪分析")
-        lines.extend(_community_sentiment_lines(sentiment))
-        lines.append("")
-
-    risk_heading = "## 7. 风险，催化剂与缓解措施" if lens_context.mode == "committee" else "## 6. 风险，催化剂与缓解措施"
+    risk_heading = "## 6. 风险，催化剂与缓解措施"
     lines.append(risk_heading)
     lines.append(f"=={m4.get('summary', '风险主要集中在高位分歧。')}==")
     if lens_context.mode == "committee":
         lines.append(_format_m6_committee_analysis(m6))
-    _append_bullets(lines, _risk_and_catalyst_lines(m3, m4, m6, sentiment))
+    _append_bullets(lines, _risk_and_catalyst_lines(m3, m4, m6, {}))
     lines.append("")
 
-    advice_heading = "## 8. 投资建议与仓位指导" if lens_context.mode == "committee" else "## 7. 投资建议与仓位指导"
+    advice_heading = "## 7. 投资建议与仓位指导"
     lines.append(advice_heading)
     lines.append("以下为多视角调和后的条件化结论，不作为无条件买卖指令。")
     _append_lens_advice(lines, evidence, portfolio_snapshot)
     lines.append("")
 
-    appendix_heading = "## 9. 证据附录" if lens_context.mode == "committee" else "## 8. 证据附录"
+    appendix_heading = "## 8. 证据附录"
     lines.append(appendix_heading)
-    _append_evidence_appendix(lines, evidence, quality, lens_context, sentiment)
+    _append_evidence_appendix(lines, evidence, quality, lens_context, {})
     lines.append("")
     lines.append("免责声明：以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。")
 
@@ -551,7 +540,7 @@ def _render_lens_report(
             compact.extend(["", disclaimer])
         return sanitize_research_report("\n".join(compact))
     if report_format == "key-points":
-        stop_heading = "## 7. 风险，催化剂与缓解措施" if lens_context.mode == "committee" else "## 6. 风险，催化剂与缓解措施"
+        stop_heading = "## 6. 风险，催化剂与缓解措施"
         compact = _section_prefix(lines, stop_heading)
         if disclaimer not in compact:
             compact.extend(["", disclaimer])
@@ -572,9 +561,22 @@ def _render_committee_review_report(
     m4: dict[str, Any],
     m5: dict[str, Any],
     m6: dict[str, Any],
-    sentiment: dict[str, Any],
     lens_context: LensContext,
 ) -> str:
+    if report_format in {"summary", "key-points"}:
+        return _render_intraday_briefing_report(
+            header_lines=header_lines,
+            evidence=evidence,
+            quality=quality,
+            report_format=report_format,
+            m1=m1,
+            m2=m2,
+            m3=m3,
+            m4=m4,
+            m6=m6,
+            lens_context=lens_context,
+        )
+
     lines = list(header_lines)
     notice = _missing_module_notice(quality)
     if notice:
@@ -607,9 +609,7 @@ def _render_committee_review_report(
         lines.append("")
 
     deep_heading = "## 三、六模块深度复盘" if has_holdings else "## 二、六模块深度复盘"
-    m7_heading = "## 四、M7 社区情绪分析" if has_holdings else "## 三、M7 社区情绪分析"
-    advice_heading = "## 五、综合持仓建议与风险提示" if has_holdings else "## 四、通用市场建议与风险提示"
-    summary_stop_heading = advice_heading
+    advice_heading = "## 四、综合持仓建议与风险提示" if has_holdings else "## 三、通用市场建议与风险提示"
 
     concentration = m2.get("concentration", {})
     stats = m3.get("pool_stats", {})
@@ -617,7 +617,6 @@ def _render_committee_review_report(
     features = m5.get("feature_groups", {})
 
     lines.append(deep_heading)
-    summary_stop_heading = deep_heading
     lines.append("### M1. 基础数据与核心指标")
     _append_index_table(lines, _index_rows(m1))
     _append_northbound_table(lines, m1.get("northbound") or {})
@@ -687,10 +686,6 @@ def _render_committee_review_report(
         lines.append("可继续观察：" + "、".join(resilient) + "。")
     lines.append("")
 
-    lines.append(m7_heading)
-    lines.extend(_community_sentiment_lines(sentiment))
-    lines.append("")
-
     advice = evidence.meta.get("portfolio_advice_sections") or {}
     lines.append(advice_heading)
     lines.append("### 现状总结")
@@ -709,13 +704,13 @@ def _render_committee_review_report(
     if has_holdings:
         _append_bullets_or_default(lines, advice.get("position_actions", []), "若持仓继续跑输对应基准且成交未改善，优先降低新增暴露；若放量修复，再评估分批调整。")
     else:
-        lines.append("- 若指数强弱、成交额和 M7 情绪同向改善，再考虑提高进攻性；若主线收缩或炸板率上升，维持防守仓位。")
+        lines.append("- 若指数强弱、成交额和主线持续性同向改善，再考虑提高进攻性；若主线收缩或炸板率上升，维持防守仓位。")
     lines.append("")
     lines.append("### 下一交易日观察清单")
     _append_bullets_or_default(
         lines,
         advice.get("watchlist", []),
-        "继续观察指数强弱、成交额变化、主线板块持续性和 M7 情绪是否与基本面互相确认。",
+        "继续观察指数强弱、成交额变化和主线板块持续性是否互相确认。",
     )
     lines.append("")
     lines.append("### 风险提示")
@@ -724,24 +719,74 @@ def _render_committee_review_report(
         _append_bullets(lines, risks)
     else:
         lines.append("- 控制追涨节奏，避免在单日情绪极端后忽视次日分化风险。")
-    _append_bullets(lines, _risk_and_catalyst_lines(m3, m4, m6, sentiment))
+    _append_bullets(lines, _risk_and_catalyst_lines(m3, m4, m6, {}))
     lines.append("")
     lines.append("### 证据附录")
-    _append_evidence_appendix(lines, evidence, quality, lens_context, sentiment)
+    _append_evidence_appendix(lines, evidence, quality, lens_context, {})
     lines.append("")
     lines.append("免责声明：以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。")
 
-    disclaimer = "免责声明：以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。"
-    if report_format == "summary":
-        compact = _section_prefix(lines, summary_stop_heading)
-        if disclaimer not in compact:
-            compact.extend(["", disclaimer])
-        return sanitize_research_report("\n".join(compact))
+    return sanitize_research_report("\n".join(lines))
+
+
+def _render_intraday_briefing_report(
+    *,
+    header_lines: list[str],
+    evidence: EvidenceBundle,
+    quality: EvidenceQuality,
+    report_format: str,
+    m1: dict[str, Any],
+    m2: dict[str, Any],
+    m3: dict[str, Any],
+    m4: dict[str, Any],
+    m6: dict[str, Any],
+    lens_context: LensContext,
+) -> str:
+    lines = list(header_lines)
+    title = "## 一、盘前资讯与外围线索" if report_format == "summary" else "## 一、盘中市场快照"
+    lines.append(title)
+    _append_index_table(lines, _index_rows(m1))
+    _append_northbound_table(lines, m1.get("northbound") or {})
+    lines.append("")
+    lines.append(f"=={m1.get('cross_market_comment', '三地市场强弱分化，需结合成交额确认。')}==")
+    lines.append(_market_trend_narrative(m1, m3, m4))
+    lines.append("")
+
+    lines.append("## 二、行业动态与主线板块")
+    if m2.get("available") is False:
+        lines.append("==板块证据暂缺，主线判断只保留观察框架。==")
+    else:
+        lines.append(f"=={m2.get('summary', '市场以结构性轮动为主。')}==")
+    sector_rows = m2.get("industry_top20") or m2.get("concept_top20") or []
+    _append_sector_table(lines, sector_rows, limit=8)
+    lines.append("")
+
     if report_format == "key-points":
-        compact = _section_prefix(lines, "### M5. 特征分组")
-        if disclaimer not in compact:
-            compact.extend(["", disclaimer])
-        return sanitize_research_report("\n".join(compact))
+        lines.append("## 三、赚钱效应与风险监控")
+        lines.append(f"=={m3.get('summary', '活跃资金仍在寻找高辨识度方向。')}==")
+        _append_leader_table(lines, (m3.get("pool_stats") or {}).get("leaders", [])[:6])
+        lines.append(f"- {_format_m6_committee_analysis(m6)}")
+        lines.append(f"- {_market_trend_narrative(m1, m3, m4)}")
+        lines.append("")
+        next_heading = "## 四、盘中预判与观察清单"
+    else:
+        next_heading = "## 三、盘前预判与观察清单"
+
+    advice = evidence.meta.get("portfolio_advice_sections") or {}
+    lines.append(next_heading)
+    _append_bullets_or_default(
+        lines,
+        advice.get("watchlist", []),
+        "观察指数强弱、成交额变化、主线板块持续性和炸板率变化。",
+    )
+    lines.append("")
+    lines.append("## 风险提示")
+    _append_bullets(lines, _risk_and_catalyst_lines(m3, m4, m6, {}))
+    lines.append("")
+    lines.append("### 证据附录")
+    _append_evidence_appendix(lines, evidence, quality, lens_context, {})
+    lines.append("")
+    lines.append("免责声明：以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。")
     return sanitize_research_report("\n".join(lines))
 
 
@@ -755,7 +800,6 @@ def _report_metadata(
     fallback: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     adjusted = lens_context.adjusted_evidence
-    module_scores_with_m7 = {**quality.module_scores, "M7": _m7_quality_score(lens_context.community_sentiment_summary)}
     metadata = {
         "report_date": _display_date(trade_date),
         "session": session_label,
@@ -767,15 +811,10 @@ def _report_metadata(
         "quality_score": quality.total_score,
         "missing_modules": quality.missing_modules,
         "module_diagnostics": {},
-        "evidence_quality_with_m7": {
-            "module_scores": module_scores_with_m7,
-            "total_score": sum(module_scores_with_m7.values()),
-        },
         "committee_deep_analysis": {
             "m1": ((adjusted.get("M1") or {}).get("committee_deep_analysis") or {}),
             "m6": ((adjusted.get("M6") or {}).get("committee_deep_analysis") or {}),
         },
-        "community_sentiment_summary": lens_context.community_sentiment_summary,
         "debate_or_synthesis_notes": lens_context.debate_or_synthesis_notes,
         "lens_adjustments": (adjusted.get("_meta") or {}).get("lens_weight_adjustments", {}),
     }
@@ -951,20 +990,14 @@ def _append_evidence_appendix(
 ) -> None:
     meta = evidence.meta or {}
     adjusted = lens_context.adjusted_evidence
-    module_names = [module for module in (*MODULE_LABELS, "M7") if module == "M7" or module in evidence.modules]
+    module_names = [module for module in MODULE_LABELS if module in evidence.modules]
     diagnostics = meta.get("module_diagnostics") or {}
     source_events = meta.get("source_events") or []
     lines.append(
-        "- m1–m7 原始数据及本次报告调整记录："
+        "- m1–m6 原始数据及本次报告调整记录："
         f"模块={', '.join(module_names)}；质量分={quality.total_score}；"
         f"缺失={quality.missing_modules or '无'}；诊断={diagnostics}；"
-        f"来源事件数={len(source_events)}；M7评分={_m7_quality_score(sentiment)}。"
-    )
-    lines.append(
-        "- 社区情绪分析数据来源与方法说明："
-        f"来源覆盖={sentiment.get('source_coverage', {})}；"
-        f"新闻/社区样本={sentiment.get('source_breakdown', {})}；"
-        "方法=预抓新闻与社区样本，区分事件与观点，按样本量、方向分歧和置信度调和。"
+        f"来源事件数={len(source_events)}。"
     )
     lines.append(
         "- 各 lens 证据权重调整明细："
@@ -973,12 +1006,11 @@ def _append_evidence_appendix(
     lines.append(
         "- 主要交叉验证与分歧调和记录："
         f"M1={((adjusted.get('M1') or {}).get('committee_deep_analysis') or {}).get('anomalies', [])}；"
-        f"M6={((adjusted.get('M6') or {}).get('committee_deep_analysis') or {}).get('conflict_reconciliation', [])}；"
-        f"M7={sentiment.get('cross_source_divergences', [])}。"
+        f"M6={((adjusted.get('M6') or {}).get('committee_deep_analysis') or {}).get('conflict_reconciliation', [])}。"
     )
     lines.append(
         "- 免责声明与数据来源："
-        "行情、新闻和社区讨论来自公开市场数据与已注册中文财经来源；"
+        "行情和新闻来自公开市场数据与已注册中文财经来源；"
         "以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。"
     )
 

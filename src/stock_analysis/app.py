@@ -22,7 +22,6 @@ from .integrations import (
     fetch_single_quote,
     fetch_us_indices,
 )
-from .market_sentiment import fetch_market_sentiment
 from .market_time import detect_market_session, resolve_trade_date
 from .portfolio import build_portfolio_snapshot
 from .profile import load_holdings_from_profile
@@ -174,14 +173,7 @@ def build_evidence(trade_date: str, market: str, session_label: str, include_hol
         for detail in portfolio_snapshot.get("details", [])
         if detail.get("public_pulse")
     ]
-    market_sentiment = fetch_market_sentiment(trade_date)
-    chinese_news_items = market_sentiment.get("chinese_news_items") or []
-    chinese_community_items = market_sentiment.get("chinese_community_items") or []
-    market_pulse = market_sentiment.get("market_public_pulse")
-    if market_pulse:
-        public_pulses = [market_pulse, *public_pulses]
     source_events = _source_events(a_indices, hk_indices, us_indices, industry, concept)
-    source_events.extend(market_sentiment.get("source_events") or [])
     if public_pulses:
         source_events.append(
             {
@@ -198,13 +190,11 @@ def build_evidence(trade_date: str, market: str, session_label: str, include_hol
             "trade_date": trade_date,
             "session": session_label,
             "source_events": source_events,
-            "portfolio_public_pulse": public_pulses,
-            "chinese_news_items": chinese_news_items,
-            "chinese_community_items": chinese_community_items,
-            "market_public_pulse": market_pulse,
             "portfolio_advice_sections": _portfolio_advice_sections(portfolio_snapshot, m1, m2, m3, m4),
         },
     )
+    if public_pulses:
+        evidence.meta["portfolio_public_pulse"] = public_pulses
     return evidence, portfolio_snapshot
 
 

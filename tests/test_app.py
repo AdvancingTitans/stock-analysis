@@ -187,17 +187,10 @@ def test_m4_remains_available_when_risk_pool_returns_counts_without_rows():
                 "zb": {"data": {"tc": 0, "pool": []}},
             },
         ),
-        patch(
-            "stock_analysis.app.fetch_market_sentiment",
-            return_value={
-                "chinese_news_items": [],
-                "chinese_community_items": [],
-                "market_public_pulse": None,
-                "source_events": [],
-            },
-        ),
     ):
         evidence, _ = build_evidence("20260618", "a", "午间", False)
 
     assert evidence.modules["M4"]["available"] is True
     assert evidence.modules["M4"]["dt_count"] == 2
+    assert "market_public_pulse" not in evidence.meta
+    assert "chinese_community_items" not in evidence.meta

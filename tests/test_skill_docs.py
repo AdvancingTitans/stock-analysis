@@ -62,7 +62,6 @@ def test_skill_documents_lens_engine_natural_language_committee_contract():
         assert "用巴菲特模式分析" in text
         assert "用 adversarial 模式让巴菲特和芒格辩论" in text
         assert "m1/m6 综合深度分析" in text
-        assert "社区情绪分析" in text
         assert "committee 失败时降级为 single" in text
 
 
@@ -77,7 +76,6 @@ def test_skill_documents_fixed_committee_report_structure_and_advice_sections():
         assert "执行摘要" in text
         assert "大盘指数概览" in text
         assert "六模块深度复盘" in text
-        assert "M7 社区情绪分析" in text
         assert "现状总结" in text
         assert "基准跑赢/跑输" in text
         assert "条件化仓位动作" in text
@@ -86,7 +84,7 @@ def test_skill_documents_fixed_committee_report_structure_and_advice_sections():
 
     assert "证据暂缺" in skill
     assert "证据暂缺" in readme
-    assert "不得直接跳过大盘、六模块或 M7" in output_discipline
+    assert "不得直接跳过大盘或六模块" in output_discipline
 
 
 def test_skill_documents_user_triggered_complete_holding_contract():

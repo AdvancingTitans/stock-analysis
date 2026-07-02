@@ -135,13 +135,13 @@ def test_report_uses_tables_and_hides_source_language():
     assert "| 总市值(CNY) | 总浮盈/亏 | 前三大占比 | 单一市场最高暴露 | 风格暴露 |" in report
     assert "| 代码 | 名称 | 基准指数 | 跑赢/跑输(pp) |" in report
     assert "| 600519 | 贵州茅台 | 上证指数 | -1.65 |" in report
-    assert "| 代码 | 新闻倾向 | 最新高信号事件 | 社区情绪 | 有效样本 | 证据 |" in report
+    assert "| 代码 | 新闻倾向 | 最新高信号事件 | 证据 |" in report
     assert "[原文](https://news.futunn.com/post/1)" in report
     assert "| 股票 | 连板 | 封单金额 |" in report
     assert "来源：API" not in report
     assert "口径来自" not in report
-    assert "## 四、M7 社区情绪分析" in report
-    assert "社区有效样本少于 3 条" in report
+    assert "M7" not in report
+    assert "社区情绪" not in report
     assert "最新统计时点" not in report
     assert "标普500" in report
     assert "成交额 --" not in report
@@ -199,20 +199,21 @@ def test_report_result_defaults_to_committee_and_returns_metadata_json():
     assert "**分析模式**：投委会（默认）" in result.markdown
     assert "## 执行摘要" in result.markdown
     assert "## 一、大盘指数概览" in result.markdown
-    assert "## 三、M7 社区情绪分析" in result.markdown
+    assert "M7" not in result.markdown
+    assert "社区情绪" not in result.markdown
     assert "m1 综合深度分析" in result.markdown
     assert "m6 综合风险评分" in result.markdown
-    assert "情绪与基本面分歧" in result.markdown
     assert result.metadata["analysis_mode"] == "committee"
     assert result.metadata["analysis_mode_label"] == "投委会（默认）"
     assert result.metadata["lenses"][:4] == ["buffett", "munger", "duan_yongping", "zhang_kun"]
     assert result.metadata["committee_deep_analysis"]["m1"]["trend_consistency"]["direction"]
     assert result.metadata["committee_deep_analysis"]["m6"]["risk_score"] >= 0
-    assert result.metadata["community_sentiment_summary"]["overall_sentiment_score"] >= 0
+    assert "community_sentiment_summary" not in result.metadata
+    assert "evidence_quality_with_m7" not in result.metadata
     assert evidence.meta["report_metadata"]["analysis_mode"] == "committee"
 
 
-def test_default_committee_report_uses_m1_m7_deep_review_structure():
+def test_default_committee_report_uses_m1_m6_deep_review_structure():
     evidence = _sample_evidence()
     evidence.meta["portfolio_public_pulse"] = [
         {
@@ -244,16 +245,14 @@ def test_default_committee_report_uses_m1_m7_deep_review_structure():
         "## 执行摘要",
         "## 一、大盘指数概览",
         "## 二、六模块深度复盘",
-        "## 三、M7 社区情绪分析",
-        "## 四、通用市场建议与风险提示",
+        "## 三、通用市场建议与风险提示",
     ]
     positions = [result.markdown.index(heading) for heading in headings]
     assert positions == sorted(positions)
     assert "## 2. 分析视角说明" not in result.markdown
-    assert "M7" in result.metadata["evidence_quality_with_m7"]["module_scores"]
-    assert result.metadata["evidence_quality_with_m7"]["total_score"] > result.metadata["quality_score"]
-    assert "- m1–m7 原始数据及本次报告调整记录：" in result.markdown
-    assert "- 社区情绪分析数据来源与方法说明：" in result.markdown
+    assert "evidence_quality_with_m7" not in result.metadata
+    assert "- m1–m6 原始数据及本次报告调整记录：" in result.markdown
+    assert "社区情绪分析数据来源与方法说明" not in result.markdown
     assert "- 各 lens 证据权重调整明细：" in result.markdown
     assert "- 主要交叉验证与分歧调和记录：" in result.markdown
     assert "- 免责声明与数据来源：" in result.markdown
@@ -304,8 +303,7 @@ def test_committee_full_report_keeps_fixed_structure_when_holdings_quality_is_si
         "### M4. 爆量下跌风险",
         "### M5. 特征分组",
         "### M6. 综合风险与抗跌方向",
-        "## 四、M7 社区情绪分析",
-        "## 五、综合持仓建议与风险提示",
+        "## 四、综合持仓建议与风险提示",
         "### 现状总结",
         "### 基准跑赢/跑输",
         "### 条件化仓位动作",
@@ -319,7 +317,7 @@ def test_committee_full_report_keeps_fixed_structure_when_holdings_quality_is_si
     assert "证据暂缺" in result.markdown
 
 
-def test_committee_sentiment_uses_portfolio_snapshot_pulses_when_meta_is_missing():
+def test_committee_report_ignores_portfolio_snapshot_sentiment_pulses():
     result = render_report_with_metadata(
         trade_date="20260617",
         session_label="盘后",
@@ -349,11 +347,9 @@ def test_committee_sentiment_uses_portfolio_snapshot_pulses_when_meta_is_missing
         report_format="full",
     )
 
-    sentiment = result.metadata["community_sentiment_summary"]
-    assert sentiment["status"] == "ok"
-    assert sentiment["source_coverage"]["news"] == "available"
-    assert sentiment["source_coverage"]["community"] == "available"
-    assert "缺少 Futu news/community pulse" not in result.markdown
+    assert "community_sentiment_summary" not in result.metadata
+    assert "社区情绪" not in result.markdown
+    assert "M7" not in result.markdown
 
 
 def test_generate_report_is_simple_llm_facing_entrypoint():
@@ -440,7 +436,7 @@ def test_report_renders_specific_portfolio_advice_sections():
         report_format="full",
     )
     assert "## 二、持仓分析" in report
-    assert "## 五、综合持仓建议与风险提示" in report
+    assert "## 四、综合持仓建议与风险提示" in report
     assert "现状总结" in report
     assert "贵州茅台跌1.25%" in report
     assert "基准跑赢/跑输" in report
@@ -467,8 +463,9 @@ def test_report_omits_portfolio_sections_without_holdings():
     assert "| 总市值(CNY) | 总浮盈/亏 | 前三大占比 | 单一市场最高暴露 | 风格暴露 |" not in report
     assert "| 代码 | 名称 | 基准指数 | 跑赢/跑输(pp) |" not in report
     assert "## 二、六模块深度复盘" in report
-    assert "## 三、M7 社区情绪分析" in report
-    assert "## 四、通用市场建议与风险提示" in report
+    assert "## 三、通用市场建议与风险提示" in report
+    assert "M7" not in report
+    assert "社区情绪" not in report
     assert "现状总结" in report
     assert "基准跑赢/跑输" in report
     assert "条件化仓位动作" in report
@@ -493,11 +490,13 @@ def test_summary_keeps_mandatory_disclaimer():
     assert "| 代码 | 名称 | 市场 | 买入日 | 数量 | 现价 | 当日涨跌 | 当日浮盈/亏 | 趋势 |" not in report
     assert "| 总市值(CNY) | 总浮盈/亏 | 前三大占比 | 单一市场最高暴露 | 风格暴露 |" not in report
     assert "| 代码 | 名称 | 基准指数 | 跑赢/跑输(pp) |" not in report
+    assert "## 一、盘前资讯与外围线索" in report
+    assert "## 三、盘前预判与观察清单" in report
     assert "## 二、六模块深度复盘" not in report
     assert "以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。" in report
 
 
-def test_key_points_stops_after_downside_module():
+def test_key_points_uses_intraday_briefing_structure():
     evidence = _sample_evidence()
     report = render_report(
         trade_date="20260617",
@@ -510,7 +509,9 @@ def test_key_points_stops_after_downside_module():
         portfolio_snapshot={"details": []},
         report_format="key-points",
     )
-    assert "### M4. 爆量下跌风险" in report
+    assert "## 一、盘中市场快照" in report
+    assert "## 三、赚钱效应与风险监控" in report
+    assert "## 四、盘中预判与观察清单" in report
     assert "### M5. 特征分组" not in report
     assert "以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。" in report
 

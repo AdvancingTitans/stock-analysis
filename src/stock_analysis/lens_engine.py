@@ -640,7 +640,6 @@ def _committee_notes(definitions: dict[str, dict[str, Any]]) -> list[str]:
     return [
         "committee synthesis: M1 uses cross-lens validation, trend consistency, and anomaly checks before conclusions.",
         "committee synthesis: M6 reconciles risk focus conflicts and produces a final risk score.",
-        "committee sentiment: Futu news and community pulse are aggregated before being compared with fundamentals.",
     ] + [f"{lens_id}: {definition.get('committee_role')}" for lens_id, definition in definitions.items()]
 
 
