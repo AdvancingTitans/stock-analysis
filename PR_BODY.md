@@ -63,6 +63,6 @@ uv run python -m stock_analysis --market daily --format full --report-style comm
 ## Checklist
 
 - [x] 测试通过
-- [x] CHANGELOG 更新（v4.3.2）
+- [x] CHANGELOG 更新（v4.3.6）
 - [x] SKILL.md 补充 `--report-style`
 - [ ] Reviewer 确认分级评分阈值（M2 available >= 8 分）

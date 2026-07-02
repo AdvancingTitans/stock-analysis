@@ -6,7 +6,7 @@
 - `simonlin1212/global-stock-data` 的新浪/腾讯/东财港美股映射
 - `a-stock-daily-market-sense` 的 6 模块 Evidence Pack 方法
 
-当前 CLI 版本为 `4.3.1`；Skill 规则版本为 `4.4.0`。
+当前 CLI 版本为 `4.3.6`；Skill 规则版本为 `4.4.0`。
 
 ## 已实现
 

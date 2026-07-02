@@ -1,6 +1,6 @@
 # Changelog
 
-## v4.3.2 - 2026-07-01
+## v4.3.6 - 2026-07-01
 
 - 新增 `--report-style classic|committee`：经典六模块与投委会报告可显式切换。
 - M1/M2 分级评分与 `module_diagnostics`：成交额、广度、板块榜缺失会扣分并写入 evidence `_meta`。
