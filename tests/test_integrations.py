@@ -1,6 +1,31 @@
 from stock_analysis import integrations, market_core
 
 
+def test_get_index_ignores_cached_rows_missing_configured_index(monkeypatch):
+    monkeypatch.setattr(
+        market_core,
+        "cache_load",
+        lambda *args, **kwargs: {"data": [{"f12": "000001", "f6": 1.0}]},
+    )
+    monkeypatch.setattr(
+        market_core,
+        "fetch_json",
+        lambda *args, **kwargs: {
+            "data": {
+                "diff": [
+                    {"f12": "000001", "f14": "上证指数", "f6": 1.0},
+                    {"f12": "000300", "f14": "沪深300", "f6": 2.0},
+                ]
+            }
+        },
+    )
+    monkeypatch.setattr(market_core, "cache_save", lambda *args, **kwargs: None)
+
+    rows = market_core.get_index("20260703")
+
+    assert any(row.get("f12") == "000300" for row in rows)
+
+
 def test_historical_board_list_never_uses_live_endpoint():
     result = integrations.fetch_board_list("industry", "20200102")
     assert result["rows"] == []
@@ -51,6 +76,27 @@ def test_board_list_falls_back_to_ths_when_eastmoney_clist_is_empty(monkeypatch)
     assert result["_fallback"] == "东财 clist 不可用，已启用同花顺板块页"
 
 
+def test_recent_historical_board_list_uses_ths_when_clist_is_empty(monkeypatch):
+    monkeypatch.setattr(integrations, "_is_recent_historical", lambda *args, **kwargs: True)
+    monkeypatch.setattr(integrations, "is_historical_date", lambda *args, **kwargs: True)
+    monkeypatch.setattr(market_core, "cache_load", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        market_core,
+        "get_board_list",
+        lambda *args, **kwargs: {"board_type": "industry", "rows": [], "_error": "empty clist"},
+    )
+    monkeypatch.setattr(
+        market_core,
+        "fetch_ths_board_list",
+        lambda *args, **kwargs: {"board_type": "industry", "rows": [{"name": "电机", "change_pct": 5.6}]},
+    )
+
+    result = integrations.fetch_board_list("industry", "20260703", limit=5)
+
+    assert result["rows"][0]["name"] == "电机"
+    assert result["_fallback"] == "近期历史板块榜无缓存，已使用同花顺公开页补全"
+
+
 def test_searchapi_resolves_global_stock_secid_from_eastmoney_payload(monkeypatch):
     monkeypatch.setattr(
         market_core,
@@ -90,6 +136,30 @@ def test_stock_get_quote_preserves_turnover_from_f48():
 
     assert quote.volume == 4567
     assert quote.turnover == 890000000
+
+
+def test_fund_nav_quote_prefers_official_daily_growth_when_split_happens(monkeypatch):
+    monkeypatch.setattr(market_core, "cache_load", lambda *args, **kwargs: None)
+    monkeypatch.setattr(market_core, "cache_save", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        market_core,
+        "fetch_json",
+        lambda *args, **kwargs: {
+            "Data": {
+                "LSJZList": [
+                    {"FSRQ": "2026-07-02", "DWJZ": "1.3447", "JZZZL": "-8.27", "FHSP": "每份基金份额分拆2.0份"},
+                    {"FSRQ": "2026-07-01", "DWJZ": "2.9318", "JZZZL": "-1.85"},
+                ]
+            }
+        },
+    )
+
+    quote = market_core.fetch_fund_nav_quote("512480", "20260702")
+
+    assert quote["nav"] == 1.3447
+    assert quote["previous_nav"] == 2.9318
+    assert quote["change_pct"] == -8.27
+    assert quote["split_note"] == "每份基金份额分拆2.0份"
 
 
 def test_parse_fund_profile_js_extracts_public_performance_fee_and_manager_fields():

@@ -100,7 +100,7 @@ NO_CACHE = False
 BROWSER_FALLBACK = os.environ.get("STOCK_ANALYSIS_BROWSER_FALLBACK", "").strip().lower() in {"1", "true", "yes", "on"}
 
 # A股配置
-INDEX_SECIDS = "1.000001,0.399001,0.399006,1.000688,0.399005,0.899050"
+INDEX_SECIDS = "1.000001,0.399001,0.399006,1.000300,1.000688,0.399005,0.899050"
 INDEX_FIELDS = "f2,f3,f4,f5,f6,f12,f14,f15,f16,f17,f18"
 
 ZT_URL = (
@@ -1537,6 +1537,7 @@ TENCENT_A_INDEX_MAP = {
     "sh000001": "000001",
     "sz399001": "399001",
     "sz399006": "399006",
+    "sh000300": "000300",
     "sh000688": "000688",
     "sz399005": "399005",
     "bj899050": "899050",
@@ -1919,8 +1920,13 @@ def get_index(date_str: str) -> list[dict[str, Any]]:
     if cached:
         cached_rows = cached.get("data")
         if isinstance(cached_rows, list):
-            return cached_rows
-        diag("Ignored cached A-share index because data is not a list")
+            cached_codes = {str(row.get("f12") or "") for row in cached_rows if isinstance(row, dict)}
+            expected_codes = {secid.split(".", 1)[1] for secid in INDEX_SECIDS.split(",") if "." in secid}
+            if expected_codes.issubset(cached_codes):
+                return cached_rows
+            diag("Ignored cached A-share index because configured index list changed")
+        else:
+            diag("Ignored cached A-share index because data is not a list")
 
     url = INDEX_URL.format(secids=INDEX_SECIDS, fields=INDEX_FIELDS, ts=datetime.now().timestamp())
     data = fetch_json(url, {"Referer": "https://quote.eastmoney.com/"})
@@ -1947,6 +1953,7 @@ _SINA_A_INDEX_MAP = {
     "s_sh000001": "000001",
     "s_sz399001": "399001",
     "s_sz399006": "399006",
+    "s_sh000300": "000300",
     "s_sh000688": "000688",
     "s_sz399005": "399005",
     "s_bj899050": "899050",
@@ -1994,40 +2001,46 @@ def _fetch_a_indices_sina() -> list[dict[str, Any]]:
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
 def get_zt_pool(date_str: str) -> dict[str, Any]:
-    cached = cache_load("zt_pool", date_str, "eastmoney")
-    if cached:
-        return cached
-    data = fetch_json(ZT_URL.format(date=date_str), {"Referer": "https://quote.eastmoney.com/"})
-    if "_error" not in data:
-        cache_save("zt_pool", date_str, "eastmoney", data)
-    else:
-        diag(f"Eastmoney ZT pool: {data['_error']}")
-    return data
+    return _get_limit_pool("zt_pool", ZT_URL, date_str, "ZT")
 
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
 def get_dt_pool(date_str: str) -> dict[str, Any]:
-    cached = cache_load("dt_pool", date_str, "eastmoney")
-    if cached:
-        return cached
-    data = fetch_json(DT_URL.format(date=date_str), {"Referer": "https://quote.eastmoney.com/"})
-    if "_error" not in data:
-        cache_save("dt_pool", date_str, "eastmoney", data)
-    else:
-        diag(f"Eastmoney DT pool: {data['_error']}")
-    return data
+    return _get_limit_pool("dt_pool", DT_URL, date_str, "DT")
 
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
 def get_zb_pool(date_str: str) -> dict[str, Any]:
-    cached = cache_load("zb_pool", date_str, "eastmoney")
-    if cached:
+    return _get_limit_pool("zb_pool", ZB_URL, date_str, "ZB")
+
+
+LIMIT_POOL_CACHE_VERSION = 2
+
+
+def _valid_limit_pool_payload(payload: dict[str, Any], date_str: str) -> bool:
+    if not isinstance(payload, dict) or "_error" in payload:
+        return False
+    data = payload.get("data") or {}
+    if not isinstance(data, dict):
+        return False
+    qdate = str(data.get("qdate") or "")
+    if qdate and qdate != date_str:
+        return False
+    return "tc" in data or bool(data.get("pool"))
+
+
+def _get_limit_pool(cache_name: str, url_template: str, date_str: str, label: str) -> dict[str, Any]:
+    cached = cache_load(cache_name, date_str, "eastmoney")
+    if cached and cached.get("_cache_version") == LIMIT_POOL_CACHE_VERSION and _valid_limit_pool_payload(cached, date_str):
         return cached
-    data = fetch_json(ZB_URL.format(date=date_str), {"Referer": "https://quote.eastmoney.com/"})
-    if "_error" not in data:
-        cache_save("zb_pool", date_str, "eastmoney", data)
-    else:
-        diag(f"Eastmoney ZB pool: {data['_error']}")
+    data = fetch_json(url_template.format(date=date_str), {"Referer": "https://quote.eastmoney.com/"})
+    if "_error" in data:
+        diag(f"Eastmoney {label} pool: {data['_error']}")
+        return data
+    data = dict(data)
+    data["_cache_version"] = LIMIT_POOL_CACHE_VERSION
+    if _valid_limit_pool_payload(data, date_str):
+        cache_save(cache_name, date_str, "eastmoney", data)
     return data
 
 
@@ -2035,6 +2048,18 @@ def get_zb_pool(date_str: str) -> dict[str, Any]:
 def get_fund_flow(date_str: str, *, strict_date: bool = True) -> dict[str, str]:
     ths_snapshot = fetch_ths_concept_money_flow_snapshot(date_str)
     if ths_snapshot:
+        sector_snapshot = fetch_sina_sector_money_flow_snapshot(date_str)
+        if sector_snapshot:
+            ths_snapshot = dict(ths_snapshot)
+            for key in ("_sector_in", "_sector_out"):
+                if sector_snapshot.get(key):
+                    ths_snapshot[key] = sector_snapshot[key]
+            ths_source = ths_snapshot.get("_source")
+            sector_source = sector_snapshot.get("_source")
+            if ths_source and sector_source:
+                ths_snapshot["_source"] = f"{ths_source} + {sector_source}"
+            if sector_snapshot.get("_indicator_note") and not ths_snapshot.get("_sector_note"):
+                ths_snapshot["_sector_note"] = sector_snapshot["_indicator_note"]
         return ths_snapshot
 
     cached = cache_load("fund_flow", date_str, "eastmoney")
@@ -2416,6 +2441,185 @@ def fetch_block_trades(symbol: str, date_str: str, limit: int = 10) -> dict[str,
     return result
 
 
+def _first_present(row: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = row.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+LHB_CACHE_VERSION = 2
+LHB_REPORT_NAMES = (
+    ("RPT_DAILYBILLBOARD_DETAILS", "BILLBOARD_NET_AMT"),
+    ("RPT_DAILYBILLBOARD_DETAILSNEW", "NET_BS_AMT"),
+    ("RPT_BILLBOARD_DAILYDETAILS", "TOTAL_NET"),
+)
+
+
+def _recent_iso_dates(date_str: str, days: int = 5) -> list[str]:
+    start = datetime.strptime(_display_date(date_str), "%Y-%m-%d")
+    return [(start - timedelta(days=offset)).strftime("%Y-%m-%d") for offset in range(max(1, days))]
+
+
+def _amount_wan(value: Any) -> float | None:
+    amount = _safe_float(value)
+    if amount is None:
+        return None
+    return amount / 10000 if abs(amount) > 100000 else amount
+
+
+def _lhb_row(row: dict[str, Any]) -> dict[str, Any]:
+    buy_amount = _first_present(row, "BILLBOARD_BUY_AMT", "SUM_BUY_AMT", "TOTAL_BUY", "BUY_AMT", "BUY_AMOUNT")
+    sell_amount = _first_present(row, "BILLBOARD_SELL_AMT", "SUM_SELL_AMT", "TOTAL_SELL", "SELL_AMT", "SELL_AMOUNT")
+    net_amount = _first_present(row, "BILLBOARD_NET_AMT", "NET_BS_AMT", "TOTAL_NET", "NET_BUY_AMT", "NET_AMT")
+    return {
+        "symbol": str(_first_present(row, "SECURITY_CODE", "SECUCODE", "CODE") or ""),
+        "name": str(_first_present(row, "SECURITY_NAME_ABBR", "SECURITY_NAME", "NAME") or ""),
+        "close_price": _safe_float(_first_present(row, "CLOSE_PRICE", "CLOSE", "NEW_PRICE")),
+        "change_pct": _safe_float(_first_present(row, "CHANGE_RATE", "CHANGE_RATE_1D", "ZDF")),
+        "buy_amount_wan": _amount_wan(buy_amount),
+        "sell_amount_wan": _amount_wan(sell_amount),
+        "net_amount_wan": _amount_wan(net_amount),
+        "reason": str(_first_present(row, "EXPLANATION", "REASON", "BILLBOARD_REASON") or ""),
+    }
+
+
+def _fetch_lhb_rows_for_date(iso_date: str, limit: int) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for report_name, sort_column in LHB_REPORT_NAMES:
+        data = eastmoney_datacenter(
+            report_name,
+            filter_str=f"(TRADE_DATE='{iso_date}')",
+            page_size=max(1, min(int(limit or 5), 50)),
+            sort_columns=sort_column,
+            sort_types="-1",
+        )
+        for row in data:
+            row_date = str(_first_present(row, "TRADE_DATE", "TDATE", "STATISTIC_DATE") or "")[:10]
+            if row_date and row_date != iso_date:
+                continue
+            parsed = _lhb_row(row)
+            key = (parsed["symbol"], parsed["name"])
+            if key in seen or not any(key):
+                continue
+            seen.add(key)
+            rows.append(parsed)
+            if len(rows) >= limit:
+                return rows
+    return rows
+
+
+@retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
+def fetch_lhb_aftermarket(date_str: str, limit: int = 5) -> dict[str, Any]:
+    """Fetch after-market Longhu list rows from Eastmoney datacenter."""
+    cache_key = f"{date_str}_{limit}_v{LHB_CACHE_VERSION}"
+    cached = cache_load("lhb_aftermarket", cache_key, "eastmoney_datacenter")
+    if cached and cached.get("_cache_version") == LHB_CACHE_VERSION and cached.get("available"):
+        return cached
+
+    requested_iso = _display_date(date_str)
+    rows: list[dict[str, Any]] = []
+    actual_iso = requested_iso
+    for iso_date in _recent_iso_dates(date_str, days=5):
+        rows = _fetch_lhb_rows_for_date(iso_date, limit)
+        if rows:
+            actual_iso = iso_date
+            break
+
+    result = {
+        "available": bool(rows),
+        "date": actual_iso,
+        "requested_date": requested_iso,
+        "rows": rows,
+        "_cache_version": LHB_CACHE_VERSION,
+        "_source": "东方财富数据中心龙虎榜",
+        "_source_note": "盘后交易所公开龙虎榜聚合；若请求日无披露，回看最近可用交易日。",
+    }
+    if actual_iso != requested_iso:
+        result["fallback_reason"] = f"requested={requested_iso}; lhb_date={actual_iso}"
+    cache_save("lhb_aftermarket", cache_key, "eastmoney_datacenter", result)
+    return result
+
+
+IMPORTANT_ANNOUNCEMENT_TERMS = (
+    "中标",
+    "重大合同",
+    "回购",
+    "增持",
+    "减持",
+    "并购",
+    "重组",
+    "业绩预告",
+    "业绩快报",
+    "风险提示",
+    "停牌",
+    "复牌",
+    "控制权",
+)
+
+ANNOUNCEMENT_FALLBACK_QUERIES = (
+    "重大合同",
+    "中标",
+    "业绩预告",
+    "回购",
+    "并购重组",
+    "停复牌",
+)
+
+
+@retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
+def fetch_important_announcements(
+    date_str: str,
+    *,
+    candidates: list[dict[str, Any]] | None = None,
+    limit: int = 8,
+) -> dict[str, Any]:
+    """Fetch important A/H/US announcements for visible market leaders/holdings."""
+    limit = max(1, min(int(limit or 8), 20))
+    candidates = candidates or []
+    rows: list[dict[str, Any]] = []
+    seen_titles: set[str] = set()
+    query_items = list(candidates[: max(limit, 4)])
+    query_items.extend({"name": keyword, "symbol": ""} for keyword in ANNOUNCEMENT_FALLBACK_QUERIES)
+    for candidate in query_items:
+        keyword = str(candidate.get("name") or candidate.get("symbol") or "").strip()
+        if not keyword:
+            continue
+        payload = futu_news_search(keyword, size=10, lang="zh-CN", news_type=2)
+        for item in payload.get("data") or []:
+            title = _clean_news_title(str(item.get("title") or ""))
+            if not title or title in seen_titles:
+                continue
+            publish_date = _news_date(item.get("publish_time"))
+            if publish_date and publish_date != date_str:
+                continue
+            if not any(term in title for term in IMPORTANT_ANNOUNCEMENT_TERMS):
+                continue
+            seen_titles.add(title)
+            rows.append(
+                {
+                    "symbol": str(candidate.get("symbol") or ""),
+                    "name": str(candidate.get("name") or keyword),
+                    "title": title,
+                    "url": _normalize_news_url(item),
+                    "publish_date": publish_date,
+                }
+            )
+            if len(rows) >= limit:
+                break
+        if len(rows) >= limit:
+            break
+    return {
+        "available": bool(rows),
+        "date": _display_date(date_str),
+        "rows": rows,
+        "_source": "Futu 免登录公告搜索",
+        "_source_note": "按盘面领涨/持仓候选查询公告，标题命中重大事项关键词后展示。",
+    }
+
+
 # ------------------------------------------------------------------
 # 富途数据获取
 # ------------------------------------------------------------------
@@ -2595,7 +2799,7 @@ def _parse_news_time(value: Any) -> int:
     text = str(value).strip()
     if text.isdigit():
         return int(text)
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S"):
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S", "%Y-%m-%d", "%Y/%m/%d"):
         try:
             return int(datetime.strptime(text, fmt).timestamp())
         except ValueError:
@@ -2802,6 +3006,7 @@ def combined_news_search(
             aliases=aliases,
         ),
         sina_roll_news(keyword, size=per_source_size, aliases=aliases),
+        eastmoney_fast_news(keyword, size=per_source_size, aliases=aliases),
     ]
     seen: set[str] = set()
     items: list[dict[str, Any]] = []
@@ -2810,7 +3015,7 @@ def combined_news_search(
     for idx, source in enumerate(sources):
         if not source.get("data"):
             continue
-        fallback_name = ("futu_news", "futu_feed", "sina_roll")[idx]
+        fallback_name = ("futu_news", "futu_feed", "sina_roll", "eastmoney_fast")[idx]
         source_name = str(source.get("source") or fallback_name)
         used_sources.append(source_name)
         for item in source.get("data", []):
@@ -3558,6 +3763,61 @@ def fetch_fund_nav_on_or_after(fund_code: str, buy_date: str) -> dict[str, Any]:
             cache_save(f"fund_buy_{fund_code}", compact, "eastmoney_fund_nav", result)
             return result
     return {"_error": "买入日附近未获取到可用基金净值"}
+
+
+def fetch_fund_nav_quote(fund_code: str, trade_date: str) -> dict[str, Any]:
+    """Fetch fund NAV and one-day change for a historical report date."""
+    fund_code = normalize_fund_code(fund_code)
+    compact = _compact_date(trade_date)
+    if not re.fullmatch(r"\d{8}", compact):
+        return {"_error": "交易日期应为 YYYYMMDD 或 YYYY-MM-DD"}
+    cached = cache_load(f"fund_nav_quote_{fund_code}", compact, "eastmoney_fund_nav", ttl=86400)
+    if cached and cached.get("_nav_quote_version") == 2:
+        return cached
+    target_date = datetime.strptime(compact, "%Y%m%d")
+    start = (target_date - timedelta(days=14)).strftime("%Y-%m-%d")
+    end = target_date.strftime("%Y-%m-%d")
+    url = FUND_NAV_HISTORY_URL.format(code=fund_code, start=start, end=end, ts=int(time.time() * 1000))
+    data = fetch_json(url, {"Referer": f"https://fundf10.eastmoney.com/jjjz_{fund_code}.html"})
+    if "_error" in data:
+        return data
+    rows = sorted(((data.get("Data") or {}).get("LSJZList") or []), key=lambda row: str(row.get("FSRQ") or ""))
+    usable = [
+        row
+        for row in rows
+        if row.get("FSRQ") and str(row.get("FSRQ")) <= target_date.strftime("%Y-%m-%d") and _safe_float(row.get("DWJZ")) is not None
+    ]
+    if not usable:
+        return {"_error": "交易日前未获取到可用基金净值"}
+    current = usable[-1]
+    previous = usable[-2] if len(usable) >= 2 else {}
+    nav = _safe_float(current.get("DWJZ"))
+    previous_nav = _safe_float(previous.get("DWJZ"))
+    official_change_pct = _safe_float(current.get("JZZZL"))
+    if official_change_pct is not None and nav is not None and official_change_pct > -100:
+        adjusted_previous = nav / (1 + official_change_pct / 100)
+        change = nav - adjusted_previous
+        change_pct = official_change_pct
+    else:
+        change = nav - previous_nav if nav is not None and previous_nav not in (None, 0) else None
+        change_pct = change / previous_nav * 100 if change is not None and previous_nav else None
+    result = {
+        "fundcode": fund_code,
+        "date": current.get("FSRQ") or "",
+        "nav": nav,
+        "previous_nav": previous_nav,
+        "change": change,
+        "change_pct": change_pct,
+        "_source": "东方财富历史净值",
+        "_nav_quote_version": 2,
+    }
+    if current.get("FHSP"):
+        result["split_note"] = current.get("FHSP")
+    if str(current.get("FSRQ") or "").replace("-", "") != compact:
+        result["_date_note"] = "nearest_available_nav"
+        result["_requested_date"] = compact
+    cache_save(f"fund_nav_quote_{fund_code}", compact, "eastmoney_fund_nav", result)
+    return result
 
 
 def fetch_fund_estimate(fund_code: str, date_str: str) -> dict[str, Any]:

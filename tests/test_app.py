@@ -3,6 +3,8 @@ from unittest.mock import patch
 
 from stock_analysis.app import (
     _append_fund_profile_tables,
+    _build_market_facts,
+    _flow_snapshot,
     _market_breadth,
     _normalize_trade_date,
     _pool_statistics,
@@ -75,6 +77,108 @@ def test_market_loads_memory_holdings_when_user_input_is_absent():
     ):
         assert _should_include_holdings("a", explicitly_requested=False) is True
     assert _should_include_holdings("hk", explicitly_requested=True) is True
+
+
+def test_flow_snapshot_preserves_market_and_board_flow_scopes():
+    snapshot = _flow_snapshot(
+        {
+            "date": "2026-07-03",
+            "主力净流入": "120000000",
+            "_concept_in": '[{"name":"机器人","net":226.22,"leader":"丰光精密"}]',
+            "_concept_out": '[{"name":"白酒","net":-41.22,"leader":"贵州茅台"}]',
+            "_sector_in": '[["电机", 99.5]]',
+            "_sector_out": '[["银行", -88.2]]',
+            "_fallback_indicator": "concept_money_flow",
+            "_indicator_note": "概念板块资金流，不等同于全市场主力资金净流入。",
+            "_sector_note": "行业资金流为新浪行业流向参考。",
+        }
+    )
+
+    assert snapshot["market_main_net"] == 120000000.0
+    assert snapshot["scope_note"] == "概念板块资金流，不等同于全市场主力资金净流入。"
+    assert snapshot["sector_note"] == "行业资金流为新浪行业流向参考。"
+    assert snapshot["concept_in"][0]["name"] == "机器人"
+    assert snapshot["concept_out"][0]["name"] == "白酒"
+    assert snapshot["sector_in"][0]["name"] == "电机"
+    assert snapshot["sector_out"][0]["name"] == "银行"
+
+
+def test_build_market_facts_joins_boards_hotspots_flow_lhb_and_announcements():
+    facts = _build_market_facts(
+        trade_date="20260703",
+        industry={
+            "rows": [
+                {"name": "电机", "change_pct": 5.6, "leader": "江苏雷利", "leader_change_pct": 14.3},
+                {"name": "银行", "change_pct": -1.5, "leader": "样本银行", "leader_change_pct": -3.2},
+            ]
+        },
+        concept={
+            "rows": [
+                {"name": "AI芯片", "change_pct": 4.2, "leader": "寒武纪", "leader_change_pct": 20.0},
+                {"name": "白酒", "change_pct": -2.0, "leader": "贵州茅台", "leader_change_pct": -1.2},
+            ]
+        },
+        fund_flow={
+            "_concept_in": '[{"name":"AI芯片","net":12.3,"leader":"寒武纪"}]',
+            "_concept_out": '[{"name":"白酒","net":-8.1,"leader":"贵州茅台"}]',
+        },
+        pools={
+            "zt": {
+                "data": {
+                    "pool": [
+                        {"n": "寒武纪", "c": "688256", "hybk": "AI芯片", "zttj": {"ct": 1}, "fund": 100000000},
+                        {"n": "样本科技", "c": "000001", "hybk": "AI芯片", "zttj": {"ct": 1}, "fund": 10000000},
+                    ]
+                }
+            }
+        },
+        sentiment={
+            "chinese_news_items": [
+                {
+                    "title": "AI芯片概念多股涨停，海外新品发布刺激需求预期",
+                    "source": "东方财富",
+                    "publish_date": "20260703",
+                    "url": "https://example.com/ai",
+                }
+            ],
+        },
+        lhb={"available": True, "rows": [{"name": "寒武纪", "buy_amount_wan": 5200}]},
+        announcements={"available": True, "rows": [{"title": "样本股份中标50亿元新能源项目"}]},
+    )
+
+    assert facts["board_rankings"]["industry_top5"][0]["name"] == "电机"
+    assert facts["board_rankings"]["concept_bottom5"][0]["name"] == "白酒"
+    assert facts["hotspots_24h"][0]["topic"] == "AI芯片"
+    assert facts["hotspots_24h"][0]["limit_up_count"] == 2
+    assert facts["money_flow"]["concept_in"][0]["name"] == "AI芯片"
+    assert facts["lhb_aftermarket"]["rows"][0]["name"] == "寒武纪"
+    assert facts["announcements"]["rows"][0]["title"].startswith("样本股份")
+
+
+def test_board_rankings_do_not_label_positive_rows_as_decliners():
+    facts = _build_market_facts(
+        trade_date="20260703",
+        industry={
+            "rows": [
+                {"name": "电机", "change_pct": 5.6},
+                {"name": "银行", "change_pct": 1.5},
+            ]
+        },
+        concept={
+            "rows": [
+                {"name": "AI芯片", "change_pct": 4.2},
+                {"name": "白酒", "change_pct": 0.2},
+            ]
+        },
+        fund_flow={},
+        pools={},
+        sentiment={},
+        lhb={"available": False, "rows": []},
+        announcements={"available": False, "rows": []},
+    )
+
+    assert facts["board_rankings"]["industry_bottom5"] == []
+    assert facts["board_rankings"]["concept_bottom5"] == []
 
 
 def test_stock_market_renders_deterministic_single_symbol_view(capsys):
@@ -240,6 +344,39 @@ def test_m1_remains_available_when_indices_exist_but_breadth_is_missing():
     assert fetch_board_list.call_count == 2
 
 
+def test_a_index_payload_preserves_volume_when_turnover_is_missing():
+    with (
+        patch(
+            "stock_analysis.app.fetch_a_indices",
+            return_value=[
+                {
+                    "f12": "000300",
+                    "f14": "沪深300",
+                    "f2": 4842.17,
+                    "f3": 0.62,
+                    "f4": 29.87,
+                    "f5": 301067568.0,
+                    "f6": None,
+                    "_source_date": "20260703",
+                    "_source": "tencent-kline",
+                }
+            ],
+        ),
+        patch("stock_analysis.app.fetch_hk_indices", return_value=[]),
+        patch("stock_analysis.app.fetch_us_indices", return_value=[]),
+        patch("stock_analysis.app.fetch_northbound_flow", return_value={}),
+        patch("stock_analysis.app.fetch_fund_flow", return_value={}),
+        patch("stock_analysis.app.fetch_board_list", side_effect=[{"rows": []}, {"rows": []}]),
+        patch("stock_analysis.app.fetch_limit_pools", return_value={"zt": {}, "dt": {}, "zb": {}}),
+    ):
+        evidence, _ = build_evidence("20260703", "a", "盘后", False)
+
+    row = evidence.modules["M1"]["a_indices"][0]
+    assert row["symbol"] == "000300"
+    assert row["turnover"] is None
+    assert row["volume"] == 301067568.0
+
+
 def test_m4_remains_available_when_risk_pool_returns_counts_without_rows():
     with (
         patch("stock_analysis.app.fetch_a_indices", return_value=[]),
@@ -263,3 +400,34 @@ def test_m4_remains_available_when_risk_pool_returns_counts_without_rows():
     assert evidence.modules["M4"]["dt_count"] == 2
     assert "market_public_pulse" not in evidence.meta
     assert "chinese_community_items" not in evidence.meta
+
+
+def test_m3_remains_available_when_limit_pool_returns_counts_without_rows():
+    with (
+        patch("stock_analysis.app.fetch_a_indices", return_value=[]),
+        patch("stock_analysis.app.fetch_hk_indices", return_value=[]),
+        patch("stock_analysis.app.fetch_us_indices", return_value=[]),
+        patch("stock_analysis.app.fetch_northbound_flow", return_value={}),
+        patch("stock_analysis.app.fetch_fund_flow", return_value={}),
+        patch(
+            "stock_analysis.app.fetch_board_list",
+            side_effect=[
+                {"rows": [{"name": "电机", "change_pct": 5.6, "up_count": 24, "down_count": 2}]},
+                {"rows": []},
+            ],
+        ),
+        patch(
+            "stock_analysis.app.fetch_limit_pools",
+            return_value={
+                "zt": {"data": {"tc": 108, "pool": []}},
+                "dt": {"data": {"tc": 19, "pool": []}},
+                "zb": {"data": {"tc": 52, "pool": []}},
+            },
+        ),
+    ):
+        evidence, _ = build_evidence("20260703", "a", "盘后", False)
+
+    assert evidence.modules["M3"]["available"] is True
+    assert evidence.modules["M3"]["zt_count"] == 108
+    assert "涨停池 108 家" in evidence.modules["M3"]["summary"]
+    assert evidence.modules["M6"]["available"] is True

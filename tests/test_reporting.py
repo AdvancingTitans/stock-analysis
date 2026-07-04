@@ -1,7 +1,12 @@
 from stock_analysis.app import _portfolio_advice_sections, _style_distribution
 from stock_analysis.evidence import EvidenceBundle
 from stock_analysis.quality import EvidenceQuality
-from stock_analysis.reporting import generate_report, render_report, render_report_with_metadata
+from stock_analysis.reporting import (
+    EXPERT_REPORT_BLUEPRINTS,
+    generate_report,
+    render_report,
+    render_report_with_metadata,
+)
 
 
 def _sample_evidence() -> EvidenceBundle:
@@ -164,7 +169,7 @@ def test_index_table_renders_volume_when_turnover_is_missing():
     )
 
     assert "| 大盘 | 收盘 | 涨跌 | 涨跌幅 | 成交额/量 |" in report
-    assert "| 标普500 | 7,420.10 | -90.20 | -1.21% | 3,687,282,528 |" in report
+    assert "| 标普500 | 7,420.10 | -90.20 | -1.21% | 3,687,282,528（成交量） |" in report
 
 
 def test_report_result_defaults_to_committee_and_returns_metadata_json():
@@ -258,7 +263,279 @@ def test_default_committee_report_uses_m1_m6_deep_review_structure():
     assert "社区情绪分析数据来源与方法说明" not in result.markdown
     assert "- 各 lens 证据权重调整明细：" not in result.markdown
     assert "- 主要交叉验证与分歧调和记录：" not in result.markdown
-    assert "- 免责声明与数据来源：" not in result.markdown
+
+
+def test_single_lens_keeps_original_template_but_replaces_m1_m6_deep_review():
+    evidence = _sample_evidence()
+
+    result = render_report_with_metadata(
+        trade_date="20260617",
+        session_label="盘后",
+        evidence=evidence,
+        quality=EvidenceQuality(
+            module_scores={"M1": 20, "M2": 20, "M3": 20, "M4": 15, "M5": 15, "M6": 10},
+            missing_modules=[],
+        ),
+        portfolio_snapshot={"details": []},
+        report_format="full",
+        lens="buffett",
+        mode="single",
+    )
+
+    headings = [
+        "## 执行摘要",
+        "## 一、大盘指数概览",
+        "## 二、巴菲特视角深度复盘",
+        "## 三、通用市场建议与风险提示",
+    ]
+    positions = [result.markdown.index(heading) for heading in headings]
+    assert positions == sorted(positions)
+    assert "## 2. 分析视角说明" not in result.markdown
+    assert "## 二、六模块深度复盘" not in result.markdown
+    assert "### M1. 基础数据与核心指标" not in result.markdown
+    assert "### 护城河与商业质量" in result.markdown
+    assert "市场级证据无法替代公司尽调" in result.markdown
+    assert "| 板块 | 涨跌幅 | 上涨家数 | 下跌家数 |" in result.markdown
+    assert result.metadata["analysis_mode"] == "single"
+    assert result.metadata["lenses"] == ["buffett"]
+
+
+def test_full_report_renders_market_fact_sections():
+    evidence = _sample_evidence()
+    evidence.meta["facts"] = {
+        "hotspots_24h": [
+            {
+                "topic": "AI芯片",
+                "summary": "AI芯片概念多股涨停，海外新品发布刺激需求预期",
+                "limit_up_count": 3,
+                "leaders": ["寒武纪", "样本科技"],
+                "news_count": 2,
+            }
+        ],
+        "board_rankings": {
+            "industry_top5": [{"name": "电机", "change_pct": 5.6, "leader": "江苏雷利", "leader_change_pct": 14.3}],
+            "industry_bottom5": [{"name": "银行", "change_pct": -1.5, "leader": "样本银行", "leader_change_pct": -3.2}],
+            "concept_top5": [{"name": "AI芯片", "change_pct": 4.2, "leader": "寒武纪", "leader_change_pct": 20.0}],
+            "concept_bottom5": [{"name": "白酒", "change_pct": -2.0, "leader": "贵州茅台", "leader_change_pct": -1.2}],
+        },
+        "money_flow": {
+            "market_main_net": 120000000.0,
+            "scope_note": "概念板块资金流，不等同于全市场主力资金净流入。",
+            "concept_in": [{"name": "AI芯片", "net": 12.3, "leader": "寒武纪"}],
+            "concept_out": [{"name": "白酒", "net": -8.1, "leader": "贵州茅台"}],
+            "sector_in": [{"name": "电机", "net": 9.5}],
+            "sector_out": [{"name": "银行", "net": -6.6}],
+        },
+        "lhb_aftermarket": {
+            "available": True,
+            "rows": [
+                {
+                    "name": "寒武纪",
+                    "close_price": 100.5,
+                    "change_pct": 20.0,
+                    "buy_amount_wan": 5200,
+                    "sell_amount_wan": 2100,
+                    "net_amount_wan": 3100,
+                }
+            ],
+        },
+        "announcements": {
+            "available": True,
+            "rows": [
+                {"symbol": "000001", "name": "样本股份", "title": "样本股份中标50亿元新能源项目"}
+            ],
+        },
+    }
+
+    result = render_report_with_metadata(
+        trade_date="20260617",
+        session_label="盘后",
+        evidence=evidence,
+        quality=EvidenceQuality(
+            module_scores={"M1": 20, "M2": 20, "M3": 20, "M4": 15, "M5": 15, "M6": 10},
+            missing_modules=[],
+        ),
+        portfolio_snapshot={"details": []},
+        report_format="full",
+    )
+
+    assert "### 24小时热点追踪" in result.markdown
+    assert "| AI芯片 | AI芯片概念多股涨停，海外新品发布刺激需求预期 | 3 | 寒武纪、样本科技 | 2 |" in result.markdown
+    assert "### 行业板块强弱前五" in result.markdown
+    assert "| 电机 | +5.60% | 江苏雷利 | +14.30% |" in result.markdown
+    assert "| 白酒 | -2.00% | 贵州茅台 | -1.20% |" in result.markdown
+    assert "### 主力与行业资金流向" in result.markdown
+    assert "| 全市场主力净流入 | 1.20亿 |" in result.markdown
+    assert "| AI芯片 | 12.30 | 寒武纪 |" in result.markdown
+    assert "### 盘后龙虎榜" in result.markdown
+    assert "| 寒武纪 | 100.50 | +20.00% | 5,200.00 | 2,100.00 | 3,100.00 |" in result.markdown
+    assert "### 重要公告速递" in result.markdown
+    assert "| 000001 | 样本股份 | 样本股份中标50亿元新能源项目 |" in result.markdown
+
+
+def test_key_points_m2_renders_industry_and_concept_tables():
+    evidence = _sample_evidence()
+    evidence.modules["M2"]["industry_top20"] = [
+        {"name": "贵金属", "change_pct": 6.17, "up_count": 13, "down_count": 1},
+    ]
+    evidence.modules["M2"]["concept_top20"] = [
+        {"name": "减速器", "change_pct": 5.74, "leader": "丰光精密", "leader_change_pct": 30.0},
+    ]
+
+    result = render_report_with_metadata(
+        trade_date="20260617",
+        session_label="盘后",
+        evidence=evidence,
+        quality=EvidenceQuality(
+            module_scores={"M1": 20, "M2": 20, "M3": 20, "M4": 15, "M5": 15, "M6": 10},
+            missing_modules=[],
+        ),
+        portfolio_snapshot={"details": []},
+        report_format="key-points",
+    )
+
+    assert "**行业涨幅榜**" in result.markdown
+    assert "| 贵金属 | +6.17% | 13 | 1 |" in result.markdown
+    assert "**概念涨幅榜**" in result.markdown
+    assert "| 减速器 | +5.74% |  |  |" in result.markdown
+
+
+def test_market_fact_sections_are_fixed_even_when_lhb_and_announcements_empty():
+    evidence = _sample_evidence()
+    evidence.meta["facts"] = {
+        "hotspots_24h": [],
+        "board_rankings": {},
+        "money_flow": {},
+        "lhb_aftermarket": {
+            "available": False,
+            "rows": [],
+            "_source_note": "盘后交易所公开龙虎榜聚合；仅在日期匹配时展示。",
+        },
+        "announcements": {
+            "available": False,
+            "rows": [],
+            "_source_note": "按盘面领涨/持仓候选查询公告，标题命中重大事项关键词后展示。",
+        },
+    }
+
+    result = render_report_with_metadata(
+        trade_date="20260617",
+        session_label="盘后",
+        evidence=evidence,
+        quality=EvidenceQuality(
+            module_scores={"M1": 20, "M2": 20, "M3": 20, "M4": 15, "M5": 15, "M6": 10},
+            missing_modules=[],
+        ),
+        portfolio_snapshot={"details": []},
+        report_format="full",
+    )
+
+    assert "### 盘后龙虎榜" in result.markdown
+    assert "| 股票 | 收盘价 | 涨跌幅 | 买入金额(万) | 卖出金额(万) | 净买入(万) |" in result.markdown
+    assert "当日龙虎榜暂未取得可核验明细" in result.markdown
+    assert "### 重要公告速递" in result.markdown
+    assert "| 代码 | 名称 | 公告 |" in result.markdown
+    assert "当日重要公告暂未取得可核验明细" in result.markdown
+
+
+def test_key_points_report_keeps_lhb_and_announcements_fact_sections():
+    evidence = _sample_evidence()
+    evidence.meta["facts"] = {
+        "lhb_aftermarket": {"available": False, "rows": []},
+        "announcements": {"available": False, "rows": []},
+    }
+
+    result = render_report_with_metadata(
+        trade_date="20260617",
+        session_label="盘后",
+        evidence=evidence,
+        quality=EvidenceQuality(
+            module_scores={"M1": 20, "M2": 20, "M3": 20, "M4": 15, "M5": 15, "M6": 10},
+            missing_modules=[],
+        ),
+        portfolio_snapshot={"details": []},
+        report_format="key-points",
+    )
+
+    assert "### 盘后龙虎榜" in result.markdown
+    assert "当日龙虎榜暂未取得可核验明细" in result.markdown
+    assert "### 重要公告速递" in result.markdown
+    assert "当日重要公告暂未取得可核验明细" in result.markdown
+
+
+def test_rendered_report_uses_reader_friendly_expert_and_evidence_terms():
+    evidence = _sample_evidence()
+    result = render_report_with_metadata(
+        trade_date="20260617",
+        session_label="盘后",
+        evidence=evidence,
+        quality=EvidenceQuality(
+            module_scores={"M1": 20, "M2": 20, "M3": 20, "M4": 15, "M5": 15, "M6": 10},
+            missing_modules=[],
+        ),
+        portfolio_snapshot={"details": []},
+        report_format="full",
+        lens="buffett",
+        mode="single",
+    )
+
+    lower = result.markdown.lower()
+    assert "lens" not in lower
+    assert "evidence" not in lower
+    assert "single" not in lower
+    assert "committee" not in lower
+    assert "当前采用 单一专家 模式" in result.markdown
+
+
+def test_all_single_lens_blueprints_use_currently_available_evidence_domains():
+    expected = {
+        "buffett",
+        "munger",
+        "graham",
+        "klarman",
+        "lynch",
+        "o_neil",
+        "wood",
+        "dalio",
+        "soros",
+        "livermore",
+        "minervini",
+        "simons",
+        "duan_yongping",
+        "zhang_kun",
+        "feng_liu",
+    }
+    supported_domains = {"M1", "M2", "M3", "M4", "M5", "M6", "portfolio"}
+
+    assert set(EXPERT_REPORT_BLUEPRINTS) == expected
+    for lens_id, sections in EXPERT_REPORT_BLUEPRINTS.items():
+        assert sections, lens_id
+        for section in sections:
+            assert section["title"], lens_id
+            assert set(section["domains"]) <= supported_domains
+
+
+def test_buffett_market_report_uses_market_proxies_without_single_company_financial_gap():
+    evidence = _sample_evidence()
+    result = render_report_with_metadata(
+        trade_date="20260617",
+        session_label="盘后",
+        evidence=evidence,
+        quality=EvidenceQuality(
+            module_scores={"M1": 20, "M2": 20, "M3": 20, "M4": 15, "M5": 15, "M6": 10},
+            missing_modules=[],
+        ),
+        portfolio_snapshot={"details": []},
+        report_format="full",
+        lens="buffett",
+        mode="single",
+    )
+
+    assert "### 估值安全边际" in result.markdown
+    assert "市场级安全边际" in result.markdown
+    assert "完整财报" not in result.markdown
+    assert "自由现金流" not in result.markdown
+    assert "本节没有足够结构化证据支撑强结论" not in result.markdown
 
 
 def test_committee_full_report_keeps_fixed_structure_when_holdings_quality_is_simplified():
@@ -378,7 +655,7 @@ def test_committee_report_falls_back_to_single_when_committee_context_fails():
     )
 
     assert "**分析模式**：单一专家" in result.markdown
-    assert "**使用视角**：巴菲特" in result.markdown
+    assert "**使用专家**：巴菲特" in result.markdown
     assert result.metadata["analysis_mode"] == "single"
     assert result.metadata["fallback"]["from_mode"] == "committee"
     assert result.metadata["fallback"]["to_mode"] == "single"
@@ -400,7 +677,7 @@ def test_single_lens_report_hides_using_lens_when_user_did_not_request_committee
     )
 
     assert "**分析模式**：单一专家" in result.markdown
-    assert "**使用视角**：巴菲特" in result.markdown
+    assert "**使用专家**：巴菲特" in result.markdown
     assert "## 6. 社区情绪分析" not in result.markdown
     assert result.metadata["analysis_mode"] == "single"
 

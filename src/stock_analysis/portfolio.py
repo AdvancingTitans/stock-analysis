@@ -14,6 +14,7 @@ from .integrations import (
     fetch_fund_estimate,
     fetch_fund_holding_quotes,
     fetch_fund_holdings,
+    fetch_fund_nav_quote,
     fetch_single_quote,
     fetch_stock_buy_reference,
     is_historical_date,
@@ -87,13 +88,15 @@ def build_portfolio_snapshot(holdings: list[Holding], trade_date: str) -> dict[s
     for holding in holdings:
         if holding.asset_type == "fund":
             if is_historical_date(trade_date):
-                historical_nav = fetch_fund_buy_reference(holding.symbol, trade_date)
+                historical_nav = fetch_fund_nav_quote(holding.symbol, trade_date)
                 fund_metadata = fetch_fund_estimate(holding.symbol, trade_date)
                 nav_date = str(historical_nav.get("date") or "").replace("-", "")
                 historical_price = historical_nav.get("nav") if nav_date == trade_date else None
                 estimate = {
                     "name": fund_metadata.get("name") or holding.symbol,
                     "nav": historical_price,
+                    "change": historical_nav.get("change"),
+                    "estimate_change_pct": historical_nav.get("change_pct"),
                     "date": historical_nav.get("date") or trade_date,
                     "_source": "历史基金净值",
                 }
@@ -117,6 +120,7 @@ def build_portfolio_snapshot(holdings: list[Holding], trade_date: str) -> dict[s
                 "buy_date": holding.buy_date,
                 "current_price": price,
                 "change_pct": change_pct,
+                "change": _safe_float(estimate.get("change")),
                 "buy_price": buy_price,
                 "currency": currency,
                 "source": source,
@@ -202,6 +206,7 @@ def build_portfolio_snapshot(holdings: list[Holding], trade_date: str) -> dict[s
                 "buy_date": holding.buy_date,
                 "current_price": price,
                 "change_pct": change_pct,
+                "change": quote.change,
                 "buy_price": buy_price,
                 "currency": quote.currency,
                 "source": quote.source,
@@ -232,7 +237,7 @@ def build_portfolio_snapshot(holdings: list[Holding], trade_date: str) -> dict[s
             daily_pnl_original = _daily_pnl(
                 current_price=float(detail["current_price"]),
                 change_pct=detail.get("change_pct"),
-                change=detail.get("quote", {}).get("change") if detail.get("quote") else None,
+                change=detail.get("quote", {}).get("change") if detail.get("quote") else detail.get("change"),
                 quantity=holding.quantity,
             )
             if daily_pnl_original is not None:

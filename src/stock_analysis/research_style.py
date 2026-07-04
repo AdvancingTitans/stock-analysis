@@ -11,6 +11,12 @@ FORBIDDEN_PATTERNS = (
 
 
 STYLE_REPLACEMENTS = (
+    (re.compile(r"\blenses\b", re.IGNORECASE), "专家"),
+    (re.compile(r"\blens\b", re.IGNORECASE), "专家"),
+    (re.compile(r"\bevidences\b", re.IGNORECASE), "证据链"),
+    (re.compile(r"\bevidence\b", re.IGNORECASE), "证据链"),
+    (re.compile(r"\bsingle\b", re.IGNORECASE), "单一专家"),
+    (re.compile(r"\bcommittee\b", re.IGNORECASE), "投委会"),
     (re.compile(r"aftermarket\.py\s*脚本采集到\s*push2\s*数据", re.IGNORECASE), "据公开市场数据"),
     (re.compile(r"(?:早盘|实时)采集"), "盘中数据显示"),
     (re.compile(r"推测为(?:当日|全天)?数据"), "按惯例回溯至该日"),

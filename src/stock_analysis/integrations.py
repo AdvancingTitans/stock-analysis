@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import asdict
 from datetime import datetime
 from typing import Any
@@ -17,6 +18,12 @@ A_INDEX_HISTORY = {
     "sz399001": ("399001", "深证成指"),
     "sz399006": ("399006", "创业板指"),
     "sh000300": ("000300", "沪深300"),
+}
+A_INDEX_EM_SECIDS = {
+    "000001": "1.000001",
+    "399001": "0.399001",
+    "399006": "0.399006",
+    "000300": "1.000300",
 }
 HK_INDEX_HISTORY = {
     "hkHSI": ("^HSI", "恒生指数"),
@@ -154,12 +161,12 @@ def _fetch_tencent_historical_quote(
         currency=currency,
         trade_date=trade_date,
         source="tencent-kline",
-        turnover_from_last=turnover_from_last or code.startswith(("sh", "sz", "hk")),
+        turnover_from_last=turnover_from_last or code.startswith("hk"),
         allow_nearest=allow_nearest,
     )
 
 
-def _fetch_sina_us_history(symbol: str, trade_date: str) -> QuoteData | None:
+def _fetch_sina_us_history(symbol: str, trade_date: str, *, allow_nearest: bool = False) -> QuoteData | None:
     response = _direct_session().get(
         "https://stock.finance.sina.com.cn/usstock/api/jsonp.php/var/US_MinKService.getDailyK",
         params={"symbol": symbol, "num": 90},
@@ -173,14 +180,21 @@ def _fetch_sina_us_history(symbol: str, trade_date: str) -> QuoteData | None:
     rows = json.loads(match.group(1))
     target = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
     eligible = [row for row in rows if row.get("d") and row["d"] <= target]
-    if not eligible or eligible[-1]["d"] != target:
+    if not eligible:
         return None
+    if eligible[-1]["d"] != target:
+        if not allow_nearest:
+            return None
+        actual = datetime.strptime(str(eligible[-1]["d"]), "%Y-%m-%d")
+        requested = datetime.strptime(target, "%Y-%m-%d")
+        if (requested - actual).days > 5:
+            return None
     last = eligible[-1]
     previous_close = float(eligible[-2]["c"]) if len(eligible) >= 2 else None
     price = float(last["c"])
     change = price - previous_close if previous_close not in (None, 0) else None
     change_pct = change / previous_close * 100 if change is not None and previous_close else None
-    return QuoteData(
+    quote = QuoteData(
         symbol=symbol,
         market="us",
         price=price,
@@ -192,10 +206,14 @@ def _fetch_sina_us_history(symbol: str, trade_date: str) -> QuoteData | None:
         low=float(last["l"]),
         volume=float(last["v"]) if last.get("v") else None,
         currency="USD",
-        trade_date=trade_date,
+        trade_date=str(last["d"]).replace("-", ""),
         source="sina-kline",
         source_chain=["sina-kline"],
     )
+    if str(last["d"]) != target:
+        quote.quality_flags.append("nearest_available_kline")
+        quote.fallback_reason = f"requested={trade_date}; kline_date={last['d']}"
+    return quote
 
 
 def adapt_quote(raw: Any) -> QuoteData | None:
@@ -266,13 +284,55 @@ def fetch_single_quote(symbol: str, trade_date: str) -> QuoteData | None:
                 currency="CNY",
                 trade_date=trade_date,
             )
-        return _fetch_sina_us_history(normalized, trade_date)
+        return _fetch_sina_us_history(normalized, trade_date, allow_nearest=True)
     core = market_core
     return adapt_quote(core.get_single_stock_quote(symbol, trade_date))
 
 
+def _safe_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _eastmoney_index_history_amounts(trade_date: str) -> dict[str, float]:
+    amounts: dict[str, float] = {}
+    for symbol, secid in A_INDEX_EM_SECIDS.items():
+        data = market_core.fetch_json(
+            market_core.EM_KLINE_URL.format(
+                secid=secid,
+                beg=trade_date,
+                end=trade_date,
+                ts=int(time.time() * 1000),
+            ),
+            {"Referer": "https://quote.eastmoney.com/"},
+        )
+        rows = (data.get("data") or {}).get("klines") or []
+        if not rows:
+            continue
+        fields = str(rows[-1]).split(",")
+        if len(fields) < 7:
+            continue
+        amount = _safe_float(fields[6])
+        if amount is not None and amount > 0:
+            amounts[symbol] = amount
+    return amounts
+
+
 def _merge_index_turnover(rows: list[dict[str, Any]], trade_date: str) -> list[dict[str, Any]]:
-    if not rows or any(row.get("f6") for row in rows):
+    if not rows:
+        return rows
+    try:
+        history_amounts = _eastmoney_index_history_amounts(trade_date)
+    except Exception:
+        history_amounts = {}
+    for row in rows:
+        amount = history_amounts.get(str(row.get("f12") or ""))
+        if amount is not None:
+            row["f6"] = amount
+            row["_turnover_source"] = "eastmoney-kline"
+    if all((_safe_float(row.get("f6")) or 0) > 0 for row in rows):
         return rows
     try:
         em_rows = market_core.get_index(trade_date)
@@ -284,6 +344,8 @@ def _merge_index_turnover(rows: list[dict[str, Any]], trade_date: str) -> list[d
         if item.get("f12") and item.get("f6") is not None
     }
     for row in rows:
+        if (_safe_float(row.get("f6")) or 0) > 0:
+            continue
         em_turnover = turnover_by_symbol.get(str(row.get("f12") or ""))
         if em_turnover is not None:
             row["f6"] = em_turnover
@@ -311,6 +373,7 @@ def fetch_a_indices(trade_date: str) -> list[dict[str, Any]]:
                         "f2": quote.price,
                         "f4": quote.change,
                         "f3": quote.change_pct,
+                        "f5": quote.volume,
                         "f6": quote.turnover,
                         "_source": quote.source,
                         "_source_date": trade_date,
@@ -379,7 +442,7 @@ def fetch_us_indices(trade_date: str) -> list[QuoteData]:
     if is_historical_date(trade_date):
         rows = []
         for code, (symbol, name) in US_INDEX_HISTORY.items():
-            quote = _fetch_sina_us_history(code, trade_date)
+            quote = _fetch_sina_us_history(code, trade_date, allow_nearest=True)
             if quote:
                 quote.symbol = symbol
                 quote.name = name
@@ -415,6 +478,13 @@ def fetch_board_list(board_type: str, trade_date: str, limit: int = 20) -> dict[
             cached["_source_note"] = "历史板块榜来自本地缓存"
             return cached
     result = market_core.get_board_list(board_type, trade_date, limit=limit)
+    if is_historical_date(trade_date) and _is_recent_historical(trade_date) and not result.get("rows"):
+        ths = market_core.fetch_ths_board_list(board_type, limit=limit)
+        if ths.get("rows"):
+            ths = dict(ths)
+            ths["_fallback"] = "近期历史板块榜无缓存，已使用同花顺公开页补全"
+            ths["_source_note"] = "近期历史复盘使用当前公开板块页补全，需结合交易日核验。"
+            return ths
     if is_historical_date(trade_date) and not result.get("rows"):
         result = dict(result or {"board_type": normalized_type, "rows": []})
         result.setdefault(
@@ -426,6 +496,18 @@ def fetch_board_list(board_type: str, trade_date: str, limit: int = 20) -> dict[
 
 def fetch_fund_flow(trade_date: str) -> dict[str, Any]:
     return market_core.get_fund_flow(trade_date, strict_date=True)
+
+
+def fetch_lhb_aftermarket(trade_date: str, limit: int = 5) -> dict[str, Any]:
+    return market_core.fetch_lhb_aftermarket(trade_date, limit=limit)
+
+
+def fetch_important_announcements(
+    trade_date: str,
+    candidates: list[dict[str, Any]] | None = None,
+    limit: int = 8,
+) -> dict[str, Any]:
+    return market_core.fetch_important_announcements(trade_date, candidates=candidates, limit=limit)
 
 
 def fetch_northbound_flow(trade_date: str) -> dict[str, Any]:
@@ -451,6 +533,10 @@ def fetch_limit_pools(trade_date: str) -> dict[str, Any]:
 
 def fetch_fund_estimate(code: str, trade_date: str) -> dict[str, Any]:
     return market_core.fetch_fund_estimate(code, trade_date)
+
+
+def fetch_fund_nav_quote(code: str, trade_date: str) -> dict[str, Any]:
+    return market_core.fetch_fund_nav_quote(code, trade_date)
 
 
 def fetch_fund_profile(code: str, trade_date: str) -> dict[str, Any]:

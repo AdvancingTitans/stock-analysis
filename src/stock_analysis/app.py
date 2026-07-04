@@ -18,11 +18,14 @@ from .integrations import (
     fetch_fund_holdings,
     fetch_fund_profile,
     fetch_hk_indices,
+    fetch_important_announcements,
+    fetch_lhb_aftermarket,
     fetch_limit_pools,
     fetch_northbound_flow,
     fetch_single_quote,
     fetch_us_indices,
 )
+from .market_sentiment import fetch_market_sentiment
 from .market_time import detect_market_session, resolve_trade_date
 from .models import Holding
 from .portfolio import build_portfolio_snapshot
@@ -79,6 +82,7 @@ def _a_indices_payload(trade_date: str) -> list[dict[str, Any]]:
                 "price": item.get("f2"),
                 "change": item.get("f4"),
                 "change_pct": item.get("f3"),
+                "volume": item.get("f5"),
                 "turnover": item.get("f6"),
                 "trade_date": _normalize_trade_date(item.get("_source_date")) or trade_date,
                 "source": item.get("_source") or "",
@@ -126,6 +130,24 @@ def build_evidence(
     feature_groups = _feature_groups(pools)
     concentration = _concentration_snapshot(pools, industry, concept)
     breadth = _market_breadth(industry)
+    sentiment = _safe_market_sentiment(trade_date, market) if session_label == "盘后" else {}
+    announcement_candidates = _announcement_candidates(pool_stats, portfolio_snapshot)
+    lhb = fetch_lhb_aftermarket(trade_date, limit=5) if session_label == "盘后" and market in {"daily", "a", "global"} else {"available": False, "rows": []}
+    announcements = (
+        fetch_important_announcements(trade_date, candidates=announcement_candidates, limit=8)
+        if session_label == "盘后" and market in {"daily", "a", "global"}
+        else {"available": False, "rows": []}
+    )
+    facts = _build_market_facts(
+        trade_date=trade_date,
+        industry=industry,
+        concept=concept,
+        fund_flow=fund_flow,
+        pools=pools,
+        sentiment=sentiment,
+        lhb=lhb,
+        announcements=announcements,
+    )
 
     m1 = {
         "available": bool(a_indices or hk_indices or us_indices),
@@ -156,7 +178,7 @@ def build_evidence(
         "fund_flow_available": has_fund_flow,
     }
     m3 = {
-        "available": bool((pools.get("zt", {}).get("data") or {}).get("pool")),
+        "available": bool((pools.get("zt", {}).get("data") or {}).get("pool")) or pool_stats.get("zt_count", 0) > 0,
         "zt_count": (pools.get("zt", {}).get("data") or {}).get("tc", 0),
         "zb_count": (pools.get("zb", {}).get("data") or {}).get("tc", 0),
         "pool_stats": pool_stats,
@@ -204,10 +226,22 @@ def build_evidence(
             "session": session_label,
             "source_events": source_events,
             "portfolio_advice_sections": _portfolio_advice_sections(portfolio_snapshot, m1, m2, m3, m4),
+            "facts": facts,
         },
     )
     if public_pulses:
         evidence.meta["portfolio_public_pulse"] = public_pulses
+    if sentiment.get("market_public_pulse"):
+        evidence.meta["portfolio_public_pulse"] = [
+            *([pulse for pulse in public_pulses if isinstance(pulse, dict)]),
+            sentiment["market_public_pulse"],
+        ]
+    if sentiment.get("chinese_news_items"):
+        evidence.meta["chinese_news_items"] = sentiment["chinese_news_items"]
+    if sentiment.get("chinese_community_items"):
+        evidence.meta["chinese_community_items"] = sentiment["chinese_community_items"]
+    if sentiment.get("source_events"):
+        evidence.meta["source_events"].extend(sentiment["source_events"])
     return evidence, portfolio_snapshot
 
 
@@ -633,6 +667,186 @@ def _module6_summary(
         prefix = "弱指数环境下仍有承接" if a_avg < 0.3 else "相对抗跌方向"
         return f"{prefix}主要集中在：{'、'.join(resilient)}。"
     return "当前未识别出明确抗跌方向。"
+
+
+def _safe_market_sentiment(trade_date: str, market: str) -> dict[str, Any]:
+    if market not in {"daily", "a", "global"}:
+        return {}
+    try:
+        return fetch_market_sentiment(trade_date)
+    except Exception as exc:
+        return {"_error": str(exc), "chinese_news_items": [], "chinese_community_items": []}
+
+
+def _announcement_candidates(pool_stats: dict[str, Any], portfolio_snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for row in pool_stats.get("leaders", [])[:5]:
+        candidates.append({"symbol": row.get("code") or "", "name": row.get("name") or ""})
+    for detail in portfolio_snapshot.get("details", [])[:5]:
+        candidates.append({"symbol": detail.get("symbol") or "", "name": detail.get("name") or ""})
+    seen: set[tuple[str, str]] = set()
+    unique: list[dict[str, Any]] = []
+    for item in candidates:
+        key = (str(item.get("symbol") or ""), str(item.get("name") or ""))
+        if key in seen or not any(key):
+            continue
+        seen.add(key)
+        unique.append(item)
+    return unique
+
+
+def _build_market_facts(
+    *,
+    trade_date: str,
+    industry: dict[str, Any],
+    concept: dict[str, Any],
+    fund_flow: dict[str, Any],
+    pools: dict[str, Any],
+    sentiment: dict[str, Any],
+    lhb: dict[str, Any],
+    announcements: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "trade_date": trade_date,
+        "hotspots_24h": _hotspots_24h(industry, concept, pools, sentiment),
+        "board_rankings": _board_rankings(industry, concept),
+        "money_flow": _flow_snapshot(fund_flow),
+        "lhb_aftermarket": lhb if isinstance(lhb, dict) else {"available": False, "rows": []},
+        "announcements": announcements if isinstance(announcements, dict) else {"available": False, "rows": []},
+    }
+
+
+def _board_rankings(industry: dict[str, Any], concept: dict[str, Any]) -> dict[str, Any]:
+    def rows(payload: dict[str, Any], *, reverse: bool) -> list[dict[str, Any]]:
+        usable = [row for row in payload.get("rows") or [] if row.get("name") and row.get("change_pct") is not None]
+        return sorted(usable, key=lambda row: float(row.get("change_pct") or 0), reverse=reverse)[:5]
+
+    def bottom_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+        usable = [
+            row
+            for row in payload.get("rows") or []
+            if row.get("name") and row.get("change_pct") is not None and float(row.get("change_pct") or 0) < 0
+        ]
+        return sorted(usable, key=lambda row: float(row.get("change_pct") or 0))[:5]
+
+    return {
+        "industry_top5": rows(industry, reverse=True),
+        "industry_bottom5": bottom_rows(industry),
+        "concept_top5": rows(concept, reverse=True),
+        "concept_bottom5": bottom_rows(concept),
+    }
+
+
+def _json_rows(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if not value:
+        return []
+    try:
+        payload = json.loads(str(value))
+    except json.JSONDecodeError:
+        return []
+    return payload if isinstance(payload, list) else []
+
+
+def _money_flow_rows(value: Any) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for item in _json_rows(value):
+        if isinstance(item, dict):
+            rows.append(
+                {
+                    "name": item.get("name") or item.get("label") or "",
+                    "net": item.get("net"),
+                    "leader": item.get("leader") or "",
+                    "change_pct": item.get("change_pct"),
+                }
+            )
+        elif isinstance(item, (list, tuple)) and len(item) >= 2:
+            rows.append({"name": item[0], "net": item[1], "leader": ""})
+    return [row for row in rows if row.get("name")]
+
+
+def _flow_snapshot(fund_flow: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "date": fund_flow.get("date") or fund_flow.get("_requested_date"),
+        "market_main_net": _safe_float(fund_flow.get("主力净流入")),
+        "super_big_net": _safe_float(fund_flow.get("超大单净流入")),
+        "big_net": _safe_float(fund_flow.get("大单净流入")),
+        "scope_note": fund_flow.get("_indicator_note") or fund_flow.get("_scope") or "",
+        "sector_note": fund_flow.get("_sector_note") or "",
+        "concept_in": _money_flow_rows(fund_flow.get("_concept_in"))[:3],
+        "concept_out": _money_flow_rows(fund_flow.get("_concept_out"))[:3],
+        "sector_in": _money_flow_rows(fund_flow.get("_sector_in"))[:3],
+        "sector_out": _money_flow_rows(fund_flow.get("_sector_out"))[:3],
+    }
+
+
+def _hotspots_24h(
+    industry: dict[str, Any],
+    concept: dict[str, Any],
+    pools: dict[str, Any],
+    sentiment: dict[str, Any],
+) -> list[dict[str, Any]]:
+    board_names = [
+        str(row.get("name") or "")
+        for row in [*(industry.get("rows") or [])[:10], *(concept.get("rows") or [])[:10]]
+        if row.get("name")
+    ]
+    zt_pool = _pool_items(pools, "zt")
+    theme_counts: dict[str, int] = {}
+    theme_leaders: dict[str, list[str]] = {}
+    for row in zt_pool:
+        theme = str(row.get("hybk") or "")
+        if not theme:
+            continue
+        theme_counts[theme] = theme_counts.get(theme, 0) + 1
+        leaders = theme_leaders.setdefault(theme, [])
+        name = str(row.get("n") or "")
+        if name and len(leaders) < 3:
+            leaders.append(name)
+
+    news_items = sentiment.get("chinese_news_items") or []
+    topics: dict[str, dict[str, Any]] = {}
+    for item in news_items:
+        title = " ".join(str(item.get("title") or "").split())
+        if not title:
+            continue
+        matched = [name for name in board_names if name and name in title]
+        matched.extend(theme for theme in theme_counts if theme and theme in title)
+        if not matched:
+            continue
+        for topic in dict.fromkeys(matched):
+            payload = topics.setdefault(
+                topic,
+                {
+                    "topic": topic,
+                    "summary": title,
+                    "limit_up_count": theme_counts.get(topic, 0),
+                    "leaders": list(theme_leaders.get(topic, [])),
+                    "news_count": 0,
+                },
+            )
+            payload["news_count"] += 1
+            if not payload.get("summary"):
+                payload["summary"] = title
+    for theme, count in theme_counts.items():
+        if count < 2:
+            continue
+        topics.setdefault(
+            theme,
+            {
+                "topic": theme,
+                "summary": f"{theme}方向涨停样本集中，需结合新闻与次日成交确认。",
+                "limit_up_count": count,
+                "leaders": list(theme_leaders.get(theme, [])),
+                "news_count": 0,
+            },
+        )
+    return sorted(
+        topics.values(),
+        key=lambda row: (int(row.get("news_count") or 0), int(row.get("limit_up_count") or 0)),
+        reverse=True,
+    )[:5]
 
 
 def _pool_items(pools: dict[str, Any], key: str) -> list[dict[str, Any]]:

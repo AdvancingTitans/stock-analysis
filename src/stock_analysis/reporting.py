@@ -17,6 +17,99 @@ MODULE_LABELS = {
     "M6": "抗跌方向",
 }
 
+EXPERT_REPORT_BLUEPRINTS = {
+    "buffett": (
+        {"title": "护城河与商业质量", "domains": ("M2", "M5", "portfolio"), "kind": "quality"},
+        {"title": "估值安全边际", "domains": ("M2", "M4", "portfolio"), "kind": "margin"},
+        {"title": "永久性本金损失风险", "domains": ("M4", "M6", "portfolio"), "kind": "downside"},
+        {"title": "长期持有条件", "domains": ("M5", "M6", "portfolio"), "kind": "watchlist"},
+    ),
+    "munger": (
+        {"title": "最可能失败的路径", "domains": ("M4", "M6", "portfolio"), "kind": "downside"},
+        {"title": "激励、治理与复杂性", "domains": ("M5", "portfolio"), "kind": "quality"},
+        {"title": "机会成本与反方证据", "domains": ("M2", "M4", "M6"), "kind": "margin"},
+        {"title": "不做清单", "domains": ("M4", "M6", "portfolio"), "kind": "discipline"},
+    ),
+    "graham": (
+        {"title": "下行保护", "domains": ("M4", "M6", "portfolio"), "kind": "downside"},
+        {"title": "资产与盈利稳定性线索", "domains": ("M2", "M5", "portfolio"), "kind": "quality"},
+        {"title": "保守估值纪律", "domains": ("M2", "M4"), "kind": "margin"},
+        {"title": "买入或等待条件", "domains": ("M1", "M4", "M6"), "kind": "watchlist"},
+    ),
+    "klarman": (
+        {"title": "折价来源与市场厌恶", "domains": ("M2", "M4"), "kind": "margin"},
+        {"title": "催化剂可靠性", "domains": ("M3", "M6"), "kind": "catalyst"},
+        {"title": "最坏情景与流动性", "domains": ("M1", "M4", "portfolio"), "kind": "downside"},
+        {"title": "现金选择权", "domains": ("M4", "M6", "portfolio"), "kind": "discipline"},
+    ),
+    "lynch": (
+        {"title": "公司类型与增长故事", "domains": ("M2", "M5", "portfolio"), "kind": "growth"},
+        {"title": "盈利兑现线索", "domains": ("M3", "M5", "portfolio"), "kind": "quality"},
+        {"title": "增长与估值匹配", "domains": ("M2", "M4"), "kind": "margin"},
+        {"title": "故事破裂风险", "domains": ("M4", "M6"), "kind": "downside"},
+    ),
+    "o_neil": (
+        {"title": "市场方向", "domains": ("M1", "M3", "M4"), "kind": "trend"},
+        {"title": "强势行业与龙头", "domains": ("M2", "M3"), "kind": "leaders"},
+        {"title": "量价确认", "domains": ("M1", "M3"), "kind": "trend"},
+        {"title": "突破失败与止损条件", "domains": ("M4", "M6"), "kind": "discipline"},
+    ),
+    "wood": (
+        {"title": "颠覆式创新假设", "domains": ("M2", "M5"), "kind": "growth"},
+        {"title": "渗透率与平台扩张线索", "domains": ("M2", "M3", "M5"), "kind": "catalyst"},
+        {"title": "融资与估值波动", "domains": ("M4", "M6"), "kind": "downside"},
+        {"title": "关键里程碑", "domains": ("M3", "M6"), "kind": "watchlist"},
+    ),
+    "dalio": (
+        {"title": "宏观周期与流动性", "domains": ("M1", "M2"), "kind": "macro"},
+        {"title": "相关性与组合暴露", "domains": ("M1", "M5", "portfolio"), "kind": "portfolio"},
+        {"title": "三情景推演", "domains": ("M1", "M2", "M4", "M6"), "kind": "scenarios"},
+        {"title": "风险平衡动作", "domains": ("M4", "M6", "portfolio"), "kind": "discipline"},
+    ),
+    "soros": (
+        {"title": "共识与预期差", "domains": ("M1", "M2", "M3"), "kind": "reflexivity"},
+        {"title": "价格反馈链", "domains": ("M1", "M3", "M4"), "kind": "trend"},
+        {"title": "政策或资金拐点", "domains": ("M1", "M2"), "kind": "macro"},
+        {"title": "证伪信号", "domains": ("M4", "M6"), "kind": "discipline"},
+    ),
+    "livermore": (
+        {"title": "趋势是否确认", "domains": ("M1", "M3"), "kind": "trend"},
+        {"title": "关键点与成交确认", "domains": ("M1", "M3", "M4"), "kind": "leaders"},
+        {"title": "亏损控制", "domains": ("M4", "M6"), "kind": "discipline"},
+        {"title": "等待还是行动", "domains": ("M3", "M4", "M6"), "kind": "watchlist"},
+    ),
+    "minervini": (
+        {"title": "趋势模板", "domains": ("M1", "M2", "M3"), "kind": "trend"},
+        {"title": "相对强度与低风险买点", "domains": ("M2", "M3"), "kind": "leaders"},
+        {"title": "风险收益比", "domains": ("M4", "M6"), "kind": "margin"},
+        {"title": "止损宽度", "domains": ("M4", "M6"), "kind": "discipline"},
+    ),
+    "simons": (
+        {"title": "信号定义与数据口径", "domains": ("M1", "M2", "M3", "M4"), "kind": "quant"},
+        {"title": "样本稳定性", "domains": ("M2", "M3", "M4"), "kind": "quant"},
+        {"title": "拥挤度与成本", "domains": ("M2", "M4", "M5"), "kind": "downside"},
+        {"title": "概率化结论", "domains": ("M1", "M3", "M4", "M6"), "kind": "scenarios"},
+    ),
+    "duan_yongping": (
+        {"title": "商业本质与用户价值", "domains": ("M2", "M5", "portfolio"), "kind": "quality"},
+        {"title": "企业文化与能力圈边界", "domains": ("M5", "portfolio"), "kind": "quality"},
+        {"title": "价格是否合理", "domains": ("M2", "M4", "portfolio"), "kind": "margin"},
+        {"title": "睡得着的持有条件", "domains": ("M4", "M6", "portfolio"), "kind": "watchlist"},
+    ),
+    "zhang_kun": (
+        {"title": "高质量商业模式", "domains": ("M2", "M5", "portfolio"), "kind": "quality"},
+        {"title": "长期现金创造代理线索", "domains": ("M2", "M5", "portfolio"), "kind": "quality"},
+        {"title": "估值与机会成本", "domains": ("M2", "M4", "portfolio"), "kind": "margin"},
+        {"title": "组合权重与集中度", "domains": ("M5", "portfolio"), "kind": "portfolio"},
+    ),
+    "feng_liu": (
+        {"title": "市场为何如此定价", "domains": ("M1", "M2", "M4"), "kind": "reflexivity"},
+        {"title": "认知差与边际变化", "domains": ("M2", "M3", "M5"), "kind": "catalyst"},
+        {"title": "赔率与反方证据", "domains": ("M4", "M6"), "kind": "margin"},
+        {"title": "触发条件", "domains": ("M3", "M4", "M6"), "kind": "watchlist"},
+    ),
+}
+
 
 @dataclass(frozen=True)
 class ReportResult:
@@ -77,7 +170,7 @@ def _fmt_activity(value: Any, volume: Any = None) -> str:
     if value is not None and float(value) > 0:
         return _fmt_amount_yi(value)
     if volume is not None and float(volume) > 0:
-        return _fmt_quantity(volume)
+        return f"{_fmt_quantity(volume)}（成交量）"
     return "暂缺"
 
 
@@ -159,6 +252,21 @@ def _append_sector_table(lines: list[str], rows: list[dict[str, Any]], limit: in
             f"{row.get('up_count') if row.get('up_count') is not None else ''} | "
             f"{row.get('down_count') if row.get('down_count') is not None else ''} |"
         )
+
+
+def _append_board_summary_tables(lines: list[str], m2: dict[str, Any], limit: int = 10) -> None:
+    groups = (
+        ("行业涨幅榜", m2.get("industry_top20") or []),
+        ("概念涨幅榜", m2.get("concept_top20") or []),
+    )
+    visible = [(title, rows) for title, rows in groups if any(row.get("name") for row in rows)]
+    if not visible:
+        lines.append("> 行业/概念板块榜暂缺；以下集中度来自涨跌停主题统计。")
+        return
+    for title, rows in visible:
+        lines.extend([f"**{title}**", ""])
+        _append_sector_table(lines, rows, limit=limit)
+        lines.append("")
 
 
 def _append_holdings_table(lines: list[str], details: list[dict[str, Any]]) -> None:
@@ -445,10 +553,10 @@ def _render_lens_report(
         f"**分析模式**：{mode_label}  ",
     ]
     if explicit_lens_request:
-        lines.append(f"**使用视角**：{' + '.join(lens_names)}  ")
+        lines.append(f"**使用专家**：{' + '.join(lens_names)}  ")
     lines.append(f"**数据截止**：{_display_date(evidence.meta.get('trade_date') or trade_date)}")
     if fallback:
-        lines.append(f"**降级说明**：committee 构建失败，已降级为 single/{fallback['fallback_lens']}。")
+        lines.append(f"**调整说明**：投委会框架暂未完成，已改用{fallback['fallback_lens']}专家框架。")
     lines.append("")
     if quality.degrade_mode == "degraded" and quality.missing_modules:
         missing = "、".join(MODULE_LABELS.get(value, value) for value in quality.missing_modules)
@@ -472,6 +580,20 @@ def _render_lens_report(
             quality=quality,
             portfolio_snapshot=portfolio_snapshot,
             report_format=report_format,
+            m1=m1,
+            m2=m2,
+            m3=m3,
+            m4=m4,
+            m5=m5,
+            m6=m6,
+            lens_context=lens_context,
+        )
+    if lens_context.mode == "single" and report_format == "full":
+        return _render_single_lens_review_report(
+            header_lines=lines,
+            evidence=evidence,
+            quality=quality,
+            portfolio_snapshot=portfolio_snapshot,
             m1=m1,
             m2=m2,
             m3=m3,
@@ -508,7 +630,7 @@ def _render_lens_report(
     lines.append("")
 
     lines.append("## 5. 估值与情景分析")
-    lines.append("估值判断采用 lens 调整后的证据权重：先看数据质量，再区分短期价格弹性、长期现金流质量和组合暴露。")
+    lines.append("估值判断采用 lens 调整后的证据权重：先看数据质量，再区分短期价格弹性、长期经营质量和组合暴露。")
     sector_rows = m2.get("industry_top20") or m2.get("concept_top20") or []
     _append_sector_table(lines, sector_rows)
     lines.append("")
@@ -542,6 +664,369 @@ def _render_lens_report(
             compact.extend(["", disclaimer])
         return sanitize_research_report("\n".join(compact))
     return sanitize_research_report("\n".join(lines))
+
+
+def _render_single_lens_review_report(
+    *,
+    header_lines: list[str],
+    evidence: EvidenceBundle,
+    quality: EvidenceQuality,
+    portfolio_snapshot: dict[str, Any],
+    m1: dict[str, Any],
+    m2: dict[str, Any],
+    m3: dict[str, Any],
+    m4: dict[str, Any],
+    m5: dict[str, Any],
+    m6: dict[str, Any],
+    lens_context: LensContext,
+) -> str:
+    lines = list(header_lines)
+    notice = _missing_module_notice(quality)
+    if notice:
+        lines.extend([notice, ""])
+    lens_name = _lens_names(lens_context)[0] if _lens_names(lens_context) else "专家"
+    lines.append("## 执行摘要")
+    lines.append(_executive_summary(m1, m3, m4, m6, lens_context, quality))
+    lines.append(f"本报告服从{lens_name}框架：保留原盘后复盘骨架，仅将中间深度复盘区替换为该专家的证据链顺序。")
+    lines.append("")
+
+    lines.append("## 一、大盘指数概览")
+    _append_index_table(lines, _index_rows(m1))
+    _append_northbound_table(lines, m1.get("northbound") or {})
+    _append_breadth_table(lines, m1.get("breadth") or {})
+    lines.append("")
+    lines.append(f"=={m1.get('cross_market_comment', '三地市场强弱分化，风险偏好仍需结合成交额确认。')}==")
+    lines.append("")
+
+    details = portfolio_snapshot.get("details", [])
+    has_holdings = bool(details)
+    if has_holdings:
+        lines.append("## 二、持仓分析")
+        _append_holdings_table(lines, details)
+        lines.append("")
+        _append_portfolio_summary_table(lines, portfolio_snapshot)
+        lines.append("")
+        _append_relative_strength_table(lines, details)
+        lines.append("")
+        _append_public_pulse_table(lines, details)
+        lines.append("")
+
+    deep_heading = f"## 三、{lens_name}视角深度复盘" if has_holdings else f"## 二、{lens_name}视角深度复盘"
+    advice_heading = f"## 四、{lens_name}持仓建议与风险提示" if has_holdings else "## 三、通用市场建议与风险提示"
+    lines.append(deep_heading)
+    _append_expert_review_sections(
+        lines,
+        lens_context=lens_context,
+        m1=m1,
+        m2=m2,
+        m3=m3,
+        m4=m4,
+        m5=m5,
+        m6=m6,
+        portfolio_snapshot=portfolio_snapshot,
+    )
+    _append_market_fact_sections(lines, evidence.meta.get("facts") or {})
+    lines.append("")
+
+    advice = evidence.meta.get("portfolio_advice_sections") or {}
+    lines.append(advice_heading)
+    lines.append("### 现状总结")
+    if has_holdings:
+        _append_bullets_or_default(lines, advice.get("current", []), "已加载持仓；现状以当日浮盈亏、集中度和相对基准表现为准。")
+    else:
+        lines.append(f"- {_market_trend_narrative(m1, m3, m4)}")
+    lines.append("")
+    lines.append("### 基准跑赢/跑输")
+    if has_holdings:
+        _append_bullets_or_default(lines, advice.get("benchmark", []), "当前没有足够数据形成可靠的相对基准判断。")
+    else:
+        lines.append("- 未加载持仓；以主要指数、市场广度和主线持续性作为通用市场基准。")
+    lines.append("")
+    lines.append("### 条件化仓位动作")
+    if has_holdings:
+        _append_bullets_or_default(lines, advice.get("position_actions", []), "若持仓继续跑输对应基准且成交未改善，优先降低新增暴露；若放量修复，再评估分批调整。")
+    else:
+        lines.append("- 若指数强弱、成交额和主线持续性同向改善，再考虑提高进攻性；若主线收缩或炸板率上升，维持防守仓位。")
+    lines.append("")
+    lines.append("### 下一交易日观察清单")
+    _append_bullets_or_default(
+        lines,
+        advice.get("watchlist", []),
+        "继续观察指数强弱、成交额变化和主线板块持续性是否互相确认。",
+    )
+    lines.append("")
+    lines.append("### 风险提示")
+    risks = advice.get("risks", [])
+    if risks:
+        _append_bullets(lines, risks)
+    else:
+        lines.append("- 控制追涨节奏，避免在单日情绪极端后忽视次日分化风险。")
+    _append_bullets(lines, _risk_and_catalyst_lines(m3, m4, m6, {}))
+    lines.append("")
+    lines.append("免责声明：以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。")
+    return sanitize_research_report("\n".join(lines))
+
+
+def _append_expert_review_sections(
+    lines: list[str],
+    *,
+    lens_context: LensContext,
+    m1: dict[str, Any],
+    m2: dict[str, Any],
+    m3: dict[str, Any],
+    m4: dict[str, Any],
+    m5: dict[str, Any],
+    m6: dict[str, Any],
+    portfolio_snapshot: dict[str, Any],
+) -> None:
+    lens_id = lens_context.lenses[0] if lens_context.lenses else "buffett"
+    sections = EXPERT_REPORT_BLUEPRINTS.get(lens_id) or EXPERT_REPORT_BLUEPRINTS["buffett"]
+    payloads = {"M1": m1, "M2": m2, "M3": m3, "M4": m4, "M5": m5, "M6": m6}
+    for section in sections:
+        lines.append(f"### {section['title']}")
+        domains = tuple(section.get("domains") or ())
+        if not _expert_domains_available(domains, payloads, portfolio_snapshot):
+            lines.append("==本节关键证据暂缺，只保留该专家框架下的观察清单，不外推结论。==")
+        _append_expert_section_body(
+            lines,
+            kind=str(section.get("kind") or ""),
+            m1=m1,
+            m2=m2,
+            m3=m3,
+            m4=m4,
+            m5=m5,
+            m6=m6,
+            portfolio_snapshot=portfolio_snapshot,
+        )
+        lines.append("")
+
+
+def _expert_domains_available(
+    domains: tuple[str, ...],
+    payloads: dict[str, dict[str, Any]],
+    portfolio_snapshot: dict[str, Any],
+) -> bool:
+    for domain in domains:
+        if domain == "portfolio":
+            if portfolio_snapshot.get("details"):
+                return True
+            continue
+        payload = payloads.get(domain) or {}
+        if payload and payload.get("available", True):
+            return True
+    return False
+
+
+def _append_expert_section_body(
+    lines: list[str],
+    *,
+    kind: str,
+    m1: dict[str, Any],
+    m2: dict[str, Any],
+    m3: dict[str, Any],
+    m4: dict[str, Any],
+    m5: dict[str, Any],
+    m6: dict[str, Any],
+    portfolio_snapshot: dict[str, Any],
+) -> None:
+    if kind == "quality":
+        lines.append("- 市场级证据无法替代公司尽调；本节只用行业强弱、风格暴露和已加载持仓做质量线索。")
+        lines.append(f"- 行业/主题线索：{m2.get('summary', '板块证据暂缺，无法判断行业质量是否得到市场确认。')}")
+        lines.append(f"- 风格线索：{m5.get('summary', '风格证据暂缺，暂不判断质量溢价。')}")
+        _append_sector_table(lines, m2.get("industry_top20") or m2.get("concept_top20") or [], limit=5)
+        return
+    if kind == "margin":
+        lines.append("- 市场级安全边际用风险释放、板块热度和资金承接做代理，不把单日行情外推为单一公司的估值结论。")
+        lines.append(f"- 结构性热度：{m2.get('summary', '板块热度证据暂缺。')}")
+        lines.append(f"- 风险折价：{m4.get('summary', '下跌风险证据暂缺。')}")
+        return
+    if kind == "downside":
+        stats = (m4.get("pool_stats") or m3.get("pool_stats") or {})
+        lines.append(f"- {m4.get('summary', '下跌风险证据暂缺，先按仓位纪律处理。')}")
+        lines.append(
+            f"- 跌停 {stats.get('dt_count', 0)} 家、炸板 {stats.get('zb_count', 0)} 家，"
+            f"炸板率约 {float(stats.get('blowup_ratio') or 0):.1%}。"
+        )
+        return
+    if kind in {"trend", "leaders"}:
+        lines.append(f"- {_market_trend_narrative(m1, m3, m4)}")
+        stats = m3.get("pool_stats") or {}
+        leaders = stats.get("leaders", [])
+        if leaders:
+            _append_leader_table(lines, leaders)
+        lines.append(f"- {m3.get('summary', '赚钱效应证据暂缺，等待价格确认。')}")
+        return
+    if kind in {"growth", "catalyst", "reflexivity"}:
+        lines.append(f"- 主线或预期差：{m2.get('summary', '板块主线证据暂缺。')}")
+        lines.append(f"- 催化强度：{m3.get('summary', '涨停和活跃资金证据暂缺。')}")
+        lines.append(f"- 证伪压力：{m4.get('summary', '风险证据暂缺。')}")
+        return
+    if kind == "macro":
+        _append_index_table(lines, _index_rows(m1))
+        _append_northbound_table(lines, m1.get("northbound") or {})
+        _append_breadth_table(lines, m1.get("breadth") or {})
+        lines.append(f"- 板块扩散：{m2.get('summary', '板块扩散证据暂缺。')}")
+        return
+    if kind == "portfolio":
+        if portfolio_snapshot.get("details"):
+            _append_portfolio_summary_table(lines, portfolio_snapshot)
+        else:
+            lines.append("- 未加载持仓；组合集中度、相关性和机会成本只能作为下一步输入要求。")
+        lines.append(f"- 风格暴露：{m5.get('summary', '风格暴露证据暂缺。')}")
+        return
+    if kind == "quant":
+        lines.extend(["| 信号域 | 可用性 | 摘要 |", "|---|---|---|"])
+        for module, payload, label in (
+            ("M1", m1, "指数/宽度"),
+            ("M2", m2, "板块/资金"),
+            ("M3", m3, "赚钱效应"),
+            ("M4", m4, "风险"),
+            ("M5", m5, "风格"),
+            ("M6", m6, "抗跌"),
+        ):
+            available = "可用" if payload.get("available", True) else "暂缺"
+            lines.append(f"| {module} {label} | {available} | {payload.get('summary') or payload.get('cross_market_comment') or ''} |")
+        return
+    if kind == "scenarios":
+        lines.append(f"- 基准情景：{_market_trend_narrative(m1, m3, m4)}")
+        lines.append(f"- 乐观情景：{m3.get('summary', '需要主线、成交和市场宽度继续改善。')}")
+        lines.append(f"- 悲观情景：{m4.get('summary', '若炸板率和跌停数量抬升，风险偏好会快速降级。')}")
+        return
+    if kind == "discipline":
+        _append_bullets(lines, _risk_and_catalyst_lines(m3, m4, m6, {}))
+        lines.append("- 不满足确认条件时，等待本身就是有效动作。")
+        return
+    if kind == "watchlist":
+        lines.append(f"- 持有条件一：{m6.get('summary', '抗跌方向尚不清晰，先观察承接是否恢复。')}")
+        lines.append(f"- 持有条件二：{m3.get('summary', '赚钱效应仍需次日成交和连板梯队确认。')}")
+        lines.append(f"- 失效条件：{m4.get('summary', '若风险池继续扩大，应降低高波动方向暴露。')}")
+        if portfolio_snapshot.get("details"):
+            lines.append("- 组合持仓仍需逐项核对买入理由、仓位集中度和相对基准表现。")
+        else:
+            lines.append("- 未加载持仓；本节只给市场观察条件，不判断任何单一标的能否长期持有。")
+        return
+    lines.append("- 本节仅使用当前已加载的市场证据做代理观察，保留为下一交易日确认项。")
+
+
+def _append_market_fact_sections(lines: list[str], facts: dict[str, Any]) -> None:
+    if not facts:
+        return
+    _append_hotspot_section(lines, facts.get("hotspots_24h") or [])
+    _append_board_rankings_section(lines, facts.get("board_rankings") or {})
+    _append_money_flow_section(lines, facts.get("money_flow") or {})
+    _append_lhb_section(lines, facts.get("lhb_aftermarket") or {})
+    _append_announcements_section(lines, facts.get("announcements") or {})
+
+
+def _append_hotspot_section(lines: list[str], hotspots: list[dict[str, Any]]) -> None:
+    rows = [row for row in hotspots if row.get("topic")][:5]
+    if not rows:
+        return
+    lines.extend(
+        [
+            "### 24小时热点追踪",
+            "| 主题 | 触发线索 | 涨停样本 | 代表个股 | 新闻样本 |",
+            "|---|---|---:|---|---:|",
+        ]
+    )
+    for row in rows:
+        leaders = "、".join(str(value) for value in (row.get("leaders") or [])[:3])
+        lines.append(
+            f"| {row.get('topic')} | {row.get('summary') or ''} | "
+            f"{int(row.get('limit_up_count') or 0)} | {leaders} | {int(row.get('news_count') or 0)} |"
+        )
+    lines.append("")
+
+
+def _append_board_rankings_section(lines: list[str], rankings: dict[str, Any]) -> None:
+    groups = (
+        ("行业涨幅前五", rankings.get("industry_top5") or []),
+        ("行业跌幅前五", rankings.get("industry_bottom5") or []),
+        ("概念涨幅前五", rankings.get("concept_top5") or []),
+        ("概念跌幅前五", rankings.get("concept_bottom5") or []),
+    )
+    visible = [(title, rows) for title, rows in groups if rows]
+    if not visible:
+        return
+    lines.append("### 行业板块强弱前五")
+    for title, rows in visible:
+        lines.extend([f"**{title}**", "", "| 板块 | 涨跌幅 | 领涨/领跌股 | 个股涨跌幅 |", "|---|---:|---|---:|"])
+        for row in rows[:5]:
+            lines.append(
+                f"| {row.get('name') or ''} | {_fmt_pct(row.get('change_pct'))} | "
+                f"{row.get('leader') or ''} | {_fmt_pct(row.get('leader_change_pct'))} |"
+            )
+        lines.append("")
+
+
+def _append_money_flow_section(lines: list[str], flow: dict[str, Any]) -> None:
+    if not flow:
+        return
+    has_flow_rows = any(flow.get(key) for key in ("concept_in", "concept_out", "sector_in", "sector_out"))
+    if flow.get("market_main_net") is None and not has_flow_rows:
+        return
+    lines.append("### 主力与行业资金流向")
+    if flow.get("market_main_net") is not None:
+        lines.extend(["| 资金项 | 金额 |", "|---|---:|", f"| 全市场主力净流入 | {_fmt_amount_yi(flow.get('market_main_net'))} |"])
+    scope_note = str(flow.get("scope_note") or "")
+    if scope_note:
+        lines.append(f"> {scope_note}")
+    sector_note = str(flow.get("sector_note") or "")
+    if sector_note and sector_note != scope_note:
+        lines.append(f"> {sector_note}")
+    for title, key in (
+        ("概念资金净流入前三", "concept_in"),
+        ("概念资金净流出前三", "concept_out"),
+        ("行业资金净流入前三", "sector_in"),
+        ("行业资金净流出前三", "sector_out"),
+    ):
+        rows = flow.get(key) or []
+        if not rows:
+            continue
+        lines.extend(["", f"**{title}**", "", "| 板块 | 净额 | 领涨/领跌股 |", "|---|---:|---|"])
+        for row in rows[:3]:
+            lines.append(f"| {row.get('name') or ''} | {_fmt_plain_number(row.get('net'))} | {row.get('leader') or ''} |")
+    lines.append("")
+
+
+def _append_lhb_section(lines: list[str], lhb: dict[str, Any]) -> None:
+    rows = lhb.get("rows") or []
+    lines.extend(
+        [
+            "### 盘后龙虎榜",
+            "| 股票 | 收盘价 | 涨跌幅 | 买入金额(万) | 卖出金额(万) | 净买入(万) |",
+            "|---|---:|---:|---:|---:|---:|",
+        ]
+    )
+    if not lhb.get("available") or not rows:
+        lines.append("| 当日龙虎榜暂未取得可核验明细 |  |  |  |  |  |")
+        lines.append("")
+        return
+    for row in rows[:5]:
+        lines.append(
+            f"| {row.get('name') or row.get('symbol') or ''} | {_fmt_price(row.get('close_price'))} | "
+            f"{_fmt_pct(row.get('change_pct'))} | {_fmt_plain_number(row.get('buy_amount_wan'))} | "
+            f"{_fmt_plain_number(row.get('sell_amount_wan'))} | {_fmt_plain_number(row.get('net_amount_wan'))} |"
+        )
+    lines.append("")
+
+
+def _append_announcements_section(lines: list[str], announcements: dict[str, Any]) -> None:
+    rows = announcements.get("rows") or []
+    lines.extend(["### 重要公告速递", "| 代码 | 名称 | 公告 |", "|---|---|---|"])
+    if not announcements.get("available") or not rows:
+        lines.append("|  |  | 当日重要公告暂未取得可核验明细 |")
+        lines.append("")
+        return
+    for row in rows[:8]:
+        lines.append(f"| {row.get('symbol') or ''} | {row.get('name') or ''} | {row.get('title') or ''} |")
+    lines.append("")
+
+
+def _fmt_plain_number(value: Any) -> str:
+    if value is None or value == "":
+        return ""
+    return f"{float(value):,.2f}"
 
 
 def _render_committee_review_report(
@@ -627,10 +1112,7 @@ def _render_committee_review_report(
         lines.append("==本模块证据暂缺，板块资金和集中度仅保留观察框架。==")
     else:
         lines.append(f"=={m2.get('summary', '市场以结构性轮动为主。')}==")
-    sector_rows = m2.get("industry_top20") or m2.get("concept_top20") or []
-    if not sector_rows:
-        lines.append("> 行业/概念板块榜暂缺；以下集中度来自涨跌停主题统计。")
-    _append_sector_table(lines, sector_rows)
+    _append_board_summary_tables(lines, m2)
     lines.append(
         f"涨停主题 TOP1 占比 {float(concentration.get('top1_ratio') or 0):.1%}，"
         f"TOP3 占比 {float(concentration.get('top3_ratio') or 0):.1%}。"
@@ -681,6 +1163,8 @@ def _render_committee_review_report(
     resilient = [value for value in m6.get("resilient", []) if value]
     if resilient:
         lines.append("可继续观察：" + "、".join(resilient) + "。")
+    lines.append("")
+    _append_market_fact_sections(lines, evidence.meta.get("facts") or {})
     lines.append("")
 
     advice = evidence.meta.get("portfolio_advice_sections") or {}
@@ -752,8 +1236,7 @@ def _render_intraday_briefing_report(
         lines.append("==板块证据暂缺，主线判断只保留观察框架。==")
     else:
         lines.append(f"=={m2.get('summary', '市场以结构性轮动为主。')}==")
-    sector_rows = m2.get("industry_top20") or m2.get("concept_top20") or []
-    _append_sector_table(lines, sector_rows, limit=8)
+    _append_board_summary_tables(lines, m2, limit=8)
     lines.append("")
 
     if report_format == "key-points":
@@ -787,6 +1270,8 @@ def _render_intraday_briefing_report(
         advice.get("watchlist", []),
         "观察指数强弱、成交额变化、主线板块持续性和炸板率变化。",
     )
+    lines.append("")
+    _append_market_fact_sections(lines, evidence.meta.get("facts") or {})
     lines.append("")
     lines.append("## 风险提示")
     _append_bullets(lines, _risk_and_catalyst_lines(m3, m4, m6, {}))
@@ -942,7 +1427,7 @@ def _executive_summary(
     return (
         f"投资确信度：{confidence}。推荐结论：{conclusion}。"
         f"盘面趋势为{trend or '待确认'}，涨停样本 {zt_count} 家，炸板率约 {float(blowup):.1%}。"
-        f"当前采用 {context.mode} 模式，结论已按 lens 权重调和。"
+        f"当前采用 {_mode_label(context.mode, default_committee=False)} 模式，结论已按专家框架权重调和。"
     )
 
 
@@ -953,7 +1438,7 @@ def _format_m1_committee_analysis(m1: dict[str, Any]) -> str:
     anomalies = analysis.get("anomalies") or []
     return (
         "m1 综合深度分析："
-        f"{cross.get('lens_count', 0)} 个 lens 交叉验证；"
+        f"{cross.get('lens_count', 0)} 位专家交叉验证；"
         f"趋势一致性={trend.get('direction', '数据不足')}，"
         f"样本数={trend.get('sample_count', 0)}，区间={trend.get('range_pct')}%；"
         f"异常点={'；'.join(str(item) for item in anomalies)}"
