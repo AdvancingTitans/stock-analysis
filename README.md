@@ -1,5 +1,33 @@
 # stock-analysis
 
+**Evidence-driven stock market analysis CLI for A-shares, Hong Kong stocks, US stocks, funds, and portfolio review.**
+
+`stock-analysis` turns public market data into deterministic Markdown reports: market breadth, sector rotation, capital flow, holdings exposure, risk notes, and an auditable evidence pack.
+
+```bash
+uv tool install stock-analysis
+stock-analysis --market daily
+stock-analysis --market stock --symbol 600519
+stock-analysis --market global --format full --with-holdings --emit-evidence
+```
+
+Use it when you want a repeatable market recap, not another chart screenshot. It is built for AI agents, quant hobbyists, China-market researchers, and investors who want source-backed daily notes.
+
+## Why Star This Repo
+
+- No-login public data paths for A/HK/US market snapshots where possible.
+- Deterministic output first; LLM/agent layers can consume the evidence later.
+- A-shares, Hong Kong stocks, US stocks, funds, and holdings review in one CLI.
+- Evidence Pack JSON makes reports easier to audit, diff, and automate.
+
+## Which Repo Should I Use?
+
+- Use **`stock-analysis`** for the full global market recap engine and evidence framework.
+- Use [`young-stock-cli`](https://github.com/AdvancingTitans/young-stock-cli) for a lighter personal research cockpit with PyPI-first install, local profiles, export, and delivery flows.
+- See [`awesome-ai-agent-research-tools`](https://github.com/AdvancingTitans/awesome-ai-agent-research-tools) for related AI-agent research tools.
+
+## What It Does
+
 基于 `AdvancingTitans/stock-analysis` 日报框架重构的全球股市证据驱动复盘引擎，整合：
 
 - `simonlin1212/a-stock-data` 的 A股数据分层、东财独有端点与限流经验
