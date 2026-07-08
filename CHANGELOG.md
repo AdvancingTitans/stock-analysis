@@ -1,5 +1,13 @@
 # Changelog
 
+## Skill v4.5.0 - 2026-07-08
+
+- Skill-only update：所有报告类型及专家视角优先引用补充证据、精选资讯和稳定公开数据源。
+- 新增缺失指标补充纪律：稳定源和精选资讯仍不可得时保留缺口，不补零、不猜测、不用相邻指标替代。
+- 基金深度分析规则补充基金画像、持仓结构、重仓股行情和持仓股精选资讯雷达。
+- Evidence Pack 说明补充 `supplemental_evidence`、`news_radar`、`risk_calendar`、`FUND.profile` 和 `FUND.holding_news_radar`。
+- 新增本地源码仓库调用与手工取数 fallback reference，避免 CLI 环境不可用时跳过证据收集。
+
 ## v4.3.7 - 2026-07-02
 
 - 删除默认报告中的 M7/社区情绪分析模块，报告 metadata 不再输出 `evidence_quality_with_m7` 或 `community_sentiment_summary`。
