@@ -51,6 +51,7 @@ Each PR uses branch `add-stock-analysis` on the `AdvancingTitans` fork unless no
 
 ## Follow-Up Rules
 
+- Weekly automation: `stock-analysis-awesome-pr-weekly-follow-up` runs every Saturday at 04:00 local time to inspect submitted PRs and apply low-risk review fixes directly.
 - Use `gh pr view <number> --repo <owner/repo> --json state,isDraft,comments,reviews,reviewDecision,statusCheckRollup,headRefOid,url`.
 - Also check review comments with `gh api repos/<owner>/<repo>/pulls/<number>/comments --paginate`.
 - If feedback is style, capitalization, placement, or description length and the fix is low-risk, edit the fork directly, commit, and push.
