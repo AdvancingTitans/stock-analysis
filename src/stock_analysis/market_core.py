@@ -2393,6 +2393,213 @@ def eastmoney_datacenter(
     return ((data.get("result") or {}).get("data") or []) if data.get("success", True) else []
 
 
+def fetch_a_share_financial_snapshot(symbol: str, date_str: str, limit: int = 8) -> dict[str, Any]:
+    """Fetch disclosed A-share financial evidence from Eastmoney datacenter."""
+    normalized, market = normalize_stock_symbol(symbol)
+    if market != "cn_market":
+        return {
+            "symbol": normalized,
+            "available": False,
+            "periods": [],
+            "forecasts": {"available": False, "rows": []},
+            "earnings_flash": {"available": False, "rows": []},
+            "gaps": ["A股财务快照目前仅支持 A 股代码"],
+            "_source": "东方财富 datacenter",
+        }
+    limit = max(1, min(int(limit or 8), 20))
+    cache_key = f"v3_{date_str}_{normalized}_{limit}"
+    cached = cache_load("a_share_financial_snapshot", cache_key, "eastmoney_datacenter", ttl=24 * 3600)
+    if cached:
+        return cached
+
+    filter_str = f'(SECURITY_CODE="{normalized}")'
+    summary_rows = eastmoney_datacenter(
+        "RPT_LICO_FN_CPD",
+        filter_str=filter_str,
+        page_size=limit,
+        sort_columns="REPORTDATE",
+        sort_types="-1",
+    )
+    balance_rows = eastmoney_datacenter(
+        "RPT_DMSK_FN_BALANCE",
+        filter_str=filter_str,
+        page_size=limit,
+        sort_columns="REPORT_DATE",
+        sort_types="-1",
+    )
+    cashflow_rows = eastmoney_datacenter(
+        "RPT_DMSK_FN_CASHFLOW",
+        filter_str=filter_str,
+        page_size=limit,
+        sort_columns="REPORT_DATE",
+        sort_types="-1",
+    )
+    forecast_rows = eastmoney_datacenter(
+        "RPT_PUBLIC_OP_NEWPREDICT",
+        filter_str=filter_str,
+        page_size=5,
+        sort_columns="NOTICE_DATE",
+        sort_types="-1",
+    )
+    flash_rows = eastmoney_datacenter(
+        "RPT_PUBLIC_OP_NEWDISCOVER",
+        filter_str=filter_str,
+        page_size=5,
+        sort_columns="NOTICE_DATE",
+        sort_types="-1",
+    )
+    result = _build_a_share_financial_snapshot(
+        normalized,
+        summary_rows=summary_rows,
+        balance_rows=balance_rows,
+        cashflow_rows=cashflow_rows,
+        forecast_rows=forecast_rows,
+        flash_rows=flash_rows,
+    )
+    cache_save("a_share_financial_snapshot", cache_key, "eastmoney_datacenter", result)
+    return result
+
+
+def _build_a_share_financial_snapshot(
+    symbol: str,
+    *,
+    summary_rows: list[dict[str, Any]],
+    balance_rows: list[dict[str, Any]],
+    cashflow_rows: list[dict[str, Any]],
+    forecast_rows: list[dict[str, Any]],
+    flash_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    balance_by_period = {_financial_period_key(row): row for row in balance_rows if _financial_period_key(row)}
+    cashflow_by_period = {_financial_period_key(row): row for row in cashflow_rows if _financial_period_key(row)}
+    periods: list[dict[str, Any]] = []
+    name = symbol
+    for row in summary_rows:
+        period = _financial_period_key(row)
+        if not period:
+            continue
+        name = str(row.get("SECURITY_NAME_ABBR") or row.get("SECURITY_NAME") or name)
+        balance = balance_by_period.get(period) or {}
+        cashflow = cashflow_by_period.get(period) or {}
+        operating_cash_flow = _safe_float(cashflow.get("NETCASH_OPERATE"))
+        capex_cash_paid = _safe_float(cashflow.get("CONSTRUCT_LONG_ASSET"))
+        fcf_lite = (
+            operating_cash_flow - capex_cash_paid
+            if operating_cash_flow is not None and capex_cash_paid is not None
+            else None
+        )
+        periods.append(
+            {
+                "report_date": period,
+                "period_label": _financial_period_label(period),
+                "notice_date": _date_only(row.get("NOTICE_DATE") or row.get("REPORTDATE")),
+                "roe_weighted": _safe_float(row.get("WEIGHTAVG_ROE")),
+                "gross_margin": _safe_float(row.get("XSMLL")),
+                "basic_eps": _safe_float(row.get("BASIC_EPS")),
+                "bps": _safe_float(row.get("BPS")),
+                "revenue": _safe_float(row.get("TOTAL_OPERATE_INCOME")),
+                "parent_net_profit": _safe_float(row.get("PARENT_NETPROFIT")),
+                "debt_asset_ratio": _safe_float(balance.get("DEBT_ASSET_RATIO")),
+                "total_assets": _safe_float(balance.get("TOTAL_ASSETS")),
+                "total_liabilities": _safe_float(balance.get("TOTAL_LIABILITIES")),
+                "operating_cash_flow": operating_cash_flow,
+                "capex_cash_paid": capex_cash_paid,
+                "free_cash_flow_lite": fcf_lite,
+                "net_cash_invest": _safe_float(cashflow.get("NETCASH_INVEST")),
+                "net_cash_finance": _safe_float(cashflow.get("NETCASH_FINANCE")),
+            }
+        )
+    periods.sort(key=lambda item: str(item.get("report_date") or ""), reverse=True)
+    latest_period = str(periods[0].get("report_date") or "") if periods else ""
+    forecasts = _financial_disclosure_rows(forecast_rows, min_report_date=latest_period)
+    flashes = _financial_disclosure_rows(flash_rows, min_report_date=latest_period)
+    availability = {
+        "roe": any(row.get("roe_weighted") is not None for row in periods),
+        "gross_margin": any(row.get("gross_margin") is not None for row in periods),
+        "debt_asset_ratio": any(row.get("debt_asset_ratio") is not None for row in periods),
+        "operating_cash_flow": any(row.get("operating_cash_flow") is not None for row in periods),
+        "free_cash_flow_lite": any(row.get("free_cash_flow_lite") is not None for row in periods),
+        "forecast": bool(forecasts),
+        "earnings_flash": bool(flashes),
+    }
+    gaps = [label for key, label in (
+        ("roe", "ROE"),
+        ("debt_asset_ratio", "资产负债率"),
+        ("operating_cash_flow", "经营现金流"),
+        ("free_cash_flow_lite", "自由现金流-lite"),
+    ) if not availability[key]]
+    if not forecasts and not flashes:
+        gaps.append("业绩预告/快报仅在公司披露时存在")
+    return {
+        "symbol": symbol,
+        "name": name,
+        "available": bool(periods),
+        "periods": periods,
+        "availability": availability,
+        "forecasts": {"available": bool(forecasts), "rows": forecasts},
+        "earnings_flash": {"available": bool(flashes), "rows": flashes},
+        "gaps": gaps,
+        "limitations": [
+            "业绩预告/快报仅在公司披露时存在；无返回不代表公司没有业绩变化。",
+            "free_cash_flow_lite=经营现金流净额-购建固定资产等长期资产支付现金，仅作公开现金流代理。",
+        ],
+        "_source": "东方财富 datacenter 财务摘要/资产负债表/现金流量表/业绩预告/业绩快报",
+    }
+
+
+def _financial_period_key(row: dict[str, Any]) -> str:
+    return _date_only(
+        row.get("REPORT_DATE")
+        or row.get("REPORTDATE")
+        or row.get("END_DATE")
+        or row.get("REPORT_PERIOD")
+        or row.get("QDATE")
+    )
+
+
+def _financial_period_label(period: str) -> str:
+    if len(period) != 10:
+        return period
+    month_day = period[5:]
+    return {
+        "03-31": f"{period[:4]}Q1",
+        "06-30": f"{period[:4]}H1",
+        "09-30": f"{period[:4]}Q3",
+        "12-31": f"{period[:4]}FY",
+    }.get(month_day, period)
+
+
+def _date_only(value: Any) -> str:
+    text = str(value or "").strip()
+    match = re.search(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})", text)
+    if match:
+        year, month, day = match.groups()
+        return f"{year}-{int(month):02d}-{int(day):02d}"
+    digits = re.sub(r"\D", "", text)
+    if len(digits) >= 8:
+        return f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}"
+    return ""
+
+
+def _financial_disclosure_rows(rows: list[dict[str, Any]], *, min_report_date: str = "") -> list[dict[str, Any]]:
+    result = []
+    for row in rows:
+        report_date = _date_only(row.get("REPORT_DATE") or row.get("REPORTDATE") or row.get("QDATE"))
+        if min_report_date and (not report_date or report_date < min_report_date):
+            continue
+        result.append(
+            {
+                "notice_date": _date_only(row.get("NOTICE_DATE") or row.get("DISCLOSE_DATE")),
+                "report_date": report_date,
+                "title": row.get("TITLE") or row.get("NOTICE_TITLE") or row.get("PREDICT_CONTENT") or "",
+                "type": row.get("PREDICT_TYPE") or row.get("REPORT_TYPE") or row.get("FORECAST_TYPE") or "",
+                "summary": row.get("CHANGE_REASON") or row.get("PREDICT_REASON") or row.get("CONTENT") or "",
+                "lower": _safe_float(row.get("ADD_AMP_LOWER") or row.get("PREDICT_AMT_LOWER")),
+                "upper": _safe_float(row.get("ADD_AMP_UPPER") or row.get("PREDICT_AMT_UPPER")),
+            }
+        )
+    return result
+
+
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
 def fetch_block_trades(symbol: str, date_str: str, limit: int = 10) -> dict[str, Any]:
     normalized, market = normalize_stock_symbol(symbol)

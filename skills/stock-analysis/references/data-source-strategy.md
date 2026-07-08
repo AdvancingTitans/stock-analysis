@@ -8,6 +8,7 @@
 | A股基础 K | 腾讯 | 新浪可用数据 | 东财历史接口 | 页面接管 |
 | A股五档/逐笔/深度 K | mootdx（按需） | 腾讯基础行情 | 新浪基础行情 | 不适用 |
 | A股独有信号 | 东财限流接口 | 无同等 API | Camofox | Hermes/Playwright |
+| A股单股财务 | 东财 datacenter 财务摘要/三表 | 业绩预告/快报仅披露时可用 | 保留缺口 | 不用页面猜测 |
 | 行业/概念板块榜 | 东财 `clist` | 同花顺公开板块页 | Camofox | Hermes/Playwright |
 | 港股行情 | 腾讯 | 新浪 | 东财 `stock/get` | 页面接管 |
 | 美股行情 | 新浪 | 腾讯 | 东财 searchapi + `stock/get` | 页面接管 |
@@ -68,6 +69,13 @@ Yahoo 不进入推荐路径、报告、示例或当前技术分析实现。
 - `https://fund.eastmoney.com/pingzhongdata/{code}.js` 免登录、无需 API key，可补充长期业绩、前端费率（前端申购费）、规模、业绩评价和现任基金经理画像。
 - 若字段缺失，只保留空单元格，不用同类均值或其他基金数据猜测。
 - 参考 `taxueseek/fund-investment-guide` 的基金三关框架时，只采纳公开免登录字段；其 `mkapi2` + `EASTMONEY_APIKEY` 路径不作为本技能默认数据源。
+
+## A股财务快照
+
+- 默认只对 A股个股/持仓调用东财 datacenter：`RPT_LICO_FN_CPD` 财务摘要、`RPT_DMSK_FN_BALANCE` 资产负债表、`RPT_DMSK_FN_CASHFLOW` 现金流量表。
+- 可得证据包括 ROE、毛利率、EPS、BPS、营收、归母净利润、资产负债率、总资产、总负债、经营现金流和自由现金流-lite。
+- 自由现金流-lite 口径为 `NETCASH_OPERATE - CONSTRUCT_LONG_ASSET`，只是公开现金流代理，不等同于完整企业自由现金流模型。
+- `RPT_PUBLIC_OP_NEWPREDICT` 业绩预告与 `RPT_PUBLIC_OP_NEWDISCOVER` 业绩快报只在上市公司披露时有行；空返回必须保留缺口，不得写成“已获取预告/快报”。
 
 ## 浏览器边界
 

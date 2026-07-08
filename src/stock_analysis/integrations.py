@@ -289,6 +289,10 @@ def fetch_single_quote(symbol: str, trade_date: str) -> QuoteData | None:
     return adapt_quote(core.get_single_stock_quote(symbol, trade_date))
 
 
+def fetch_a_share_financial_snapshot(symbol: str, trade_date: str, limit: int = 8) -> dict[str, Any]:
+    return market_core.fetch_a_share_financial_snapshot(symbol, trade_date, limit=limit)
+
+
 def _safe_float(value: Any) -> float | None:
     try:
         return float(value)

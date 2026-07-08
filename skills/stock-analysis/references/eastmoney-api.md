@@ -119,6 +119,32 @@ curl -s "https://push2ex.eastmoney.com/getTopicZBPool?ut=7eea3edcaed734bea9cbfc2
 | `pagesize` | 最大 200 |
 | `sort=fbt:asc` | 按封板时间从早到晚排 |
 
+---
+
+## 3b. A股单股财务快照（`datacenter-web`）
+
+统一入口：
+
+```text
+https://datacenter-web.eastmoney.com/api/data/v1/get
+```
+
+公共参数：`reportName`、`columns=ALL`、`filter=(SECURITY_CODE="600519")`、`pageSize`、`pageNumber`、`sortColumns`、`sortTypes=-1`、`source=WEB`、`client=WEB`。
+
+| reportName | 用途 | 关键字段 |
+|---|---|---|
+| `RPT_LICO_FN_CPD` | 财务摘要 | `QDATE`、`REPORTDATE`、`NOTICE_DATE`、`WEIGHTAVG_ROE`、`XSMLL`、`BASIC_EPS`、`BPS`、`TOTAL_OPERATE_INCOME`、`PARENT_NETPROFIT` |
+| `RPT_DMSK_FN_BALANCE` | 资产负债表 | `REPORT_DATE`、`DEBT_ASSET_RATIO`、`TOTAL_ASSETS`、`TOTAL_LIABILITIES` |
+| `RPT_DMSK_FN_CASHFLOW` | 现金流量表 | `REPORT_DATE`、`NETCASH_OPERATE`、`CONSTRUCT_LONG_ASSET`、`NETCASH_INVEST`、`NETCASH_FINANCE` |
+| `RPT_PUBLIC_OP_NEWPREDICT` | 业绩预告 | 只在公司披露时返回行 |
+| `RPT_PUBLIC_OP_NEWDISCOVER` | 业绩快报 | 只在公司披露时返回行 |
+
+使用纪律：
+
+- 财务摘要、资产负债表和现金流量表按报告期合并；合不上的字段保留空值。
+- 自由现金流-lite = `NETCASH_OPERATE - CONSTRUCT_LONG_ASSET`，只能作为公开现金流代理。
+- 业绩预告/快报空返回不能解释为“公司没有变化”，只能写“未取得已披露记录”。
+
 **返回结构**
 ```json
 {

@@ -538,6 +538,80 @@ def test_buffett_market_report_uses_market_proxies_without_single_company_financ
     assert "本节没有足够结构化证据支撑强结论" not in result.markdown
 
 
+def test_single_lens_report_uses_stock_financial_snapshot_when_available():
+    evidence = _sample_evidence()
+    evidence.meta["stock_financials"] = {
+        "600519": {
+            "available": True,
+            "periods": [
+                {
+                    "period_label": "2026Q1",
+                    "report_date": "2026-03-31",
+                    "notice_date": "2026-04-29",
+                    "roe_weighted": 10.57,
+                    "gross_margin": 91.2,
+                    "debt_asset_ratio": 12.12,
+                    "operating_cash_flow": 26_910_000_000,
+                    "free_cash_flow_lite": 26_305_000_000,
+                }
+            ],
+            "forecasts": {"available": False, "rows": []},
+            "earnings_flash": {"available": False, "rows": []},
+            "gaps": ["业绩预告/快报仅在公司披露时存在"],
+            "limitations": ["业绩预告/快报仅在公司披露时存在；无返回不代表公司没有业绩变化。"],
+        }
+    }
+
+    result = render_report_with_metadata(
+        trade_date="20260617",
+        session_label="盘后",
+        evidence=evidence,
+        quality=EvidenceQuality(
+            module_scores={"M1": 20, "M2": 20, "M3": 20, "M4": 15, "M5": 15, "M6": 10},
+            missing_modules=[],
+        ),
+        portfolio_snapshot={"details": []},
+        report_format="full",
+        lens="buffett",
+        mode="single",
+    )
+
+    assert "### 财务证据覆盖" in result.markdown
+    assert "| 600519 | 2026Q1 | +10.57% | +91.20% | +12.12% | 269.10亿 | 263.05亿 |" in result.markdown
+    assert "业绩预告/快报仅在公司披露时存在" in result.markdown
+
+
+def test_single_lens_report_marks_missing_financial_requirements_without_filling_numbers():
+    evidence = _sample_evidence()
+    evidence.meta["stock_financials"] = {
+        "600519": {
+            "available": False,
+            "periods": [],
+            "forecasts": {"available": False, "rows": []},
+            "earnings_flash": {"available": False, "rows": []},
+            "gaps": ["ROE", "资产负债率", "经营现金流", "自由现金流-lite", "业绩预告/快报仅在公司披露时存在"],
+        }
+    }
+
+    result = render_report_with_metadata(
+        trade_date="20260617",
+        session_label="盘后",
+        evidence=evidence,
+        quality=EvidenceQuality(
+            module_scores={"M1": 20, "M2": 20, "M3": 20, "M4": 15, "M5": 15, "M6": 10},
+            missing_modules=[],
+        ),
+        portfolio_snapshot={"details": []},
+        report_format="full",
+        lens="zhang_kun",
+        mode="single",
+    )
+
+    assert "### 财务证据覆盖" in result.markdown
+    assert "ROE、资产负债率、经营现金流、自由现金流-lite、业绩预告/快报仅在公司披露时存在" in result.markdown
+    assert "| 600519 |  |  |  |  |  |  |" not in result.markdown
+
+
 def test_committee_full_report_keeps_fixed_structure_when_holdings_quality_is_simplified():
     evidence = _sample_evidence()
     result = render_report_with_metadata(

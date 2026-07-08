@@ -714,6 +714,7 @@ def _render_single_lens_review_report(
     deep_heading = f"## 三、{lens_name}视角深度复盘" if has_holdings else f"## 二、{lens_name}视角深度复盘"
     advice_heading = f"## 四、{lens_name}持仓建议与风险提示" if has_holdings else "## 三、通用市场建议与风险提示"
     lines.append(deep_heading)
+    _append_financial_evidence_coverage(lines, evidence.meta.get("stock_financials") or {})
     _append_expert_review_sections(
         lines,
         lens_context=lens_context,
@@ -799,6 +800,53 @@ def _append_expert_review_sections(
             portfolio_snapshot=portfolio_snapshot,
         )
         lines.append("")
+
+
+def _append_financial_evidence_coverage(lines: list[str], stock_financials: dict[str, Any]) -> None:
+    if not stock_financials:
+        return
+    lines.append("### 财务证据覆盖")
+    rows = []
+    missing = []
+    disclosure_gap = False
+    for symbol, snapshot in stock_financials.items():
+        periods = (snapshot or {}).get("periods") or []
+        if periods:
+            latest = periods[0]
+            rows.append((str(symbol), latest))
+        gaps = [str(item) for item in ((snapshot or {}).get("gaps") or []) if item]
+        if gaps:
+            missing.append(f"{symbol}: {'、'.join(gaps)}")
+        if not ((snapshot or {}).get("forecasts") or {}).get("available") and not (
+            (snapshot or {}).get("earnings_flash") or {}
+        ).get("available"):
+            disclosure_gap = True
+    if rows:
+        lines.extend(
+            [
+                "| 代码 | 期间 | ROE | 毛利率 | 资产负债率 | 经营现金流 | 自由现金流-lite |",
+                "|---|---|---:|---:|---:|---:|---:|",
+            ]
+        )
+        for symbol, row in rows:
+            lines.append(
+                "| {symbol} | {period_label} | {roe} | {gross_margin} | {debt} | {ocf} | {fcf} |".format(
+                    symbol=symbol,
+                    period_label=row.get("period_label") or row.get("report_date") or "",
+                    roe=_fmt_pct(row.get("roe_weighted")),
+                    gross_margin=_fmt_pct(row.get("gross_margin")),
+                    debt=_fmt_pct(row.get("debt_asset_ratio")),
+                    ocf=_fmt_amount_yi(row.get("operating_cash_flow")),
+                    fcf=_fmt_amount_yi(row.get("free_cash_flow_lite")),
+                )
+            )
+    else:
+        lines.append("==结构化财务指标暂未取得；专家框架只保留观察清单，不补零、不外推。==")
+    if missing:
+        _append_bullets(lines, missing)
+    if disclosure_gap:
+        lines.append("- 业绩预告/快报仅在公司披露时存在；当前未取得已披露记录时，不把预告或快报写成确定证据。")
+    lines.append("")
 
 
 def _expert_domains_available(

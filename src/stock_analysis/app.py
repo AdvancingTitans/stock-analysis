@@ -11,6 +11,7 @@ from .diagnostics import run_diagnostics
 from .evidence import EvidenceBundle
 from .integrations import (
     fetch_a_indices,
+    fetch_a_share_financial_snapshot,
     fetch_board_list,
     fetch_fund_estimate,
     fetch_fund_flow,
@@ -148,6 +149,7 @@ def build_evidence(
         lhb=lhb,
         announcements=announcements,
     )
+    stock_financials = _stock_financial_snapshots(portfolio_snapshot, trade_date)
 
     m1 = {
         "available": bool(a_indices or hk_indices or us_indices),
@@ -229,6 +231,8 @@ def build_evidence(
             "facts": facts,
         },
     )
+    if stock_financials:
+        evidence.meta["stock_financials"] = stock_financials
     if public_pulses:
         evidence.meta["portfolio_public_pulse"] = public_pulses
     if sentiment.get("market_public_pulse"):
@@ -351,6 +355,7 @@ def _should_include_holdings(market: str, explicitly_requested: bool) -> bool:
 
 def _render_stock_snapshot(symbol: str, trade_date: str) -> str:
     quote = fetch_single_quote(symbol, trade_date)
+    financials = _safe_a_share_financial_snapshot(symbol, trade_date)
     lines = [f"# 单股速览（{trade_date}）", ""]
     lines.extend(
         [
@@ -384,8 +389,67 @@ def _render_stock_snapshot(symbol: str, trade_date: str) -> str:
         )
         if quote.quality_flags:
             lines.extend(["", "数据质量提示："] + [f"- {flag}" for flag in quote.quality_flags])
+    _append_stock_financial_snapshot(lines, financials)
     lines.extend(["", "以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。"])
     return "\n".join(lines)
+
+
+def _safe_a_share_financial_snapshot(symbol: str, trade_date: str) -> dict[str, Any]:
+    try:
+        return fetch_a_share_financial_snapshot(symbol, trade_date)
+    except Exception as exc:
+        return {
+            "symbol": symbol,
+            "available": False,
+            "periods": [],
+            "gaps": [f"A股财务证据暂不可用：{exc}"],
+        }
+
+
+def _stock_financial_snapshots(portfolio_snapshot: dict[str, Any], trade_date: str) -> dict[str, Any]:
+    snapshots: dict[str, Any] = {}
+    for detail in portfolio_snapshot.get("details") or []:
+        symbol = str(detail.get("symbol") or "")
+        market = str(detail.get("market") or "").lower()
+        if not symbol or market not in {"a", "cn_market"}:
+            continue
+        snapshot = _safe_a_share_financial_snapshot(symbol, trade_date)
+        snapshots[symbol] = snapshot
+    return snapshots
+
+
+def _append_stock_financial_snapshot(lines: list[str], financials: dict[str, Any]) -> None:
+    periods = (financials or {}).get("periods") or []
+    if not financials or (not periods and not financials.get("gaps")):
+        return
+    lines.extend(["", "## A股财务证据快照"])
+    if periods:
+        lines.extend(
+            [
+                "| 期间 | 报告期 | ROE | 毛利率 | 资产负债率 | 经营现金流 | 自由现金流-lite |",
+                "|---|---|---:|---:|---:|---:|---:|",
+            ]
+        )
+        for row in periods[:4]:
+            lines.append(
+                "| {period_label} | {report_date} | {roe} | {gross_margin} | {debt} | {ocf} | {fcf} |".format(
+                    period_label=row.get("period_label") or "",
+                    report_date=row.get("report_date") or "",
+                    roe=_format_pct(row.get("roe_weighted")),
+                    gross_margin=_format_pct(row.get("gross_margin")),
+                    debt=_format_pct(row.get("debt_asset_ratio")),
+                    ocf=_format_amount_yi(row.get("operating_cash_flow")),
+                    fcf=_format_amount_yi(row.get("free_cash_flow_lite")),
+                )
+            )
+    else:
+        lines.append("结构化财务指标暂未取得；已保留缺口，不用零值替代。")
+    gaps = financials.get("gaps") or []
+    if gaps:
+        lines.extend(["", "缺口提示："] + [f"- {gap}" for gap in gaps])
+    limitations = financials.get("limitations") or []
+    if limitations:
+        lines.extend(["", "口径限制："] + [f"- {item}" for item in limitations])
 
 
 def _render_fund_snapshot(code: str, trade_date: str) -> str:

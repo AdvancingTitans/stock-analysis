@@ -200,6 +200,9 @@ def test_stock_market_renders_deterministic_single_symbol_view(capsys):
             trade_date="20260618",
             source="tencent",
         ),
+    ), patch(
+        "stock_analysis.app.fetch_a_share_financial_snapshot",
+        return_value={"available": False, "periods": [], "gaps": []},
     ):
         assert run(["--market", "stock", "--symbol", "600519", "--date", "20260618"]) == 0
 
@@ -207,6 +210,48 @@ def test_stock_market_renders_deterministic_single_symbol_view(capsys):
     assert "# 单股速览（20260618）" in output
     assert "| 600519 | 贵州茅台 | A股 | 1,240.50 CNY | -1.25% | 20260618 |" in output
     assert "以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。" in output
+
+
+def test_stock_market_renders_a_share_financial_snapshot(capsys):
+    with patch(
+        "stock_analysis.app.fetch_single_quote",
+        return_value=QuoteData(
+            symbol="600519",
+            name="贵州茅台",
+            market="a",
+            price=1240.5,
+            currency="CNY",
+            trade_date="20260618",
+            source="tencent",
+        ),
+    ), patch(
+        "stock_analysis.app.fetch_a_share_financial_snapshot",
+        return_value={
+            "available": True,
+            "periods": [
+                {
+                    "period_label": "2026Q1",
+                    "report_date": "2026-03-31",
+                    "notice_date": "2026-04-29",
+                    "roe_weighted": 10.57,
+                    "gross_margin": 91.2,
+                    "debt_asset_ratio": 12.12,
+                    "operating_cash_flow": 26_910_000_000,
+                    "free_cash_flow_lite": 26_305_000_000,
+                }
+            ],
+            "forecasts": {"available": False, "rows": []},
+            "earnings_flash": {"available": False, "rows": []},
+            "limitations": ["业绩预告/快报仅在公司披露时存在；无返回不代表公司没有业绩变化。"],
+            "gaps": ["业绩预告/快报仅在公司披露时存在"],
+        },
+    ):
+        assert run(["--market", "stock", "--symbol", "600519", "--date", "20260618"]) == 0
+
+    output = capsys.readouterr().out
+    assert "## A股财务证据快照" in output
+    assert "| 2026Q1 | 2026-03-31 | +10.57% | +91.20% | +12.12% | 269.10亿 | 263.05亿 |" in output
+    assert "业绩预告/快报仅在公司披露时存在" in output
 
 
 def test_fund_market_renders_deterministic_fund_view(capsys):
