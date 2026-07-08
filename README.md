@@ -133,6 +133,8 @@ Use evidence_YYYYMMDD.json to verify every strong conclusion before summarizing.
 If a module is missing, say which evidence was unavailable instead of guessing.
 ```
 
+See [examples/agent.md](examples/agent.md) for a daily agent workflow and [examples/github-actions-daily-recap.yml](examples/github-actions-daily-recap.yml) for a scheduled GitHub Actions recap that uploads the report plus Evidence Pack.
+
 ## What It Is Not
 
 - Not a trading bot.

@@ -1,0 +1,52 @@
+name: Daily Market Recap
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekdays at 16:30 Asia/Shanghai, after the A-share close.
+    - cron: "30 8 * * 1-5"
+
+permissions:
+  contents: read
+
+jobs:
+  recap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install stock-analysis
+        run: uv tool install stock-analysis
+
+      - name: Generate report and Evidence Pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports evidence
+
+          run_date="$(TZ=Asia/Shanghai date +%Y%m%d)"
+          stock-analysis --market global --format full --emit-evidence > "reports/daily-recap-${run_date}.md"
+
+          find . -maxdepth 1 -type f \( -name 'evidence_*.json' -o -name 'm[1-6]_*.json' \) -exec mv {} evidence/ \;
+
+          {
+            echo "## Daily market recap"
+            echo
+            echo "- Report: reports/daily-recap-${run_date}.md"
+            echo "- Evidence files: $(find evidence -type f | wc -l | tr -d ' ')"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report and evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-analysis-daily-recap
+          path: |
+            reports/*.md
+            evidence/*.json
+          if-no-files-found: error
