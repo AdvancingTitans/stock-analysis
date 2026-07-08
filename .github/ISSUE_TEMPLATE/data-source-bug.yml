@@ -1,0 +1,42 @@
+name: Data-source bug
+description: Report a broken quote, board, fund, news, or fallback route.
+title: "[data-source] "
+labels: ["data-source", "bug"]
+body:
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: Paste the exact command you ran.
+      placeholder: stock-analysis --market diagnose
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+      description: What failed, returned empty data, or looked wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to see?
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence or diagnose output
+      description: Paste relevant `--market diagnose` output, source events, or JSON snippets.
+      render: text
+    validations:
+      required: false
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: macOS 15, Python 3.13, stock-analysis 4.3.7
+    validations:
+      required: false

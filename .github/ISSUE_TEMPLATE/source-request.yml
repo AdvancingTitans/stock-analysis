@@ -1,0 +1,34 @@
+name: Data source or market request
+description: Request support for a public data source, market, or symbol type.
+title: "[source-request] "
+labels: ["data-source", "enhancement"]
+body:
+  - type: input
+    id: source
+    attributes:
+      label: Source or market
+      placeholder: Eastmoney endpoint, HK ETF route, public fund page
+    validations:
+      required: true
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case
+      description: Which report, evidence module, market, or symbol type would this improve?
+    validations:
+      required: true
+  - type: textarea
+    id: public-access
+    attributes:
+      label: Public access notes
+      description: Is it no-login, rate-limited, region-limited, or browser-only?
+    validations:
+      required: false
+  - type: textarea
+    id: sample
+    attributes:
+      label: Sample URL or payload
+      description: Include a safe public URL or redacted sample response if available.
+      render: text
+    validations:
+      required: false

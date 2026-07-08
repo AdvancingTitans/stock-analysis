@@ -1,0 +1,26 @@
+name: Docs or example request
+description: Suggest a README, report, screenshot, or workflow example improvement.
+title: "[docs] "
+labels: ["documentation"]
+body:
+  - type: textarea
+    id: request
+    attributes:
+      label: What should be clearer?
+      description: Describe the missing, confusing, or outdated docs/example.
+    validations:
+      required: true
+  - type: textarea
+    id: audience
+    attributes:
+      label: Who is this for?
+      description: Example audiences are AI-agent users, quant researchers, A-share investors, maintainers, or first-time Python users.
+    validations:
+      required: false
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Suggested change
+      description: Share the exact wording, command, screenshot, or workflow you would add.
+    validations:
+      required: false

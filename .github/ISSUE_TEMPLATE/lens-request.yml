@@ -1,0 +1,33 @@
+name: Investor lens request
+description: Propose or improve a structured investor lens.
+title: "[lens] "
+labels: ["lens", "enhancement"]
+body:
+  - type: input
+    id: lens
+    attributes:
+      label: Lens name
+      placeholder: simons, buffett, custom framework name
+    validations:
+      required: true
+  - type: textarea
+    id: evidence-priority
+    attributes:
+      label: Evidence priority
+      description: Which evidence should this lens prioritize, and which data gaps must be called out?
+    validations:
+      required: true
+  - type: textarea
+    id: risk-style
+    attributes:
+      label: Risk framework
+      description: How should this lens reason about uncertainty, downside, valuation, or signal quality?
+    validations:
+      required: true
+  - type: textarea
+    id: not-tone
+    attributes:
+      label: Why this is more than tone
+      description: Explain how this lens changes analysis structure, not just writing style.
+    validations:
+      required: true

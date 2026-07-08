@@ -1,165 +1,96 @@
 # stock-analysis
 
-**Evidence-driven stock market analysis CLI for A-shares, Hong Kong stocks, US stocks, funds, and portfolio review.**
+<p align="center">
+  <img src="assets/social-preview.png" alt="stock-analysis social preview" width="860">
+</p>
 
-`stock-analysis` turns public market data into deterministic Markdown reports: market breadth, sector rotation, capital flow, holdings exposure, risk notes, and an auditable evidence pack.
+<p align="center">
+  <strong>Evidence-first stock market analysis for AI agents, quant researchers, and investors who want auditable daily notes.</strong>
+</p>
+
+<p align="center">
+  A/HK/US stocks · Funds · Portfolios · JSON Evidence Packs · Data-quality scoring · Multi-source fallback · Investor lenses
+</p>
+
+`stock-analysis` turns public market data into deterministic Markdown reports and machine-readable evidence. It is built for repeatable market recaps, not black-box trading signals.
 
 ```bash
 uv tool install stock-analysis
+
 stock-analysis --market daily
 stock-analysis --market stock --symbol 600519
 stock-analysis --market global --format full --with-holdings --emit-evidence
 ```
 
-Use it when you want a repeatable market recap, not another chart screenshot. It is built for AI agents, quant hobbyists, China-market researchers, and investors who want source-backed daily notes.
+> The output is for research only and does not constitute investment advice.
 
-## Why Star This Repo
+## Why It Exists
 
-- No-login public data paths for A/HK/US market snapshots where possible.
-- Deterministic output first; LLM/agent layers can consume the evidence later.
-- A-shares, Hong Kong stocks, US stocks, funds, and holdings review in one CLI.
-- Evidence Pack JSON makes reports easier to audit, diff, and automate.
+Most market "AI analysis" starts with a prompt and ends with a fluent paragraph. `stock-analysis` starts with evidence:
 
-## Which Repo Should I Use?
+- Fetch public market data across A-shares, Hong Kong stocks, US stocks, funds, and portfolios.
+- Normalize symbols, timestamps, source metadata, and missing fields before writing conclusions.
+- Score report quality from six evidence modules instead of pretending every data source worked.
+- Emit JSON files that AI agents, notebooks, cron jobs, or human reviewers can inspect and diff.
 
-- Use **`stock-analysis`** for the full global market recap engine, skill rules, and evidence framework.
-- See [`awesome-ai-agent-research-tools`](https://github.com/AdvancingTitans/awesome-ai-agent-research-tools) for related AI-agent research tools.
+If a data source fails, the report records the gap. Missing metrics stay missing; they are not filled with zeroes or guessed from nearby signals.
 
-## What It Does
+## See It
 
-基于 `AdvancingTitans/stock-analysis` 日报框架重构的全球股市证据驱动复盘引擎，整合：
+| Global market recap | Single-stock lens | Fund profile |
+|---|---|---|
+| ![Global market recap](assets/全球市场复盘_1.png) | ![Moutai Simons lens](assets/贵州茅台个股分析（西蒙斯）_1.png) | ![Semiconductor fund analysis](assets/半导体基金分析_1.png) |
 
-- `simonlin1212/a-stock-data` 的 A股数据分层、东财独有端点与限流经验
-- `simonlin1212/global-stock-data` 的新浪/腾讯/东财港美股映射
-- `a-stock-daily-market-sense` 的 6 模块 Evidence Pack 方法
+## What You Get
 
-当前 CLI 版本为 `4.3.7`；Skill 规则版本为 `4.5.0`。
-
-## 我该怎么用
-
-| 需求 | 推荐入口 |
+| Capability | What it means |
 |---|---|
-| 快速看今天 A/H/美股与持仓 | `uv run python -m stock_analysis --market daily` |
-| 盘后完整 6 模块复盘 | `uv run python -m stock_analysis --market daily --format full --with-holdings` |
-| 单只股票确定性速览 | `uv run python -m stock_analysis --market stock --symbol 600519` |
-| 单只基金确定性速览 | `uv run python -m stock_analysis --market fund --symbol 161725` |
-| 保留 Evidence Pack 供审计 | 追加 `--emit-evidence` |
-| 检查腾讯、新浪、东财、mootdx、浏览器链路 | `uv run python -m stock_analysis --market diagnose` |
+| Evidence Pack JSON | `evidence_YYYYMMDD.json` plus M1-M6 module files for audit, automation, and agent handoff. |
+| A/HK/US/fund coverage | One CLI for broad market snapshots, single stocks, funds, and portfolio exposure. |
+| Data-source routing | Tencent/Sina first where stable, Eastmoney for unique China-market data, browser fallback only when needed. |
+| Quality scoring | Reports carry a 100-point evidence quality score and identify missing modules. |
+| Investor lenses | Built-in Buffett, Munger, Graham, Simons, Dalio, Duan Yongping, Zhang Kun, and other structured lenses. |
+| Portfolio memory | Optional local holdings profile with benchmark comparison, concentration risk, and FX normalization. |
 
-默认入口先输出 deterministic evidence，不要求 LLM，也不会自动交易。只有当上层 Agent 或用户明确要求深度研报、专家视角或 committee 综合时，才把 Evidence Pack 交给报告生成流程。
+## Quickstart
 
-## Skill 4.5.0 新增什么
-
-- 所有报告类型（盘前、盘中、午间、盘后、个股、基金）及其专家视角，都要优先吸收补充证据、精选资讯和稳定公开数据源。
-- 缺失指标先尝试稳定公开源和精选资讯补充；仍不可得时，报告必须自然说明“相关指标当日未披露”或“历史数据不可得”，不得补零、猜测或用相邻指标替代。
-- 基金深度分析补充基金画像、持仓结构、重仓股行情和持仓股精选资讯雷达。
-- 精选资讯进入正文前必须保留来源、链接、时间和标题，并完成去重、同事件聚合、红线过滤和摘要截断。
-- 短线情绪、资讯雷达、公告/研报/资金流等只能作为证据、风险或观察清单，不能直接写成买入、卖出、申购、赎回或仓位信号。
-
-## 已实现
-
-- 腾讯/新浪优先的 A股、港股、美股行情链路，东财作为独有数据或末级 API fallback
-- M2 行业/概念板块榜：东财 `clist` 首选，同花顺公开板块页作为无浏览器 fallback，避免空响应污染报告
-- 港美股东财 fallback 会通过 `searchapi` 动态解析 secid，补足 BABA、港股五位代码等静态映射以外标的
-- `normalize_code(symbol, source)` 统一 A股、港股、美股和基金代码
-- 腾讯/新浪 GB2312 强制解码，空字段保留 `None`
-- 东财 `em_get()` 统一无代理 Session、1 秒间隔、抖动和最多 3 次指数退避
-- 最近交易日与 A股/港股/美股时段识别，`--format auto` 自动选择报告深度
-- 投资记忆优先的股票/基金持仓、汇率折算、浮盈亏、集中度、重复暴露和基准比较
-- 内置 15 个结构化投资专家 lens，默认使用 committee 模式综合互补视角
-- committee 模式自动进行 m1/m6 综合深度分析
-- Futu 免登录新闻数据，形成持仓公开信息脉冲和可审计原文链接
-- 精选资讯雷达和缺失指标补充纪律：补充证据可进入盘前/盘中/盘后、个股、基金和专家视角，但不得替代行情与交易日校验
-- A股单股财务快照：通过东财 datacenter 获取已披露的 ROE、毛利率、资产负债率、经营现金流和自由现金流-lite；业绩预告/快报仅在公司披露时展示，缺失时保留缺口
-- Evidence Pack、6 个模块 JSON、100 分质量评分和降级报告；正文不展示证据附录
-- 确定性入口纪律：`daily`、`stock`、`fund` 默认不需要 LLM，不把浏览器或慢源伪装成主路径
-- 单股/基金速览入口：先给可核验报价、估值、长期业绩、费率、经理、交易日和缺口提示，再由 Agent 决定是否升级为深度复盘
-- Camofox 健康检测、板块榜 fallback、Hermes browser 接管说明、Playwright 可用性诊断
-- 固定报告顺序、Markdown 表格、研报措辞过滤和强制免责声明
-- 本地源码调用和手工 fallback 食谱，避免环境未安装 CLI 时直接跳过证据
-- `diagnose` 对腾讯、新浪、东财、Camofox、Hermes browser、Playwright、mootdx 的检查
-
-## 数据源策略
-
-| 场景 | 主路径 | 备用路径 |
-|---|---|---|
-| A股报价/估值 | 腾讯 → 新浪 | 东财 `stock/get` |
-| A股指数 | 腾讯 → 新浪 | 东财指数接口 |
-| 五档/逐笔/深度分钟 K | mootdx，默认关闭 | 腾讯/新浪基础行情 |
-| A股独有信号 | 东财限流接口 | Camofox / Agent 浏览器接管 |
-| A股单股财务 | 东财 datacenter 财务摘要、资产负债表、现金流量表 | 业绩预告/快报仅披露时可用，缺失不补零 |
-| 行业/概念板块榜 | 东财 `clist` | 同花顺行业/概念页 → Camofox/Playwright |
-| 港股行情 | 腾讯/新浪互补 | 东财 `stock/get` |
-| 美股行情 | 新浪/腾讯互补 | 东财 searchapi 解析 secid 后 `stock/get` |
-| 港股历史 K | 腾讯 K 线 | 东财可用数据 |
-| 美股历史 K | 新浪日 K | 东财可用数据 |
-| 基金 | 天天基金/东财基金估值、公开评估页 | 新浪基金 |
-
-Yahoo 已从推荐路径和当前技术分析路径移除。
-
-## 使用
+Install from PyPI:
 
 ```bash
-~/.local/bin/uv sync
-
-# 按当前时段自动选择深度
-~/.local/bin/uv run python -m stock_analysis --market daily
-
-# 明确要求完整复盘并保留 Evidence Pack
-~/.local/bin/uv run python -m stock_analysis \
-  --market global \
-  --format full \
-  --with-holdings \
-  --emit-evidence
-
-# 用户明确指定历史交易日
-~/.local/bin/uv run python -m stock_analysis --market a --date 20260618
-
-# 默认投委会综合；也可显式指定模式或 lens
-~/.local/bin/uv run python -m stock_analysis --market global --format full
-
-# 确定性单股/基金速览，不触发 LLM
-~/.local/bin/uv run python -m stock_analysis --market stock --symbol 600519
-~/.local/bin/uv run python -m stock_analysis --market fund --symbol 161725
-
-# 网络和数据源诊断
-~/.local/bin/uv run python -m stock_analysis --market diagnose
+uv tool install stock-analysis
+stock-analysis --market daily
 ```
 
-行情复盘统一走 trading 入口：先判断盘前、盘中或盘后，再决定报告结构；随后按持仓来源决定是否插入持仓分析。用户通过 `--holdings-json` 或上层 LLM 传入完整持仓时，优先以本次输入为准并覆盖写入投资记忆；用户没有提供持仓时，读取本技能自己的 `~/.stock_analysis/profile.json` 或 `STOCK_ANALYSIS_PROFILE`；两者都没有完整持仓时，不输出持仓绩效内容。`--with-holdings` 仍作为兼容显式开关保留。
-
-用户主动提供的持仓信息不完整时，先停止持仓分析并只提问一次精准提示补齐缺失项，不回退使用旧投资记忆。只有股票代码、买入日期、买入数量或买入金额三项完整，才输出收益、浮盈亏、年化表现和组合绩效；缺少任意一项时，默认生成普通市场复盘报告，不包含持仓绩效内容。
-
-如果买入日期没有年份，按当前年份计算；如果用户只给出数字，必须确认这是买入数量还是买入金额，并确认币种是人民币、港币还是美元。用户补齐或修改后的持仓信息完整时，保存到本地投资记忆，并明确告知：“投资记忆已保存本地。下次将默认按这份投资记忆分析持仓；如需清空投资记忆请反馈。”
-
-如果用户新提供的信息与之前保存的投资记忆不一致，先确认信息完整性；确认信息完整性后，优先以用户新提供的信息为准，覆盖写入投资记忆。不完整的新信息不得覆盖已有完整投资记忆。
-
-`--market stock --symbol <代码>` 与 `--market fund --symbol <代码>` 是确定性证据视图：
-只输出当前价/估值、涨跌、交易日、关键交易字段、基金长期业绩、前端费率、规模、基金经理公开画像和基金重仓股报价；字段缺失时保留空单元格并提示缺口。基金长期业绩/费率/基金经理来自天天基金公开评估页 `pingzhongdata`，不依赖登录或 API key。
-基金深度分析还应纳入基金画像、持仓结构、重仓股行情和持仓股精选资讯；这些补充证据是研报引用材料，不是买卖、申购或赎回信号。
-如果用户需要研报式判断，再运行 `daily`、`a`、`global --format full --emit-evidence`；专家风格和 committee 综合使用 `src/stock_analysis/lens_engine.py`、`skills/stock-analysis/config/lenses` 与 `skills/stock-analysis/scripts/lens_registry.py`。
-
-兼容入口：
+Run from a local checkout:
 
 ```bash
-~/.local/bin/uv run python skills/stock-analysis/scripts/daily_recap.py --market daily
-~/.local/bin/uv run python skills/stock-analysis/scripts/aftermarket.py --market a --format full
+git clone https://github.com/AdvancingTitans/stock-analysis.git
+cd stock-analysis
+uv run stock-analysis --market daily
 ```
 
-## 自动时段
+Common commands:
 
-| 市场时段（北京时间） | 自动格式 | 内容 |
-|---|---|---|
-| A/H 09:00-09:30 | `summary` | 盘前资讯、外围线索、主线板块、预判与风险 |
-| A/H 09:30-11:30、13:00-15:00 | `key-points` | 盘中快照、主线板块、赚钱效应、风险监控 |
-| A/H 15:00 后 | `full` | 执行摘要、固定复盘顺序与 M1-M6 |
-| 美股 21:30-次日 04:00 | `key-points` | 夜盘中量版 |
+```bash
+# Auto-select summary/key-points/full by Beijing market session
+stock-analysis --market daily
 
-未指定日期时，程序从当前自然日开始判断；周末和内置 A股法定休市日回溯到最近交易日，并写入 `_meta.trade_date`。
+# Full global recap with auditable JSON evidence
+stock-analysis --market global --format full --emit-evidence
 
-## Evidence Pack
+# Deterministic single-stock snapshot, no LLM required
+stock-analysis --market stock --symbol 600519
 
-使用 `--emit-evidence` 后生成：
+# Deterministic fund snapshot with public profile and holdings data
+stock-analysis --market fund --symbol 161725
+
+# Diagnose Tencent, Sina, Eastmoney, browser, and optional mootdx routes
+stock-analysis --market diagnose
+```
+
+## Evidence Modules
+
+When `--emit-evidence` is enabled, the CLI writes:
 
 ```text
 evidence_YYYYMMDD.json
@@ -171,79 +102,113 @@ m5_YYYYMMDD.json
 m6_YYYYMMDD.json
 ```
 
-基础评分为 M1 20、M2 20、M3 20、M4 15、M5 15、M6 10。空模块不再计分；full 复盘即使低于 60 分也保留固定章节顺序，缺失模块在对应 M1-M6 章节内标注“证据暂缺”。证据附录不进入早盘、盘中、午间或盘后正文；需要审计时用 `--emit-evidence` 查看 JSON 文件。
+The six-module score is designed for report trust, not performance marketing:
 
-存在缺失模块或补充资讯时，`_meta` 还应包含 `supplemental_evidence`、`news_radar` 或 `risk_calendar` 等可审计字段。单股 Evidence 可以包含 `STOCK.financial_snapshot`、`STOCK.news_radar`、`STOCK.a_share_extensions`、`STOCK.global_market`；基金 Evidence 可以包含 `FUND.profile` 和 `FUND.holding_news_radar`。这些字段只作为证据、风险或观察清单，不是交易信号。
+| Module | Focus | Weight |
+|---|---:|---:|
+| M1 | Cross-market index state, breadth, liquidity, benchmark context | 20 |
+| M2 | Sector and concept rotation | 20 |
+| M3 | Short-term sentiment and limit-up structure | 20 |
+| M4 | Risk, failed breakouts, downside pressure | 15 |
+| M5 | Portfolio exposure, style, concentration, holdings pulse | 15 |
+| M6 | Resilient directions and next-session watchlist | 10 |
+
+Full reports keep the same structure even when quality is low, but missing modules are called out naturally in the relevant section.
+
+## Built For Agents
+
+`stock-analysis` is intentionally agent-friendly:
+
+- Deterministic CLI first; LLM layers can consume evidence later.
+- Markdown for human review, JSON for machine workflows.
+- Explicit source events and fallback reasons.
+- Stable command surface for cron jobs, notebooks, Hermes, Codex, Claude Code, and other tool-calling agents.
+
+Example agent prompt:
+
+```text
+Run stock-analysis --market global --format full --emit-evidence.
+Use the Markdown report for the user-facing recap.
+Use evidence_YYYYMMDD.json to verify every strong conclusion before summarizing.
+If a module is missing, say which evidence was unavailable instead of guessing.
+```
+
+## What It Is Not
+
+- Not a trading bot.
+- Not a broker integration.
+- Not a promise of complete market data.
+- Not a replacement for professional financial advice.
+- Not a black-box LLM report generator.
+
+## Data Source Strategy
+
+| Scenario | Primary route | Fallback route |
+|---|---|---|
+| A-share quotes and valuation | Tencent → Sina | Eastmoney `stock/get` |
+| A-share indices | Tencent → Sina | Eastmoney index endpoints |
+| Board rankings | Eastmoney `clist` | Tonghuashun public pages → browser fallback |
+| HK quotes | Tencent/Sina | Eastmoney `stock/get` |
+| US quotes | Sina/Tencent | Eastmoney `searchapi` → `stock/get` |
+| Funds | Eastmoney/Tiantian fund pages | Sina fund fallback |
+| Deep tick/order-book data | Optional `mootdx` | Basic Tencent/Sina quotes |
+
+Yahoo is intentionally not part of the recommended default path.
+
+## Investor Lenses
+
+The lens engine can render the same evidence through different investment frameworks. Supported lenses include:
+
+`buffett`, `munger`, `graham`, `klarman`, `lynch`, `o_neil`, `wood`, `dalio`, `soros`, `livermore`, `minervini`, `simons`, `duan_yongping`, `zhang_kun`, and `feng_liu`.
+
+Lenses change evidence priority and narrative structure. They do not override data quality rules or invent missing numbers.
 
 ### 内置 lens 与 committee 边界
 
-`stock-analysis` 固定负责 M1-M6 的证据包、评分和研报正文；投资专家 lens、默认 committee 成员和综合规则
-固定在 `skills/stock-analysis/config/lenses/*.json` 与 `skills/stock-analysis/scripts/lens_registry.py`。
-不要为了 lens 或 committee 流程安装、调用或转交给外部行情 CLI。
-本包仍不新增交易、发送或聊天外壳。
+当前 CLI 版本为 `4.3.7`。
 
-### LensEngine 与自然语言调用
+LensEngine 是报告生成的核心编排器。默认使用 committee 模式；committee 模式会做 m1/m6 综合深度分析。自然语言调用可以表达为“用巴菲特模式分析 贵州茅台”或“用 adversarial 模式让巴菲特和芒格辩论 腾讯”。committee 失败时降级为 single，并在 metadata 中保留 fallback 原因。
 
-LensEngine 是报告生成的核心编排器。LLM 或上层 Agent 可以把自然语言直接归一化为 `mode`、`lens`、`lenses` 参数，然后调用 `stock_analysis.reporting.generate_report()`；CLI 也通过同一条报告路径输出 Markdown + evidence JSON 元数据。
+固定 committee 报告结构为：执行摘要 → 大盘指数概览 → 持仓分析（有完整持仓时）→ 六模块深度复盘 → 综合持仓建议与风险提示。结尾建议固定包含现状总结、基准跑赢/跑输、条件化仓位动作、下一交易日观察清单、风险提示。证据附录不进入早盘、盘中、午间或盘后正文；如果 M1-M6 某个模块缺失，相关章节必须标注证据暂缺。
 
-- 默认使用 committee 模式：用户没有指定 lens 或 mode 时，自动使用 `buffett + munger + duan_yongping + zhang_kun + graham + dalio`。
-- committee 模式的新增价值：自动执行 m1/m6 综合深度分析。m1 做多 lens 交叉验证、趋势一致性分析和异常点识别；m6 做多视角风险汇总、冲突点调和和最终风险评分。
-- committee 报告结构：`执行摘要` → `大盘指数概览` → `持仓分析`（有持仓时）→ `六模块深度复盘` → `综合持仓建议与风险提示`。
-- 结尾建议固定包含：`现状总结`、`基准跑赢/跑输`、`条件化仓位动作`、`下一交易日观察清单`、`风险提示`；无持仓时输出通用市场建议与风险提示。
-- single 模式：适合“用巴菲特模式分析 XXX”“按段永平视角看茅台”。可传 `lens="巴菲特"`、`lens="buffett"` 或常见中文别名。
-- adversarial 模式：适合“用 adversarial 模式让巴菲特和芒格辩论 XXX”。必须传两个 lens，例如 `mode="adversarial", lenses=("巴菲特", "芒格")`。
-- 降级机制：committee 失败时降级为 single，优先使用用户给出的第一个有效 lens；如果没有有效 lens，则降级到 `buffett`，并在报告 metadata 的 `fallback` 字段记录原因。
+`--market stock --symbol <代码>` 与 `--market fund --symbol <代码>` 是确定性证据视图，不要求用户安装任何外部行情 CLI。浏览器路径只作为 API 连续失败或页面独有数据的降级路径，工程细节进入 evidence/diagnose，不进入正文。
 
-### 内置投资专家 lens
+基金画像通过天天基金公开评估页 `pingzhongdata` 补充长期业绩、前端费率、规模和基金经理画像；该路径不依赖登录或 API key。基金速览应展示长期业绩、前端费率、基金经理和已披露缺口。
 
-当用户明确提出想用哪位投资专家的风格生成报告时，必须完全以相关专家的视角输出报告：整篇报告的证据优先级、判断顺序、风险表达、持仓建议和观察清单都服从该专家框架，不得只在结尾追加专家点评。
+投资记忆默认路径为 `~/.stock_analysis/profile.json`，也可以用 `STOCK_ANALYSIS_PROFILE` 覆盖。完整持仓必须同时具备股票代码、买入日期、买入数量或买入金额。若用户新提供的信息与之前保存的投资记忆不一致，确认信息完整性后，优先以用户新提供的信息为准，覆盖写入投资记忆。
 
-支持 `buffett`、`munger`、`graham`、`klarman`、`lynch`、`o_neil`、`wood`、`dalio`、`soros`、`livermore`、`minervini`、`simons`、`duan_yongping`、`zhang_kun`、`feng_liu`。可识别专家名称、英文名、中文名、别名或 lens id。结构化定义以 skill 内 JSON 为准。
+当用户明确提出想用哪位投资专家的风格时，报告必须完全以相关专家的视角输出报告；不得只在结尾追加专家点评。单专家视角和多专家综合的结构不同，但都不得模仿身份声明或虚构专家发言。
 
-简要能力：
+## Contributing
 
-- `buffett` 巴菲特：护城河、管理层、资本配置、安全边际。
-- `munger` 芒格：风险清单、反向推演、激励错配、机会成本。
-- `graham` 格雷厄姆：资产负债表、估值纪律、下行保护。
-- `klarman` 卡拉曼：绝对回报、复杂性折价、催化剂、永久损失。
-- `lynch` 彼得·林奇：可理解增长、PEG、盈利兑现。
-- `o_neil` 欧奈尔：盈利加速、行业龙头、量价确认。
-- `wood` 伍德：颠覆式创新、渗透率、技术成本曲线。
-- `dalio` 达利欧：宏观周期、流动性、组合风险平衡。
-- `soros` 索罗斯：反身性、预期差、政策拐点。
-- `livermore` 利弗莫尔：趋势确认、关键价位、仓位纪律。
-- `minervini` 米勒维尼：强势模板、VCP、风险收益比。
-- `simons` 西蒙斯：数据定义、样本外稳健性、交易成本。
-- `duan_yongping` 段永平：商业本质、用户价值、企业文化。
-- `zhang_kun` 张坤：长期质量、自由现金流、组合机会成本。
-- `feng_liu` 冯柳：市场认知、预期差、困境反转赔率。
+Good first contributions:
 
-单专家视角不输出多专家委员会小节，也不输出交易计划草案、风险管理意见、组合经理最终意见等委员会内容；最后章节使用 `## {专家中文名}持仓建议与风险提示`。报告不得模仿身份声明或虚构专家发言，所有结论仍必须回到 evidence 和公开市场数据。
-专家视角不能忽略补充证据；若 Evidence Pack 提供资讯事件、基金画像、持仓股精选资讯、公告、研报、资金流或短线情绪，必须按该专家框架纳入证据、风险或观察清单。
+- Add or harden a public data-source adapter.
+- Improve a report template or investor lens.
+- Add examples for a new region, symbol type, or agent workflow.
+- Report a source failure with `--market diagnose` output.
+- Submit this project to a high-fit Awesome List or agent tool directory.
 
-A股个股或 A股持仓存在 `stock_financials` 时，single lens 报告会先输出“财务证据覆盖”。Buffett、Munger、Graham、Duan Yongping、Zhang Kun、Lynch、O'Neil 等框架会受益于 ROE、现金流、资产负债率、利润率和季度披露；若缺少管理层激励、ROIC、用户指标、机构持仓、VCP 形态、样本外分布或政策事件等框架专属证据，报告必须把它们列为缺口，不得用市场热度或专家口吻替代。
+Start with [CONTRIBUTING.md](CONTRIBUTING.md) and [ROADMAP.md](ROADMAP.md).
 
-## 能力边界
+## Awesome List Blurb
 
-- Futu 默认仅使用无需 OpenD、无需登录的资讯搜索和个股新闻解读接口。
-- Futu 技术面、资金面和衍生品异动依赖 OpenD 登录，不进入开箱即用的默认日报。
-- 社区接口可能返回全站流数据；程序只保留精确匹配当前标的的有效帖子，少于 3 条时标记证据不足。
-- 显式历史日期报告不混入当前 Futu 新闻。
-- Python CLI 不能直接调用 Hermes 内置浏览器，因为它属于 Agent 工具；CLI 会在 diagnose/evidence 中提示由 Hermes、Codex 或 OpenClaw 执行环境接管。
-- 浏览器路径只作为 API 连续失败或页面独有数据的降级路径；正文不展示浏览器、API 或 fallback 工程细节，相关信息留在 diagnose/evidence。
-- Camofox 自动板块抓取依赖 `CAMOFOX_USER_ID` 和 `CAMOFOX_SESSION_KEY`；缺少凭据时不会伪装成功。
-- `mootdx` 默认禁用且不是必装依赖；启用后仅服务五档、逐笔和深度 K 线，不进入日常行情主路径。
-- 专用请求通过 `sources/mootdx_adapter.py` 路由；依赖缺失、TCP 失败或空数据时自动回普通腾讯/新浪报价并记录原因。
-- 法定休市日当前使用内置日历，跨年份运行前应更新交易日表。
-- 龙虎榜、解禁、两融、大宗、股东户数、研报和新闻属于可扩展独有端点，并非全部进入每日日报默认抓取。
-- 项目内置行情适配器、缓存、投资记忆、证据评分和路由编排；不要求用户安装任何外部行情 CLI。
-- 投资专家 lens 和 committee 规则已随本 skill 固定分发；执行这些视角不依赖外部行情 CLI。
+Use this one-liner when submitting the project to curated lists:
 
-## 开发验证
+> [stock-analysis](https://github.com/AdvancingTitans/stock-analysis) - Evidence-driven market recap CLI for AI agents and quant researchers, supporting A/HK/US stocks, funds, portfolios, auditable JSON Evidence Packs, data-quality scoring, investor lenses, and multi-source fallback routing.
+
+High-fit targets include `awesome-quant-ai`, `awesome-ai-in-finance`, `awesome-quant`, and `awesome-systematic-trading`. See [docs/PROMOTION.md](docs/PROMOTION.md) for suggested categories and PR copy.
+
+## Development
 
 ```bash
-~/.local/bin/uv run --with pytest pytest -q
-~/.local/bin/uv run --with ruff ruff check
+uv sync
+uv run --with pytest pytest -q
+uv run --with ruff ruff check
 ```
+
+## License
+
+MIT
 
 以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。
