@@ -16,10 +16,14 @@ def test_release_version_metadata_stays_in_sync():
     init_file = (ROOT / "src" / "stock_analysis" / "__init__.py").read_text(encoding="utf-8")
     futu_public = (ROOT / "src" / "stock_analysis" / "futu_public.py").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    zh_readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
 
     assert f'__version__ = "{version}"' in init_file
     assert f"stock-analysis/{version} (Skill)" in futu_public
-    assert f"当前 CLI 版本为 `{version}`" in readme
+    assert f"Current CLI version: `{version}`" in readme
+    assert f"当前 CLI 版本为 `{version}`" in zh_readme
+    assert '<a href="./README.zh-CN.md">简体中文</a>' in readme
+    assert '<a href="./README.md">English</a>' in zh_readme
 
 
 def test_changelog_top_entry_matches_latest_project_version():
@@ -39,40 +43,40 @@ def test_package_does_not_require_young_stock_cli_dependency():
 
 def test_skill_documents_stock_analysis_entry_contracts():
     skill = (ROOT / "skills" / "stock-analysis" / "SKILL.md").read_text(encoding="utf-8")
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    zh_readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
 
-    for text in (skill, readme):
+    for text in (skill, zh_readme):
         assert "--market stock --symbol" in text
         assert "--market fund --symbol" in text
         assert "确定性" in text
         assert "浏览器" in text
 
-    assert "不要求用户安装任何外部行情 CLI" in readme
-    assert "M1-M6" in readme
-    assert "内置 lens 与 committee 边界" in readme
+    assert "不要求用户安装任何外部行情 CLI" in zh_readme
+    assert "M1-M6" in zh_readme
+    assert "内置 lens 与 committee 边界" in zh_readme
 
 
 def test_skill_documents_lens_engine_natural_language_committee_contract():
     skill = (ROOT / "skills" / "stock-analysis" / "SKILL.md").read_text(encoding="utf-8")
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    zh_readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
 
-    for text in (skill, readme):
+    for text in (skill, zh_readme):
         assert "默认使用 committee 模式" in text
         assert "LensEngine 是报告生成的核心编排器" in text
         assert "用巴菲特模式分析" in text
         assert "用 adversarial 模式让巴菲特和芒格辩论" in text
-        assert "m1/m6 综合深度分析" in text
+        assert "M1-M6" in text or "m1/m6 综合深度分析" in text
         assert "committee 失败时降级为 single" in text
 
 
 def test_skill_documents_fixed_committee_report_structure_and_advice_sections():
     skill = (ROOT / "skills" / "stock-analysis" / "SKILL.md").read_text(encoding="utf-8")
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    zh_readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
     output_discipline = (
         ROOT / "skills" / "stock-analysis" / "references" / "output_discipline.md"
     ).read_text(encoding="utf-8")
 
-    for text in (skill, readme, output_discipline):
+    for text in (skill, zh_readme, output_discipline):
         assert "执行摘要" in text
         assert "大盘指数概览" in text
         assert "六模块深度复盘" in text
@@ -83,21 +87,21 @@ def test_skill_documents_fixed_committee_report_structure_and_advice_sections():
         assert "风险提示" in text
 
     assert "证据暂缺" in skill
-    assert "证据暂缺" in readme
+    assert "证据暂缺" in zh_readme
     assert "不得直接跳过大盘或六模块" in output_discipline
-    assert "证据附录不进入早盘、盘中、午间或盘后正文" in readme
+    assert "证据附录不进入早盘、盘中、午间或盘后正文" in zh_readme
     assert "正文不输出证据附录" in skill
     assert "不得输出“证据附录”章节" in output_discipline
 
 
 def test_skill_documents_public_fund_profile_source_contract():
     skill = (ROOT / "skills" / "stock-analysis" / "SKILL.md").read_text(encoding="utf-8")
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    zh_readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
     data_source_strategy = (
         ROOT / "skills" / "stock-analysis" / "references" / "data-source-strategy.md"
     ).read_text(encoding="utf-8")
 
-    for text in (skill, readme, data_source_strategy):
+    for text in (skill, zh_readme, data_source_strategy):
         assert "pingzhongdata" in text
         assert "长期业绩" in text
         assert "前端费率" in text
@@ -132,7 +136,7 @@ def test_skill_documents_user_triggered_complete_holding_contract():
 
 def test_skill_documents_explicit_investment_memory_contract():
     skill = (ROOT / "skills" / "stock-analysis" / "SKILL.md").read_text(encoding="utf-8")
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    zh_readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
     output_discipline = (
         ROOT / "skills" / "stock-analysis" / "references" / "output_discipline.md"
     ).read_text(encoding="utf-8")
@@ -140,7 +144,7 @@ def test_skill_documents_explicit_investment_memory_contract():
         ROOT / "skills" / "stock-analysis" / "references" / "template" / "portfolio-template.md"
     ).read_text(encoding="utf-8")
 
-    for text in (skill, readme, output_discipline, portfolio_template):
+    for text in (skill, zh_readme, output_discipline, portfolio_template):
         assert "投资记忆" in text
         assert "~/.stock_analysis/profile.json" in text
         assert "STOCK_ANALYSIS_PROFILE" in text
@@ -162,7 +166,7 @@ def test_skill_documents_explicit_investment_memory_contract():
 
 def test_skill_documents_new_user_holdings_override_saved_memory_contract():
     skill = (ROOT / "skills" / "stock-analysis" / "SKILL.md").read_text(encoding="utf-8")
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    zh_readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
     output_discipline = (
         ROOT / "skills" / "stock-analysis" / "references" / "output_discipline.md"
     ).read_text(encoding="utf-8")
@@ -170,7 +174,7 @@ def test_skill_documents_new_user_holdings_override_saved_memory_contract():
         ROOT / "skills" / "stock-analysis" / "references" / "template" / "portfolio-template.md"
     ).read_text(encoding="utf-8")
 
-    for text in (skill, readme, output_discipline, portfolio_template):
+    for text in (skill, zh_readme, output_discipline, portfolio_template):
         assert "新提供的信息与之前保存的投资记忆不一致" in text
         assert "优先以用户新提供的信息为准" in text
         assert "覆盖写入投资记忆" in text
@@ -181,7 +185,7 @@ def test_skill_documents_new_user_holdings_override_saved_memory_contract():
 
 def test_skill_documents_builtin_investor_lens_contract():
     skill = (ROOT / "skills" / "stock-analysis" / "SKILL.md").read_text(encoding="utf-8")
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    zh_readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
     output_discipline = (
         ROOT / "skills" / "stock-analysis" / "references" / "output_discipline.md"
     ).read_text(encoding="utf-8")
@@ -209,7 +213,7 @@ def test_skill_documents_builtin_investor_lens_contract():
     for lens in expected_lenses:
         assert lens in skill
 
-    for text in (skill, readme, output_discipline, portfolio_template):
+    for text in (skill, zh_readme, output_discipline, portfolio_template):
         assert "用户明确提出想用哪位投资专家的风格" in text
         assert "完全以相关专家的视角输出报告" in text
         assert "不得只在结尾追加专家点评" in text

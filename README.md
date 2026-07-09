@@ -1,5 +1,10 @@
 # stock-analysis
 
+<div align="center">
+  <a href="./README.md">English</a> |
+  <a href="./README.zh-CN.md">简体中文</a>
+</div>
+
 <p align="center">
   <img src="assets/social-preview.png" alt="stock-analysis social preview" width="860">
 </p>
@@ -48,11 +53,11 @@ If a data source fails, the report records the gap. Missing metrics stay missing
 
 | Committee recap | Buffett recap | Simons recap |
 |---|---|---|
-| [2026-07-09 投委会行情复盘](reports/20260709-投委会-行情复盘.md)<br>![Global market recap](assets/全球市场复盘_1.png) | [2026-07-09 巴菲特行情复盘](reports/20260709-巴菲特-行情复盘.md)<br>![Buffett global recap](assets/全球市场复盘（巴菲特）_1.png) | [2026-07-09 西蒙斯行情复盘](reports/20260709-西蒙斯-行情复盘.md)<br>![Simons global recap](assets/全球市场西蒙斯视角行情分析_1.png) |
+| [2026-07-09 Investment committee recap](reports/20260709-投委会-行情复盘.md)<br>![Global market recap](assets/全球市场复盘_1.png) | [2026-07-09 Buffett recap](reports/20260709-巴菲特-行情复盘.md)<br>![Buffett global recap](assets/全球市场复盘（巴菲特）_1.png) | [2026-07-09 Simons recap](reports/20260709-西蒙斯-行情复盘.md)<br>![Simons global recap](assets/全球市场西蒙斯视角行情分析_1.png) |
 
 | Buffett stock lens | Simons stock lens | Fund profile |
 |---|---|---|
-| [贵州茅台 600519](reports/20260709-巴菲特-贵州茅台600519.md)<br>![Moutai Buffett lens](assets/贵州茅台个股分析（巴菲特）_1.png) | [贵州茅台 600519](reports/20260709-西蒙斯-贵州茅台600519.md)<br>![Moutai Simons lens](assets/贵州茅台个股分析（西蒙斯）_1.png) | [512480 半导体ETF](reports/20260709-512480-半导体ETF基金分析.md)<br>![Semiconductor fund analysis](assets/半导体基金分析_1.png) |
+| [Kweichow Moutai 600519](reports/20260709-巴菲特-贵州茅台600519.md)<br>![Moutai Buffett lens](assets/贵州茅台个股分析（巴菲特）_1.png) | [Kweichow Moutai 600519](reports/20260709-西蒙斯-贵州茅台600519.md)<br>![Moutai Simons lens](assets/贵州茅台个股分析（西蒙斯）_1.png) | [Semiconductor ETF 512480](reports/20260709-512480-半导体ETF基金分析.md)<br>![Semiconductor fund analysis](assets/半导体基金分析_1.png) |
 
 Browse the [report directory](reports/) for the six 2026-07-09 Markdown reports, screenshots, social-share assets, and automation examples.
 
@@ -180,21 +185,21 @@ The lens engine can render the same evidence through different investment framew
 
 Lenses change evidence priority and narrative structure. They do not override data quality rules or invent missing numbers.
 
-### 内置 lens 与 committee 边界
+### Built-in Lens and Committee Boundaries
 
-当前 CLI 版本为 `4.3.8`。
+Current CLI version: `4.3.9`.
 
-LensEngine 是报告生成的核心编排器。默认使用 committee 模式；committee 模式会做 m1/m6 综合深度分析。自然语言调用可以表达为“用巴菲特模式分析 贵州茅台”或“用 adversarial 模式让巴菲特和芒格辩论 腾讯”。committee 失败时降级为 single，并在 metadata 中保留 fallback 原因。
+`LensEngine` is the report orchestration layer. The default mode is `committee`, which combines M1-M6 evidence into a deeper cross-module analysis. Natural-language callers can ask for requests such as "analyze Kweichow Moutai in Buffett mode" or "run an adversarial debate between Buffett and Munger on Tencent." If `committee` mode fails, the engine falls back to `single` mode and preserves the fallback reason in metadata.
 
-固定 committee 报告结构为：执行摘要 → 大盘指数概览 → 持仓分析（有完整持仓时）→ 六模块深度复盘 → 综合持仓建议与风险提示。结尾建议固定包含现状总结、基准跑赢/跑输、条件化仓位动作、下一交易日观察清单、风险提示。证据附录不进入早盘、盘中、午间或盘后正文；如果 M1-M6 某个模块缺失，相关章节必须标注证据暂缺。
+Committee reports use a fixed spine: executive summary → market index overview → portfolio analysis when complete holdings are available → six-module deep recap → integrated portfolio guidance and risk notes. The closing guidance should cover the current state, benchmark outperformance or underperformance, conditional position actions, the next-session watchlist, and key risks. Evidence appendices stay outside the morning, intraday, midday, and after-close narrative body. If any M1-M6 module is missing, the relevant section must say that the evidence is unavailable.
 
-`--market stock --symbol <代码>` 与 `--market fund --symbol <代码>` 是确定性证据视图，不要求用户安装任何外部行情 CLI。浏览器路径只作为 API 连续失败或页面独有数据的降级路径，工程细节进入 evidence/diagnose，不进入正文。
+`--market stock --symbol <code>` and `--market fund --symbol <code>` are deterministic evidence views. They do not require users to install any external quote CLI. Browser routes are fallback-only paths for repeated API failures or page-only data. Engineering details belong in evidence and diagnose output, not in the user-facing report body.
 
-基金画像通过天天基金公开评估页 `pingzhongdata` 补充长期业绩、前端费率、规模和基金经理画像；该路径不依赖登录或 API key。基金速览应展示长期业绩、前端费率、基金经理和已披露缺口。
+Fund profiles use Tiantian Fund's public `pingzhongdata` page to supplement long-term performance, front-end fees, fund size, and fund manager context. This path does not require login or an API key. Fund snapshots should show long-term performance, front-end fees, fund manager information, and any disclosed gaps.
 
-投资记忆默认路径为 `~/.stock_analysis/profile.json`，也可以用 `STOCK_ANALYSIS_PROFILE` 覆盖。完整持仓必须同时具备股票代码、买入日期、买入数量或买入金额。若用户新提供的信息与之前保存的投资记忆不一致，确认信息完整性后，优先以用户新提供的信息为准，覆盖写入投资记忆。
+Investment memory defaults to `~/.stock_analysis/profile.json` and can be overridden with `STOCK_ANALYSIS_PROFILE`. A complete holding must include the symbol, buy date, and either share quantity or purchase amount. If newly supplied user information conflicts with saved investment memory, confirm that the new information is complete, then prefer the user's latest input and overwrite the saved memory.
 
-当用户明确提出想用哪位投资专家的风格时，报告必须完全以相关专家的视角输出报告；不得只在结尾追加专家点评。单专家视角和多专家综合的结构不同，但都不得模仿身份声明或虚构专家发言。
+When a user explicitly asks for a specific investor style, the whole report must be written from that lens. Do not merely append an expert comment at the end. Single-expert and multi-expert reports have different structures, but neither should impersonate an investor or fabricate expert quotes.
 
 ## Contributing
 
@@ -228,4 +233,4 @@ uv run --with ruff ruff check
 
 MIT
 
-以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。
+This project is for research only and does not constitute investment advice. Markets involve risk.
