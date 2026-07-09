@@ -240,6 +240,8 @@ def _append_sector_table(lines: list[str], rows: list[dict[str, Any]], limit: in
     visible = [row for row in rows if row.get("name")][:limit]
     if not visible:
         return
+    if lines and lines[-1] != "":
+        lines.append("")
     lines.extend(
         [
             "| 板块 | 涨跌幅 | 上涨家数 | 下跌家数 |",

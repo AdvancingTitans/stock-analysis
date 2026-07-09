@@ -187,7 +187,7 @@ Lens 会改变证据优先级和叙事结构，但不会绕过数据质量规则
 
 ### 内置 lens 与 committee 边界
 
-当前 CLI 版本为 `4.3.9`。
+当前 CLI 版本为 `4.3.10`。
 
 LensEngine 是报告生成的核心编排器。默认使用 committee 模式；该模式会综合 M1-M6 证据做跨模块深度分析，也就是原来的 m1/m6 综合深度分析边界。自然语言调用可以表达为“用巴菲特模式分析贵州茅台”或“用 adversarial 模式让巴菲特和芒格辩论腾讯”。如果 `committee` 失败，会降级为 `single`，也就是 committee 失败时降级为 single，并在 metadata 中保留 fallback 原因。
 

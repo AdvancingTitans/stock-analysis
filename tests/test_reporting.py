@@ -295,6 +295,7 @@ def test_single_lens_keeps_original_template_but_replaces_m1_m6_deep_review():
     assert "### M1. 基础数据与核心指标" not in result.markdown
     assert "### 护城河与商业质量" in result.markdown
     assert "市场级证据无法替代公司尽调" in result.markdown
+    assert "- 风格线索：成长占优。\n\n| 板块 | 涨跌幅 | 上涨家数 | 下跌家数 |" in result.markdown
     assert "| 板块 | 涨跌幅 | 上涨家数 | 下跌家数 |" in result.markdown
     assert result.metadata["analysis_mode"] == "single"
     assert result.metadata["lenses"] == ["buffett"]
