@@ -17,6 +17,7 @@ from .integrations import (
     fetch_fund_flow,
     fetch_fund_holding_quotes,
     fetch_fund_holdings,
+    fetch_fund_nav_quote,
     fetch_fund_profile,
     fetch_hk_indices,
     fetch_important_announcements,
@@ -25,6 +26,7 @@ from .integrations import (
     fetch_northbound_flow,
     fetch_single_quote,
     fetch_us_indices,
+    is_historical_date,
 )
 from .market_sentiment import fetch_market_sentiment
 from .market_time import detect_market_session, resolve_trade_date
@@ -454,6 +456,19 @@ def _append_stock_financial_snapshot(lines: list[str], financials: dict[str, Any
 
 def _render_fund_snapshot(code: str, trade_date: str) -> str:
     estimate = fetch_fund_estimate(code, trade_date)
+    if is_historical_date(trade_date):
+        nav_quote = fetch_fund_nav_quote(code, trade_date)
+        nav_date = _normalize_trade_date(nav_quote.get("date"))
+        if nav_quote.get("nav") is not None and nav_date:
+            estimate = {
+                **estimate,
+                "fundcode": code,
+                "nav": nav_quote.get("nav"),
+                "estimate_nav": None,
+                "estimate_change_pct": nav_quote.get("change_pct"),
+                "date": nav_date,
+                "_source": nav_quote.get("_source") or "东方财富历史净值",
+            }
     profile = fetch_fund_profile(code, trade_date)
     holdings = fetch_fund_holdings(code, trade_date, limit=5).get("holdings") or []
     quotes = fetch_fund_holding_quotes(holdings, trade_date)

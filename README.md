@@ -54,7 +54,7 @@ If a data source fails, the report records the gap. Missing metrics stay missing
 |---|---|---|
 | [贵州茅台 600519](reports/20260708-巴菲特-贵州茅台600519.md)<br>![Moutai Buffett lens](assets/贵州茅台个股分析（巴菲特）_1.png) | [贵州茅台 600519](reports/20260708-西蒙斯-贵州茅台600519.md)<br>![Moutai Simons lens](assets/贵州茅台个股分析（西蒙斯）_1.png) | [512480 半导体ETF](reports/20260708-512480-半导体ETF基金分析.md)<br>![Semiconductor fund analysis](assets/半导体基金分析_1.png) |
 
-Browse the [full report showcase](reports/README.md) for the six 2026-07-08 Markdown reports, screenshots, social-share assets, and automation examples.
+Browse the [full report showcase](reports/README.md) for the six revised 2026-07-08 Markdown reports, the data-gap audit note, screenshots, social-share assets, and automation examples.
 
 ## What You Get
 
@@ -182,7 +182,7 @@ Lenses change evidence priority and narrative structure. They do not override da
 
 ### 内置 lens 与 committee 边界
 
-当前 CLI 版本为 `4.3.7`。
+当前 CLI 版本为 `4.3.8`。
 
 LensEngine 是报告生成的核心编排器。默认使用 committee 模式；committee 模式会做 m1/m6 综合深度分析。自然语言调用可以表达为“用巴菲特模式分析 贵州茅台”或“用 adversarial 模式让巴菲特和芒格辩论 腾讯”。committee 失败时降级为 single，并在 metadata 中保留 fallback 原因。
 

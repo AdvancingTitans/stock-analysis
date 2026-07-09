@@ -1,6 +1,6 @@
 # Report Showcase
 
-This directory contains the release showcase reports for 2026-07-08. They are generated Markdown examples, not investment advice.
+This directory contains the revised release showcase reports for 2026-07-08 plus the data-gap audit note. They are generated Markdown examples, not investment advice.
 
 ## 2026-07-08 Reports
 
@@ -12,6 +12,10 @@ This directory contains the release showcase reports for 2026-07-08. They are ge
 | [512480 基金分析](20260708-512480-半导体ETF基金分析.md) | Semiconductor ETF fund analysis. |
 | [巴菲特 · 茅台 600519](20260708-巴菲特-贵州茅台600519.md) | Kweichow Moutai single-stock analysis, Buffett lens. |
 | [西蒙斯 · 茅台 600519](20260708-西蒙斯-贵州茅台600519.md) | Kweichow Moutai single-stock analysis, Simons lens. |
+
+## Data-Gap Audit
+
+- [2026-07-08 数据缺口审计与补全说明](20260708-数据缺口审计与补全说明.md): documents which fields were repaired and which gaps remain intentionally unfilled.
 
 ## Screenshot Gallery
 

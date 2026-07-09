@@ -216,6 +216,39 @@ def _fetch_sina_us_history(symbol: str, trade_date: str, *, allow_nearest: bool 
     return quote
 
 
+def _enrich_historical_quote(quote: QuoteData | None, symbol: str, trade_date: str) -> QuoteData | None:
+    try:
+        supplemental = adapt_quote(market_core.fetch_stock_history_quote(symbol, trade_date))
+    except Exception:
+        supplemental = None
+    if quote is None:
+        return supplemental
+    if supplemental is None:
+        return quote
+    if str(supplemental.trade_date or "").replace("-", "") != str(quote.trade_date or "").replace("-", ""):
+        return quote
+    enrich_fields = (
+        "volume",
+        "turnover",
+        "turnover_rate",
+        "total_market_cap",
+        "float_market_cap",
+        "pe",
+        "pb",
+        "high",
+        "low",
+    )
+    for field_name in enrich_fields:
+        if getattr(quote, field_name, None) is None and getattr(supplemental, field_name, None) is not None:
+            setattr(quote, field_name, getattr(supplemental, field_name))
+    source_chain = list(quote.source_chain or ([quote.source] if quote.source else []))
+    for source in supplemental.source_chain or ([supplemental.source] if supplemental.source else []):
+        if source and source not in source_chain:
+            source_chain.append(source)
+    quote.source_chain = source_chain
+    return quote
+
+
 def adapt_quote(raw: Any) -> QuoteData | None:
     if raw is None:
         return None
@@ -266,7 +299,7 @@ def fetch_single_quote(symbol: str, trade_date: str) -> QuoteData | None:
         normalized = normalize_code(symbol)
         if normalized.endswith(".HK"):
             raw = normalized.replace(".HK", "").lstrip("0") or "0"
-            return _fetch_tencent_historical_quote(
+            quote = _fetch_tencent_historical_quote(
                 f"hk{raw.zfill(5)}",
                 symbol=normalized,
                 name=normalized,
@@ -274,9 +307,10 @@ def fetch_single_quote(symbol: str, trade_date: str) -> QuoteData | None:
                 currency="HKD",
                 trade_date=trade_date,
             )
+            return _enrich_historical_quote(quote, normalized, trade_date)
         if normalized.isdigit():
             prefix = "sh" if normalized.startswith(("5", "6", "9")) else "bj" if normalized.startswith(("4", "8")) else "sz"
-            return _fetch_tencent_historical_quote(
+            quote = _fetch_tencent_historical_quote(
                 f"{prefix}{normalized}",
                 symbol=normalized,
                 name=normalized,
@@ -284,7 +318,9 @@ def fetch_single_quote(symbol: str, trade_date: str) -> QuoteData | None:
                 currency="CNY",
                 trade_date=trade_date,
             )
-        return _fetch_sina_us_history(normalized, trade_date, allow_nearest=True)
+            return _enrich_historical_quote(quote, normalized, trade_date)
+        quote = _fetch_sina_us_history(normalized, trade_date, allow_nearest=True)
+        return _enrich_historical_quote(quote, normalized, trade_date)
     core = market_core
     return adapt_quote(core.get_single_stock_quote(symbol, trade_date))
 
@@ -469,18 +505,18 @@ def fetch_us_indices(trade_date: str) -> list[QuoteData]:
 
 def fetch_board_list(board_type: str, trade_date: str, limit: int = 20) -> dict[str, Any]:
     normalized_type = "concept" if board_type == "concept" else "industry"
-    if is_historical_date(trade_date) and not _is_recent_historical(trade_date):
-        return {
-            "board_type": normalized_type,
-            "rows": [],
-            "_unavailable": "远期历史板块榜无缓存，禁止混用实时数据",
-        }
     if is_historical_date(trade_date):
         cached = market_core.cache_load("board_list", f"{trade_date}_{normalized_type}", "eastmoney_clist")
         if cached and cached.get("rows"):
             cached = dict(cached)
             cached["_source_note"] = "历史板块榜来自本地缓存"
             return cached
+    if is_historical_date(trade_date) and not _is_recent_historical(trade_date):
+        return {
+            "board_type": normalized_type,
+            "rows": [],
+            "_unavailable": "远期历史板块榜无缓存，禁止混用实时数据",
+        }
     result = market_core.get_board_list(board_type, trade_date, limit=limit)
     if is_historical_date(trade_date) and _is_recent_historical(trade_date) and not result.get("rows"):
         ths = market_core.fetch_ths_board_list(board_type, limit=limit)

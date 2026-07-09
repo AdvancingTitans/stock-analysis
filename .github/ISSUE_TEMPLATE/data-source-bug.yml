@@ -37,6 +37,6 @@ body:
     id: environment
     attributes:
       label: Environment
-      placeholder: macOS 15, Python 3.13, stock-analysis 4.3.7
+      placeholder: macOS 15, Python 3.13, stock-analysis 4.3.8
     validations:
       required: false

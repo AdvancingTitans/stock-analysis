@@ -233,6 +233,7 @@ FUND_NAV_HISTORY_URL = (
     "?fundCode={code}&pageIndex=1&pageSize=20&startDate={start}&endDate={end}&_={ts}"
 )
 FUND_PROFILE_URL = "https://fund.eastmoney.com/pingzhongdata/{code}.js?v={ts}"
+FUND_MOB_F10_URL = "https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo"
 EM_KLINE_URL = (
     "https://push2his.eastmoney.com/api/qt/stock/kline/get"
     "?secid={secid}&fields1=f1,f2,f3,f4,f5,f6"
@@ -3941,6 +3942,53 @@ def fetch_stock_close_on_or_after(symbol: str, buy_date: str) -> dict[str, Any]:
     return {"_error": "买入日附近未获取到可用股票收盘价"}
 
 
+def fetch_stock_history_quote(symbol: str, trade_date: str) -> QuoteData | None:
+    """Fetch exact-date historical quote fields from Eastmoney kline."""
+    compact = _compact_date(trade_date)
+    if not re.fullmatch(r"\d{8}", compact):
+        return None
+    try:
+        normalized, market, secid = _stock_secid_for_history(symbol)
+    except ValueError:
+        return None
+    cached = _quote_from_cache(cache_load(f"stock_history_{normalized}", compact, "eastmoney_kline", ttl=86400))
+    if _is_usable_quote(cached):
+        return cached
+    url = EM_KLINE_URL.format(secid=secid, beg=compact, end=compact, ts=int(time.time() * 1000))
+    data = fetch_json(url, {"Referer": "https://quote.eastmoney.com/"})
+    if "_error" in data:
+        return None
+    payload = data.get("data") or {}
+    rows = payload.get("klines") or []
+    if not rows:
+        return None
+    parts = str(rows[-1]).split(",")
+    if len(parts) < 11 or parts[0].replace("-", "") != compact:
+        return None
+    currency = "USD" if market == "us_market" else ("HKD" if market == "hk_market" else "CNY")
+    qd = QuoteData(
+        symbol=normalized,
+        name=str(payload.get("name") or normalized),
+        market=market,
+        date=parts[0].replace("-", ""),
+        open_price=_safe_float(parts[1]),
+        price=_safe_float(parts[2]),
+        high=_safe_float(parts[3]),
+        low=_safe_float(parts[4]),
+        volume=_safe_int(parts[5]),
+        turnover=_safe_float(parts[6]),
+        amplitude_pct=_safe_float(parts[7]),
+        change_pct=_safe_float(parts[8]),
+        change=_safe_float(parts[9]),
+        turnover_rate=_safe_float(parts[10]),
+        currency=currency,
+        source="eastmoney-kline",
+    )
+    quote = validate_quote(qd)
+    cache_save(f"stock_history_{normalized}", compact, "eastmoney_kline", quote.to_dict())
+    return quote
+
+
 def fetch_fund_nav_on_or_after(fund_code: str, buy_date: str) -> dict[str, Any]:
     """Fetch first available fund NAV on/after buy_date."""
     fund_code = normalize_fund_code(fund_code)
@@ -4112,10 +4160,170 @@ def fetch_fund_profile(fund_code: str, date_str: str) -> dict[str, Any]:
         raw = _fetch_raw(url, {"Referer": f"https://fund.eastmoney.com/{fund_code}.html"}, timeout=15)
     except Exception as e:
         diag(f"Fund profile {fund_code}: {e}")
-        return {"_error": str(e)}
-    result = parse_fund_profile_js(fund_code, raw)
+        result = {"fundcode": fund_code, "name": fund_code, "_error": str(e), "_source": "天天基金公开评估页"}
+    else:
+        result = parse_fund_profile_js(fund_code, raw)
+    result = _merge_fund_profile(result, fetch_fundmob_f10_profile(fund_code))
     cache_save(f"fund_profile_{fund_code}", date_str, "eastmoney_pingzhongdata", result)
     return result
+
+
+def fetch_fundmob_f10_profile(fund_code: str) -> dict[str, Any]:
+    fund_code = normalize_fund_code(fund_code)
+    params = {
+        "FCODE": fund_code,
+        "deviceid": "stock-analysis",
+        "plat": "Android",
+        "product": "EFund",
+        "version": "6.5.8",
+    }
+    url = f"{FUND_MOB_F10_URL}?{urllib.parse.urlencode(params)}"
+    data = fetch_json(url, {"Referer": f"https://fundf10.eastmoney.com/jbgk_{fund_code}.html"})
+    if "_error" in data:
+        return data
+    payload = data.get("Datas") or data.get("data") or {}
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            payload = {}
+    if isinstance(payload, list):
+        payload = payload[0] if payload and isinstance(payload[0], dict) else {}
+    if not isinstance(payload, dict) or not payload:
+        return {}
+    scale_value = _first_number(
+        payload,
+        "ENDNAV",
+        "FUNDSCALE",
+        "JJGM",
+        "NETASSET",
+        "NETASSETVALUE",
+    )
+    scale_date = _first_text(payload, "FSRQ", "PDATE", "ENDDATE", "JZDATE")
+    scale_mom = _format_percent_text(_first_text(payload, "RZDF", "SCALECHG", "MOM"))
+    result = {
+        "fundcode": _first_text(payload, "FCODE") or fund_code,
+        "name": _first_text(payload, "SHORTNAME", "NAME", "FUNDSNAME") or fund_code,
+        "returns": _fundmob_returns(payload),
+        "fees": {
+            "front_end_source_rate_pct": _first_number(payload, "SOURCE_RATE", "ORIGINALRATE", "fund_sourceRate"),
+            "front_end_rate_pct": _first_number(payload, "RATE", "DISCOUNTRATE", "fund_Rate"),
+            "min_purchase_cny": _first_number(payload, "MINSGBL", "MINSG", "fund_minsg"),
+        },
+        "scale": {
+            "latest_size_yi": scale_value,
+            "asof": scale_date,
+            "mom": scale_mom,
+        },
+        "performance_evaluation": {"average_score": _first_number(payload, "AVR", "SCORE"), "metrics": {}},
+        "managers": _fundmob_managers(payload),
+        "purchase_status": {
+            "subscribe": _first_text(payload, "SGZT", "SUBSCRIBESTATUS"),
+            "redeem": _first_text(payload, "SHZT", "REDEEMSTATUS"),
+        },
+        "_source": "eastmoney_fundmob_f10",
+    }
+    if not any(result["purchase_status"].values()):
+        result.pop("purchase_status")
+    return result
+
+
+def _merge_fund_profile(primary: dict[str, Any], supplemental: dict[str, Any]) -> dict[str, Any]:
+    if not supplemental or supplemental.get("_error"):
+        return primary
+    result = dict(primary or {})
+    for key in ("fundcode", "name"):
+        if not result.get(key) and supplemental.get(key):
+            result[key] = supplemental[key]
+    for key in ("returns", "fees", "scale", "performance_evaluation"):
+        result[key] = _merge_missing_dict(result.get(key), supplemental.get(key))
+    if not result.get("managers") and supplemental.get("managers"):
+        result["managers"] = supplemental["managers"]
+    if supplemental.get("purchase_status"):
+        result["purchase_status"] = _merge_missing_dict(result.get("purchase_status"), supplemental.get("purchase_status"))
+    sources = [
+        str(source)
+        for source in (result.get("_source"), supplemental.get("_source"))
+        if source and str(source) not in {"{}", "[]"}
+    ]
+    if sources:
+        result["_source"] = " + ".join(dict.fromkeys(sources))
+    return result
+
+
+def _merge_missing_dict(primary: Any, supplemental: Any) -> dict[str, Any]:
+    result = dict(primary or {}) if isinstance(primary, dict) else {}
+    extra = supplemental if isinstance(supplemental, dict) else {}
+    for key, value in extra.items():
+        if isinstance(value, dict):
+            result[key] = _merge_missing_dict(result.get(key), value)
+        elif result.get(key) in (None, "", {}, []):
+            result[key] = value
+    return result
+
+
+def _fundmob_returns(payload: dict[str, Any]) -> dict[str, float]:
+    mapping = (
+        ("近1月", ("SYL_1Y", "RZDF1M", "MONTH1")),
+        ("近3月", ("SYL_3Y", "RZDF3M", "MONTH3")),
+        ("近6月", ("SYL_6Y", "RZDF6M", "MONTH6")),
+        ("近1年", ("SYL_1N", "RZDF1Y", "YEAR1")),
+    )
+    result: dict[str, float] = {}
+    for label, keys in mapping:
+        value = _first_number(payload, *keys)
+        if value is not None:
+            result[label] = value
+    return result
+
+
+def _fundmob_managers(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = payload.get("JJJL") or payload.get("MANAGERS") or payload.get("FundManagers") or []
+    if isinstance(rows, dict):
+        rows = [rows]
+    managers: list[dict[str, Any]] = []
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        name = _first_text(row, "MGR", "NAME", "JJJL")
+        if not name:
+            continue
+        managers.append(
+            {
+                "name": name,
+                "star": row.get("STAR"),
+                "work_time": _first_text(row, "TOTALDAYS", "WORKTIME", "WORKDAYS"),
+                "fund_size": _first_text(row, "NETNAV", "FUNDSIZE", "INMANAGESCALE"),
+                "score": _first_number(row, "SCORE", "AVR"),
+                "tenure_return_pct": _first_number(row, "PENAVGROWTH", "TENURERETURN", "PROFIT"),
+                "same_type_avg_pct": _first_number(row, "PENAVRRETURN", "SAMEAVG"),
+                "benchmark_return_pct": _first_number(row, "BENCHMARKRETURN", "BENCHMARK"),
+            }
+        )
+    return managers
+
+
+def _first_text(payload: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = payload.get(key)
+        if value not in (None, "", "--", "-"):
+            return str(value).strip()
+    return ""
+
+
+def _first_number(payload: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        value = _safe_number(payload.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _format_percent_text(value: str) -> str:
+    value = str(value or "").strip()
+    if not value or value in {"-", "--"}:
+        return ""
+    return value if value.endswith("%") else f"{value}%"
 
 
 def _js_string_var(text: str, name: str) -> str:
@@ -4230,6 +4438,12 @@ def fetch_fund_holding_quotes(holdings: list[dict[str, Any]], date_str: str) -> 
     codes = [str(item.get("code") or "") for item in holdings if item.get("code")]
     if not codes:
         return {}
+    if _compact_date(date_str) < datetime.now().strftime("%Y%m%d"):
+        return {
+            q.symbol: q
+            for q in (fetch_stock_history_quote(code, date_str) for code in codes)
+            if _is_usable_quote(q)
+        }
     quotes = fetch_cn_stocks_sina(codes, date_str)
     tencent_quotes = fetch_cn_stocks_tencent(codes, date_str)
     if not _has_all_quotes(quotes, codes):

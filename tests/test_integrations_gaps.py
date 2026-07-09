@@ -12,6 +12,7 @@ from stock_analysis.models import QuoteData
 
 def test_merge_index_turnover_fills_missing_fields(monkeypatch):
     rows = [{"f12": "000001", "f14": "上证指数", "f2": 4100, "f6": None}]
+    monkeypatch.setattr("stock_analysis.integrations._eastmoney_index_history_amounts", lambda _trade_date: {})
     monkeypatch.setattr(
         "stock_analysis.integrations.market_core.get_index",
         lambda trade_date: [{"f12": "000001", "f6": 123456789.0}],

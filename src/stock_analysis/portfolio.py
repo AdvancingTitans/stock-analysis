@@ -67,6 +67,16 @@ def _style_label_for_fund(name: str) -> str:
     return "配置型"
 
 
+def _fund_trend_label(change_pct: float | None) -> str | None:
+    if change_pct is None:
+        return None
+    if change_pct > 0.05:
+        return "上涨"
+    if change_pct < -0.05:
+        return "下跌"
+    return "震荡"
+
+
 def _board_lookup(board_rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return {str(row.get("name") or ""): row for row in board_rows}
 
@@ -125,7 +135,7 @@ def build_portfolio_snapshot(holdings: list[Holding], trade_date: str) -> dict[s
                 "currency": currency,
                 "source": source,
                 "trade_date": estimate.get("date") or trade_date,
-                "trend": None,
+                "trend": _fund_trend_label(change_pct),
                 "sector": None,
                 "sector_flow": None,
                 "theme_status": None,

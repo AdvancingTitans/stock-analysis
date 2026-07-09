@@ -52,6 +52,58 @@ def test_historical_quote_uses_requested_close_only():
     assert quote.trade_date == "20260617"
 
 
+def test_historical_single_quote_enriches_kline_with_stock_get_fields(monkeypatch):
+    kline_quote = integrations.QuoteData(
+        symbol="600519",
+        name="贵州茅台",
+        market="a",
+        price=1203.0,
+        previous_close=1193.0,
+        change=10.0,
+        change_pct=0.84,
+        open_price=1198.0,
+        high=1210.0,
+        low=1190.0,
+        volume=1000,
+        currency="CNY",
+        trade_date="20260708",
+        source="tencent-kline",
+        source_chain=["tencent-kline"],
+    )
+    supplemental_quote = market_core.QuoteData(
+        symbol="600519",
+        name="贵州茅台",
+        market="cn_market",
+        price=1204.0,
+        prev_close=1193.0,
+        change=11.0,
+        change_pct=0.92,
+        turnover=12_300_000_000,
+        turnover_rate=0.42,
+        pe=22.5,
+        pb=8.1,
+        market_cap=15120.0,
+        float_market_cap=15119.0,
+        currency="CNY",
+        date="20260708",
+        source="eastmoney-kline",
+    )
+
+    monkeypatch.setattr(integrations, "_fetch_tencent_historical_quote", lambda *args, **kwargs: kline_quote)
+    monkeypatch.setattr(market_core, "fetch_stock_history_quote", lambda *args, **kwargs: supplemental_quote)
+
+    quote = integrations.fetch_single_quote("600519", "20260708")
+
+    assert quote is not None
+    assert quote.price == 1203.0
+    assert quote.turnover == 12_300_000_000
+    assert quote.turnover_rate == 0.42
+    assert quote.pe == 22.5
+    assert quote.pb == 8.1
+    assert quote.total_market_cap == 15120.0
+    assert quote.source_chain == ["tencent-kline", "eastmoney-kline"]
+
+
 def test_board_list_falls_back_to_ths_when_eastmoney_clist_is_empty(monkeypatch):
     html = """
     <table><tbody>
@@ -206,3 +258,78 @@ def test_parse_fund_profile_js_ignores_null_manager_rows():
     profile = market_core.parse_fund_profile_js("110011", js)
 
     assert profile["managers"] == []
+
+
+def test_fetch_fund_profile_falls_back_to_fundmob_f10_when_pingzhongdata_is_sparse(monkeypatch):
+    monkeypatch.setattr(market_core, "cache_load", lambda *args, **kwargs: None)
+    monkeypatch.setattr(market_core, "cache_save", lambda *args, **kwargs: None)
+    monkeypatch.setattr(market_core, "_fetch_raw", lambda *args, **kwargs: 'var fS_name = "半导体ETF国联安";')
+    monkeypatch.setattr(
+        market_core,
+        "fetch_json",
+        lambda url, headers=None: {
+            "Datas": {
+                "FCODE": "512480",
+                "SHORTNAME": "半导体ETF国联安",
+                "ENDNAV": "354.21",
+                "FSRQ": "2026-03-31",
+                "RZDF": "-7.50",
+                "SGZT": "开放申购",
+                "SHZT": "开放赎回",
+                "JJJL": [
+                    {
+                        "MGR": "样本经理",
+                        "TOTALDAYS": "4年又12天",
+                        "NETNAV": "85.30亿",
+                        "PENAVGROWTH": "18.25",
+                    }
+                ],
+            }
+        },
+    )
+
+    profile = market_core.fetch_fund_profile("512480", "20260708")
+
+    assert profile["scale"]["latest_size_yi"] == 354.21
+    assert profile["scale"]["asof"] == "2026-03-31"
+    assert profile["scale"]["mom"] == "-7.50%"
+    assert profile["purchase_status"] == {"subscribe": "开放申购", "redeem": "开放赎回"}
+    assert profile["managers"][0]["name"] == "样本经理"
+    assert profile["managers"][0]["work_time"] == "4年又12天"
+    assert profile["managers"][0]["fund_size"] == "85.30亿"
+    assert profile["managers"][0]["tenure_return_pct"] == 18.25
+    assert "eastmoney_fundmob_f10" in profile["_source"]
+
+
+def test_historical_fund_holding_quotes_use_historical_kline(monkeypatch):
+    def fail_live(*args, **kwargs):
+        raise AssertionError("historical fund holding quote should not use live quote source")
+
+    monkeypatch.setattr(market_core, "fetch_cn_stocks_sina", fail_live)
+    monkeypatch.setattr(market_core, "fetch_cn_stocks_tencent", fail_live)
+    monkeypatch.setattr(market_core, "fetch_cn_stocks_direct", fail_live)
+    monkeypatch.setattr(
+        market_core,
+        "fetch_stock_history_quote",
+        lambda symbol, trade_date: market_core.QuoteData(
+            symbol=symbol,
+            name="贵州茅台",
+            market="cn_market",
+            date=trade_date,
+            price=1199.3,
+            change_pct=0.88,
+            volume=25776,
+            turnover=3_072_000_000,
+            currency="CNY",
+            source="eastmoney-kline",
+            completeness=100,
+        ),
+    )
+
+    quotes = market_core.fetch_fund_holding_quotes(
+        [{"code": "600519", "name": "贵州茅台", "weight_pct": 6.0}],
+        "20260708",
+    )
+
+    assert quotes["600519"].price == 1199.3
+    assert quotes["600519"].source == "eastmoney-kline"

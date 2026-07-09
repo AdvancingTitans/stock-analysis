@@ -48,4 +48,5 @@ def test_historical_fund_holding_uses_nav_quote_for_daily_change(monkeypatch):
     detail = snapshot["details"][0]
     assert detail["current_price"] == 0.5119
     assert detail["change_pct"] == 0.1565
+    assert detail["trend"] == "上涨"
     assert round(detail["daily_pnl_original"], 4) == 0.8

@@ -279,6 +279,7 @@ def test_fund_market_renders_deterministic_fund_view(capsys):
             return_value={"600519": QuoteData(symbol="600519", price=1240.5, change_pct=-1.25)},
         ),
         patch("stock_analysis.app.fetch_fund_profile", return_value={}),
+        patch("stock_analysis.app.is_historical_date", return_value=False),
     ):
         assert run(["--market", "fund", "--fund", "161725", "--date", "20260618"]) == 0
 
@@ -329,6 +330,40 @@ def test_fund_market_renders_public_profile_enrichment(capsys):
     assert "| 最新规模 | 95.44亿 | 2026-03-31 | -16.17% |" in output
     assert "## 基金经理" in output
     assert "| 张坤 | 13年又280天 | 416.72亿(4只基金) | 65.62 | +295.65% |" in output
+
+
+def test_historical_fund_market_prefers_requested_date_nav(capsys):
+    with (
+        patch(
+            "stock_analysis.app.fetch_fund_estimate",
+            return_value={
+                "name": "半导体ETF国联安",
+                "estimate_nav": 1.3742,
+                "estimate_change_pct": 1.0,
+                "date": "2026-07-09",
+                "_source": "天天基金实时估值",
+            },
+        ),
+        patch(
+            "stock_analysis.app.fetch_fund_nav_quote",
+            return_value={
+                "fundcode": "512480",
+                "date": "2026-07-08",
+                "nav": 1.3447,
+                "change_pct": 3.06,
+                "_source": "东方财富历史净值",
+            },
+            create=True,
+        ),
+        patch("stock_analysis.app.fetch_fund_holdings", return_value={"holdings": []}),
+        patch("stock_analysis.app.fetch_fund_holding_quotes", return_value={}),
+        patch("stock_analysis.app.fetch_fund_profile", return_value={}),
+    ):
+        assert run(["--market", "fund", "--fund", "512480", "--date", "20260708"]) == 0
+
+    output = capsys.readouterr().out
+    assert "| 512480 | 半导体ETF国联安 | 1.34 CNY | +3.06% | 20260708 |" in output
+    assert "20260709" not in output
 
 
 def test_fund_profile_tables_skip_empty_public_profile():
