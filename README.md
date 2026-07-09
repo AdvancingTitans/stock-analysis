@@ -12,6 +12,15 @@
   A/HK/US stocks · Funds · Portfolios · JSON Evidence Packs · Data-quality scoring · Multi-source fallback · Investor lenses
 </p>
 
+<p align="center">
+  <a href="https://github.com/thuquant/awesome-quant"><img alt="Listed in thuquant/awesome-quant" src="https://img.shields.io/badge/listed%20in-thuquant%2Fawesome--quant-2ea44f"></a>
+</p>
+
+<p align="center">
+  Listed in <a href="https://github.com/thuquant/awesome-quant">thuquant/awesome-quant</a> via merged PR
+  <a href="https://github.com/thuquant/awesome-quant/pull/48">#48</a>.
+</p>
+
 `stock-analysis` turns public market data into deterministic Markdown reports and machine-readable evidence. It is built for repeatable market recaps, not black-box trading signals.
 
 ```bash
@@ -35,11 +44,17 @@ Most market "AI analysis" starts with a prompt and ends with a fluent paragraph.
 
 If a data source fails, the report records the gap. Missing metrics stay missing; they are not filled with zeroes or guessed from nearby signals.
 
-## See It
+## Report Showcase
 
-| Global market recap | Single-stock lens | Fund profile |
+| Committee recap | Buffett recap | Simons recap |
 |---|---|---|
-| ![Global market recap](assets/全球市场复盘_1.png) | ![Moutai Simons lens](assets/贵州茅台个股分析（西蒙斯）_1.png) | ![Semiconductor fund analysis](assets/半导体基金分析_1.png) |
+| [2026-07-08 投委会行情复盘](reports/20260708-投委会-行情复盘.md)<br>![Global market recap](assets/全球市场复盘_1.png) | [2026-07-08 巴菲特行情复盘](reports/20260708-巴菲特-行情复盘.md)<br>![Buffett global recap](assets/全球市场复盘（巴菲特）_1.png) | [2026-07-08 西蒙斯行情复盘](reports/20260708-西蒙斯-行情复盘.md)<br>![Simons global recap](assets/全球市场西蒙斯视角行情分析_1.png) |
+
+| Buffett stock lens | Simons stock lens | Fund profile |
+|---|---|---|
+| [贵州茅台 600519](reports/20260708-巴菲特-贵州茅台600519.md)<br>![Moutai Buffett lens](assets/贵州茅台个股分析（巴菲特）_1.png) | [贵州茅台 600519](reports/20260708-西蒙斯-贵州茅台600519.md)<br>![Moutai Simons lens](assets/贵州茅台个股分析（西蒙斯）_1.png) | [512480 半导体ETF](reports/20260708-512480-半导体ETF基金分析.md)<br>![Semiconductor fund analysis](assets/半导体基金分析_1.png) |
+
+Browse the [full report showcase](reports/README.md) for the six 2026-07-08 Markdown reports, screenshots, social-share assets, and automation examples.
 
 ## What You Get
 
@@ -199,7 +214,7 @@ Use this one-liner when submitting the project to curated lists:
 
 > [stock-analysis](https://github.com/AdvancingTitans/stock-analysis) - Evidence-driven market recap CLI for AI agents and quant researchers, supporting A/HK/US stocks, funds, portfolios, auditable JSON Evidence Packs, data-quality scoring, investor lenses, and multi-source fallback routing.
 
-High-fit targets include `awesome-quant-ai`, `awesome-ai-in-finance`, `awesome-quant`, and `awesome-systematic-trading`. See [docs/PROMOTION.md](docs/PROMOTION.md) for suggested categories and PR copy.
+High-fit targets include `awesome-quant-ai`, `awesome-ai-in-finance`, `awesome-quant`, and `awesome-systematic-trading`.
 
 ## Development
 
