@@ -187,7 +187,7 @@ Lenses change evidence priority and narrative structure. They do not override da
 
 ### Built-in Lens and Committee Boundaries
 
-Current CLI version: `4.3.10`.
+Current CLI version: `4.3.11`.
 
 `LensEngine` is the report orchestration layer. The default mode is `committee`, which combines M1-M6 evidence into a deeper cross-module analysis. Natural-language callers can ask for requests such as "analyze Kweichow Moutai in Buffett mode" or "run an adversarial debate between Buffett and Munger on Tencent." If `committee` mode fails, the engine falls back to `single` mode and preserves the fallback reason in metadata.
 

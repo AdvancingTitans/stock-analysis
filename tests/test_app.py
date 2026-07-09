@@ -79,6 +79,45 @@ def test_market_loads_memory_holdings_when_user_input_is_absent():
     assert _should_include_holdings("hk", explicitly_requested=True) is True
 
 
+def test_build_evidence_records_portfolio_exposure_when_holdings_exist():
+    holding = Holding(symbol="600519", asset_type="stock", market="a", quantity=10, buy_date="20260601")
+    quote = QuoteData(
+        symbol="600519",
+        name="贵州茅台",
+        market="a",
+        price=1200.0,
+        change_pct=1.2,
+        currency="CNY",
+        trade_date="20260701",
+        source="tencent",
+    )
+    with (
+        patch("stock_analysis.portfolio.fetch_single_quote", return_value=quote),
+        patch("stock_analysis.portfolio.fetch_stock_buy_reference", return_value={"close": 1000.0}),
+        patch("stock_analysis.portfolio.moving_average_summary", return_value={"trend": "多头"}),
+        patch("stock_analysis.portfolio.em_get", side_effect=Exception("skip boards")),
+        patch("stock_analysis.app.fetch_a_indices", return_value=[]),
+        patch("stock_analysis.app.fetch_hk_indices", return_value=[]),
+        patch("stock_analysis.app.fetch_us_indices", return_value=[]),
+        patch("stock_analysis.app.fetch_northbound_flow", return_value={}),
+        patch("stock_analysis.app.fetch_fund_flow", return_value={}),
+        patch("stock_analysis.app.fetch_board_list", return_value={"rows": []}),
+        patch("stock_analysis.app.fetch_limit_pools", return_value={"zt": {}, "dt": {}, "zb": {}}),
+        patch("stock_analysis.app.fetch_a_share_financial_snapshot", return_value={}),
+    ):
+        evidence, _ = build_evidence(
+            trade_date="20260701",
+            market="a",
+            session_label="盘中",
+            include_holdings=True,
+            holdings=[holding],
+        )
+
+    assert evidence.meta["portfolio_exposure"]["available"] is True
+    assert evidence.meta["portfolio_exposure"]["holding_count"] == 1
+    assert evidence.meta["portfolio_exposure"]["top3_ratio"] == 1.0
+
+
 def test_flow_snapshot_preserves_market_and_board_flow_scopes():
     snapshot = _flow_snapshot(
         {
@@ -201,6 +240,21 @@ def test_stock_market_renders_deterministic_single_symbol_view(capsys):
             source="tencent",
         ),
     ), patch(
+        "stock_analysis.app.fetch_a_share_order_book_snapshot",
+        return_value={
+            "available": True,
+            "source": "sina",
+            "trade_date": "20260618",
+            "quote_time": "15:34:59",
+            "best_bid": 1240.49,
+            "best_ask": 1240.50,
+            "spread": 0.01,
+            "spread_bps": 0.0806,
+            "bid1_lots": 120.0,
+            "ask1_lots": 80.0,
+            "limitations": ["仅为盘口快照，非逐笔成交。"],
+        },
+    ), patch(
         "stock_analysis.app.fetch_a_share_financial_snapshot",
         return_value={"available": False, "periods": [], "gaps": []},
     ):
@@ -209,7 +263,57 @@ def test_stock_market_renders_deterministic_single_symbol_view(capsys):
     output = capsys.readouterr().out
     assert "# 单股速览（20260618）" in output
     assert "| 600519 | 贵州茅台 | A股 | 1,240.50 CNY | -1.25% | 20260618 |" in output
+    assert "## A股盘口与交易成本快照" in output
+    assert "| 1,240.49 | 1,240.50 | 0.01 | 0.0806 | 20260618 15:34:59 |" in output
     assert "以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。" in output
+
+
+def test_build_evidence_records_stock_microstructure_and_cost_proxy_for_a_share_holdings():
+    quote = QuoteData(
+        symbol="600519",
+        name="贵州茅台",
+        market="a",
+        price=1182.19,
+        change_pct=-1.43,
+        turnover=None,
+        turnover_rate=0.27,
+        currency="CNY",
+        trade_date="20260709",
+        source="tencent",
+    )
+    holding = Holding(symbol="600519", asset_type="stock", market="a", quantity=100, buy_date="20260601")
+    with (
+        patch("stock_analysis.portfolio.fetch_single_quote", return_value=quote),
+        patch("stock_analysis.portfolio.fetch_stock_buy_reference", return_value={"price": 1200.0, "date": "20260601"}),
+        patch("stock_analysis.app.fetch_a_indices", return_value=[]),
+        patch("stock_analysis.app.fetch_hk_indices", return_value=[]),
+        patch("stock_analysis.app.fetch_us_indices", return_value=[]),
+        patch("stock_analysis.app.fetch_northbound_flow", return_value={}),
+        patch("stock_analysis.app.fetch_fund_flow", return_value={}),
+        patch("stock_analysis.app.fetch_board_list", return_value={"rows": []}),
+        patch("stock_analysis.app.fetch_limit_pools", return_value={"zt": {}, "dt": {}, "zb": {}}),
+        patch("stock_analysis.app.fetch_a_share_financial_snapshot", return_value={}),
+        patch(
+            "stock_analysis.app.fetch_a_share_order_book_snapshot",
+            return_value={
+                "available": True,
+                "source": "sina",
+                "trade_date": "20260709",
+                "best_bid": 1182.19,
+                "best_ask": 1182.2,
+                "spread": 0.01,
+                "spread_bps": 0.0846,
+                "turnover_cny": 4_035_216_946,
+            },
+        ),
+    ):
+        evidence, _ = build_evidence("20260709", "daily", "盘后", include_holdings=True, holdings=[holding])
+
+    assert evidence.meta["stock_microstructure"]["600519"]["spread_bps"] == 0.0846
+    assert evidence.meta["stock_trading_costs"]["600519"]["liquidity_bucket"] == "very_deep"
+    assert evidence.meta["stock_trading_costs"]["600519"]["slippage_model"] == "daily_rebalance_proxy"
+    assert evidence.meta["stock_trading_costs"]["600519"]["daily_turnover_cny"] == 4_035_216_946
+    assert "ETF/指数期货对冲成本未建模" in evidence.meta["stock_trading_costs"]["600519"]["limitations"]
 
 
 def test_stock_market_renders_a_share_financial_snapshot(capsys):
@@ -245,6 +349,9 @@ def test_stock_market_renders_a_share_financial_snapshot(capsys):
             "limitations": ["业绩预告/快报仅在公司披露时存在；无返回不代表公司没有业绩变化。"],
             "gaps": ["业绩预告/快报仅在公司披露时存在"],
         },
+    ), patch(
+        "stock_analysis.app.fetch_a_share_order_book_snapshot",
+        return_value={"available": False},
     ):
         assert run(["--market", "stock", "--symbol", "600519", "--date", "20260618"]) == 0
 

@@ -104,6 +104,60 @@ def test_historical_single_quote_enriches_kline_with_stock_get_fields(monkeypatc
     assert quote.source_chain == ["tencent-kline", "eastmoney-kline"]
 
 
+def test_a_share_order_book_snapshot_parses_sina_best_bid_ask(monkeypatch):
+    fields = [
+        "贵州茅台",
+        "1191.000",
+        "1199.300",
+        "1182.190",
+        "1191.990",
+        "1178.000",
+        "1182.190",
+        "1182.200",
+        "3409634",
+        "4035216946.000",
+        "173",
+        "1182.190",
+        "100",
+        "1182.180",
+        "700",
+        "1182.170",
+        "1400",
+        "1182.160",
+        "11300",
+        "1182.150",
+        "3300",
+        "1182.200",
+        "500",
+        "1182.260",
+        "100",
+        "1182.350",
+        "100",
+        "1182.360",
+        "100",
+        "1182.420",
+        "2026-07-09",
+        "15:34:59",
+        "00",
+        "",
+    ]
+    monkeypatch.setattr(market_core, "fetch_sina_batch", lambda codes: {"sh600519": fields})
+
+    snapshot = integrations.fetch_a_share_order_book_snapshot("600519", "20260709")
+
+    assert snapshot["available"] is True
+    assert snapshot["source"] == "sina"
+    assert snapshot["best_bid"] == 1182.19
+    assert snapshot["best_ask"] == 1182.2
+    assert snapshot["spread"] == 0.01
+    assert snapshot["spread_bps"] == 0.0846
+    assert snapshot["volume_shares"] == 3409634.0
+    assert snapshot["turnover_cny"] == 4035216946.0
+    assert snapshot["bid_depth_lots"] == 13673.0
+    assert snapshot["ask_depth_lots"] == 4100.0
+    assert snapshot["trade_date"] == "20260709"
+
+
 def test_board_list_falls_back_to_ths_when_eastmoney_clist_is_empty(monkeypatch):
     html = """
     <table><tbody>

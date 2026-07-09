@@ -593,6 +593,10 @@ def fetch_fund_holding_quotes(holdings: list[dict[str, Any]], trade_date: str) -
     return {symbol: adapt_quote(q) for symbol, q in raw.items() if adapt_quote(q)}
 
 
+def fetch_a_share_order_book_snapshot(symbol: str, trade_date: str) -> dict[str, Any]:
+    return market_core.fetch_a_share_order_book_snapshot(symbol, trade_date)
+
+
 def fetch_stock_buy_reference(symbol: str, buy_date: str) -> dict[str, Any]:
     return market_core.fetch_stock_close_on_or_after(symbol, buy_date)
 

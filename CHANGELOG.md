@@ -1,5 +1,12 @@
 # Changelog
 
+## v4.3.11 - 2026-07-10
+
+- Evidence Pack 新增 `stock_microstructure` 和 `stock_trading_costs`，A股持仓可记录 Sina 盘口快照、买卖价差 bps、盘口深度和中低频交易成本 proxy。
+- Simons lens readiness 拆分 `microstructure_costs`、`crowding_proxy` 与 `slippage_sensitivity`，明确买卖价差可采纳，拥挤和滑点只能条件化。
+- 单股速览新增 “A股盘口与交易成本快照”，展示买一、卖一、价差和快照时间；逐笔冲击、历史订单簿和 ETF/指数期货对冲成本继续保留缺口。
+- 将 stock-analysis skill metadata 升至 `4.5.3`，同步本地 Hermes skill 纪律。
+
 ## v4.3.10 - 2026-07-09
 
 - 修复单专家报告中“护城河与商业质量”板块表格紧跟列表项时被 Markdown 渲染为普通文本的问题。

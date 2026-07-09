@@ -12,6 +12,7 @@ from .evidence import EvidenceBundle
 from .integrations import (
     fetch_a_indices,
     fetch_a_share_financial_snapshot,
+    fetch_a_share_order_book_snapshot,
     fetch_board_list,
     fetch_fund_estimate,
     fetch_fund_flow,
@@ -152,6 +153,8 @@ def build_evidence(
         announcements=announcements,
     )
     stock_financials = _stock_financial_snapshots(portfolio_snapshot, trade_date)
+    stock_microstructure = _stock_microstructure_snapshots(portfolio_snapshot, trade_date)
+    stock_trading_costs = _stock_trading_cost_packs(portfolio_snapshot, stock_microstructure)
 
     m1 = {
         "available": bool(a_indices or hk_indices or us_indices),
@@ -229,6 +232,9 @@ def build_evidence(
             "trade_date": trade_date,
             "session": session_label,
             "source_events": source_events,
+            "portfolio_exposure": _portfolio_exposure_pack(portfolio_snapshot),
+            "stock_microstructure": stock_microstructure,
+            "stock_trading_costs": stock_trading_costs,
             "portfolio_advice_sections": _portfolio_advice_sections(portfolio_snapshot, m1, m2, m3, m4),
             "facts": facts,
         },
@@ -267,6 +273,105 @@ def _market_breadth(industry: dict[str, Any]) -> dict[str, Any]:
         "ratio": (up / down) if down else None,
         "scope": "行业板块成分汇总",
     }
+
+
+def _portfolio_exposure_pack(portfolio_snapshot: dict[str, Any]) -> dict[str, Any]:
+    details = portfolio_snapshot.get("details") or []
+    if not details:
+        return {"available": False, "holding_count": 0}
+    total = _safe_float(portfolio_snapshot.get("total_value_cny")) or 0.0
+    weights = []
+    market_exposure: dict[str, float] = {}
+    style_exposure: dict[str, float] = {}
+    for detail in details:
+        value = _safe_float(detail.get("market_value_cny")) or 0.0
+        weight = value / total if total > 0 else 0.0
+        weights.append(weight)
+        market = str(detail.get("market") or "unknown")
+        style = str(detail.get("style") or "unknown")
+        market_exposure[market] = market_exposure.get(market, 0.0) + weight
+        style_exposure[style] = style_exposure.get(style, 0.0) + weight
+    # ponytail: snapshot-level HHI is enough for evidence readiness; beta/correlation can use this pack later.
+    return {
+        "available": total > 0,
+        "holding_count": len(details),
+        "total_value_cny": total,
+        "top3_ratio": portfolio_snapshot.get("top3_ratio"),
+        "dominant_market": portfolio_snapshot.get("dominant_market"),
+        "dominant_ratio": portfolio_snapshot.get("dominant_ratio"),
+        "hhi": sum(weight * weight for weight in weights),
+        "market_exposure": market_exposure,
+        "style_exposure": style_exposure,
+        "conditions": ["相关性/beta 需完整持仓与足够历史 K线"],
+    }
+
+
+def _stock_microstructure_snapshots(portfolio_snapshot: dict[str, Any], trade_date: str) -> dict[str, Any]:
+    snapshots: dict[str, Any] = {}
+    for detail in portfolio_snapshot.get("details") or []:
+        symbol = str(detail.get("symbol") or "")
+        if not symbol or str(detail.get("market") or "").lower() != "a":
+            continue
+        snapshot = _safe_a_share_order_book_snapshot(symbol, trade_date)
+        if snapshot:
+            snapshots[symbol] = snapshot
+    return snapshots
+
+
+def _safe_a_share_order_book_snapshot(symbol: str, trade_date: str) -> dict[str, Any]:
+    try:
+        return fetch_a_share_order_book_snapshot(symbol, trade_date)
+    except Exception as exc:
+        return {
+            "available": False,
+            "symbol": symbol,
+            "source": "sina",
+            "reason": f"A股盘口快照暂不可用：{exc}",
+        }
+
+
+def _stock_trading_cost_packs(
+    portfolio_snapshot: dict[str, Any],
+    microstructure: dict[str, Any],
+) -> dict[str, Any]:
+    packs: dict[str, Any] = {}
+    for detail in portfolio_snapshot.get("details") or []:
+        symbol = str(detail.get("symbol") or "")
+        if not symbol:
+            continue
+        quote = detail.get("quote") or {}
+        micro = microstructure.get(symbol) or {}
+        turnover = _safe_float(quote.get("turnover")) or _safe_float(micro.get("turnover_cny"))
+        turnover_rate = _safe_float(quote.get("turnover_rate"))
+        spread_bps = _safe_float(micro.get("spread_bps"))
+        if turnover is None and spread_bps is None:
+            continue
+        # ponytail: bucketed daily proxy is enough for readiness; tick impact curve can replace it later.
+        packs[symbol] = {
+            "available": spread_bps is not None or turnover is not None,
+            "symbol": symbol,
+            "slippage_model": "daily_rebalance_proxy",
+            "spread_bps": spread_bps,
+            "daily_turnover_cny": turnover,
+            "turnover_rate": turnover_rate,
+            "liquidity_bucket": _liquidity_bucket(turnover, spread_bps),
+            "limitations": [
+                "仅估算中低频再平衡成本，不覆盖超短线冲击成本。",
+                "缺少逐笔成交、日内 ADV 曲线和订单簿历史。",
+                "ETF/指数期货对冲成本未建模",
+            ],
+        }
+    return packs
+
+
+def _liquidity_bucket(turnover: float | None, spread_bps: float | None) -> str:
+    if turnover is not None and turnover >= 2_000_000_000 and (spread_bps is None or spread_bps <= 2):
+        return "very_deep"
+    if turnover is not None and turnover >= 500_000_000 and (spread_bps is None or spread_bps <= 5):
+        return "deep"
+    if turnover is not None and turnover >= 100_000_000:
+        return "moderate"
+    return "thin_or_unknown"
 
 
 def run(argv: list[str] | None = None) -> int:
@@ -391,6 +496,11 @@ def _render_stock_snapshot(symbol: str, trade_date: str) -> str:
         )
         if quote.quality_flags:
             lines.extend(["", "数据质量提示："] + [f"- {flag}" for flag in quote.quality_flags])
+        if quote.market == "a":
+            _append_stock_microstructure_snapshot(
+                lines,
+                _safe_a_share_order_book_snapshot(quote.symbol, trade_date),
+            )
     _append_stock_financial_snapshot(lines, financials)
     lines.extend(["", "以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。"])
     return "\n".join(lines)
@@ -452,6 +562,26 @@ def _append_stock_financial_snapshot(lines: list[str], financials: dict[str, Any
     limitations = financials.get("limitations") or []
     if limitations:
         lines.extend(["", "口径限制："] + [f"- {item}" for item in limitations])
+
+
+def _append_stock_microstructure_snapshot(lines: list[str], snapshot: dict[str, Any]) -> None:
+    if not snapshot or not snapshot.get("available"):
+        return
+    lines.extend(
+        [
+            "",
+            "## A股盘口与交易成本快照",
+            "| 买一 | 卖一 | 价差 | 价差bps | 快照时间 |",
+            "|---:|---:|---:|---:|---|",
+            (
+                f"| {_format_number(snapshot.get('best_bid'))} | {_format_number(snapshot.get('best_ask'))} | "
+                f"{_format_number(snapshot.get('spread'))} | {_format_number(snapshot.get('spread_bps'), digits=4)} | "
+                f"{snapshot.get('trade_date') or ''} {snapshot.get('quote_time') or ''} |"
+            ),
+            "",
+            "限制：盘口为快照级，逐笔冲击成本、历史订单簿和 ETF/指数期货对冲成本未建模。",
+        ]
+    )
 
 
 def _render_fund_snapshot(code: str, trade_date: str) -> str:

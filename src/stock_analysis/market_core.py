@@ -1375,6 +1375,62 @@ def _sina_a_to_quote(fields: list[str], symbol: str, date_str: str) -> QuoteData
     return validate_quote(qd)
 
 
+def fetch_a_share_order_book_snapshot(symbol: str, date_str: str) -> dict[str, Any]:
+    """Fetch A-share best bid/ask and five-level depth from Sina's public quote line."""
+    normalized, market = normalize_stock_symbol(symbol)
+    if market != "cn_market":
+        return {"available": False, "symbol": normalized, "reason": "only_a_share_supported"}
+    code = _sina_a_code(normalized)
+    fields = fetch_sina_batch([code]).get(code) or []
+    if len(fields) < 32:
+        return {"available": False, "symbol": normalized, "source": "sina", "reason": "empty_order_book"}
+
+    price = _safe_float(fields[3])
+    bids = _order_book_levels(fields, start=10)
+    asks = _order_book_levels(fields, start=20)
+    best_bid = bids[0]["price"] if bids else None
+    best_ask = asks[0]["price"] if asks else None
+    spread = round(best_ask - best_bid, 4) if best_bid and best_ask else None
+    spread_bps = round(spread / price * 10000, 4) if spread is not None and price else None
+    source_date = (_source_date(fields[30]) or "").replace("-", "")
+    return {
+        "available": best_bid is not None and best_ask is not None,
+        "symbol": normalized,
+        "name": fields[0] or normalized,
+        "source": "sina",
+        "trade_date": source_date or date_str,
+        "requested_date": date_str,
+        "quote_time": fields[31] if len(fields) > 31 else "",
+        "price": price,
+        "volume_shares": _safe_float(fields[8]),
+        "turnover_cny": _safe_float(fields[9]),
+        "best_bid": best_bid,
+        "best_ask": best_ask,
+        "spread": spread,
+        "spread_bps": spread_bps,
+        "bid1_lots": bids[0]["lots"] if bids else None,
+        "ask1_lots": asks[0]["lots"] if asks else None,
+        "bid_depth_lots": round(sum(float(level.get("lots") or 0.0) for level in bids), 4),
+        "ask_depth_lots": round(sum(float(level.get("lots") or 0.0) for level in asks), 4),
+        "depth_levels": {"bid": bids, "ask": asks},
+        "limitations": [
+            "仅为 Sina 盘口快照，非逐笔成交或历史订单簿。",
+            "ETF/指数期货对冲成本未建模。",
+        ],
+    }
+
+
+def _order_book_levels(fields: list[str], *, start: int) -> list[dict[str, float]]:
+    levels: list[dict[str, float]] = []
+    for index in range(start, start + 10, 2):
+        lots = _safe_float(fields[index] if len(fields) > index else None)
+        price = _safe_float(fields[index + 1] if len(fields) > index + 1 else None)
+        if price is None or price <= 0:
+            continue
+        levels.append({"price": price, "lots": lots or 0.0})
+    return levels
+
+
 def _sina_us_to_quote(fields: list[str], symbol: str, date_str: str, name_override: str | None = None) -> QuoteData | None:
     """新浪美股字段：[名称, 当前价, 涨跌幅%, 时间, 涨跌额, 开盘, 最高, 最低, 52周高, 52周低, 成交量, ...]"""
     if len(fields) < 11:
