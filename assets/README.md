@@ -1,6 +1,6 @@
 # Assets
 
-Screenshots and share cards used by the README and [report showcase](../reports/README.md).
+Screenshots and share cards used by the README and [report directory](../reports/).
 
 ## Screenshot Sets
 

@@ -48,13 +48,13 @@ If a data source fails, the report records the gap. Missing metrics stay missing
 
 | Committee recap | Buffett recap | Simons recap |
 |---|---|---|
-| [2026-07-08 投委会行情复盘](reports/20260708-投委会-行情复盘.md)<br>![Global market recap](assets/全球市场复盘_1.png) | [2026-07-08 巴菲特行情复盘](reports/20260708-巴菲特-行情复盘.md)<br>![Buffett global recap](assets/全球市场复盘（巴菲特）_1.png) | [2026-07-08 西蒙斯行情复盘](reports/20260708-西蒙斯-行情复盘.md)<br>![Simons global recap](assets/全球市场西蒙斯视角行情分析_1.png) |
+| [2026-07-09 投委会行情复盘](reports/20260709-投委会-行情复盘.md)<br>![Global market recap](assets/全球市场复盘_1.png) | [2026-07-09 巴菲特行情复盘](reports/20260709-巴菲特-行情复盘.md)<br>![Buffett global recap](assets/全球市场复盘（巴菲特）_1.png) | [2026-07-09 西蒙斯行情复盘](reports/20260709-西蒙斯-行情复盘.md)<br>![Simons global recap](assets/全球市场西蒙斯视角行情分析_1.png) |
 
 | Buffett stock lens | Simons stock lens | Fund profile |
 |---|---|---|
-| [贵州茅台 600519](reports/20260708-巴菲特-贵州茅台600519.md)<br>![Moutai Buffett lens](assets/贵州茅台个股分析（巴菲特）_1.png) | [贵州茅台 600519](reports/20260708-西蒙斯-贵州茅台600519.md)<br>![Moutai Simons lens](assets/贵州茅台个股分析（西蒙斯）_1.png) | [512480 半导体ETF](reports/20260708-512480-半导体ETF基金分析.md)<br>![Semiconductor fund analysis](assets/半导体基金分析_1.png) |
+| [贵州茅台 600519](reports/20260709-巴菲特-贵州茅台600519.md)<br>![Moutai Buffett lens](assets/贵州茅台个股分析（巴菲特）_1.png) | [贵州茅台 600519](reports/20260709-西蒙斯-贵州茅台600519.md)<br>![Moutai Simons lens](assets/贵州茅台个股分析（西蒙斯）_1.png) | [512480 半导体ETF](reports/20260709-512480-半导体ETF基金分析.md)<br>![Semiconductor fund analysis](assets/半导体基金分析_1.png) |
 
-Browse the [full report showcase](reports/README.md) for the six revised 2026-07-08 Markdown reports, the data-gap audit note, screenshots, social-share assets, and automation examples.
+Browse the [report directory](reports/) for the six 2026-07-09 Markdown reports, screenshots, social-share assets, and automation examples.
 
 ## What You Get
 
