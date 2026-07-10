@@ -135,6 +135,9 @@ def _default_lenses_dir() -> Path:
     override = os.environ.get("STOCK_ANALYSIS_LENSES_DIR")
     if override:
         return Path(override)
+    packaged = Path(__file__).with_name("lens_config")
+    if packaged.is_dir():
+        return packaged
     return Path(__file__).resolve().parents[2] / "skills" / "stock-analysis" / "config" / "lenses"
 
 

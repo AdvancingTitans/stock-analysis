@@ -200,6 +200,16 @@ def test_single_lens_constructor_keeps_legacy_call_shape():
     assert "lens_weight_adjustments" in context.adjusted_evidence["_meta"]
 
 
+def test_packaged_lens_definitions_override_repo_fallback(monkeypatch, tmp_path):
+    import stock_analysis.lens_engine as lens_engine
+
+    packaged = tmp_path / "lens_config"
+    packaged.mkdir()
+    monkeypatch.setattr(lens_engine, "__file__", str(tmp_path / "lens_engine.py"))
+
+    assert lens_engine._default_lenses_dir() == packaged
+
+
 def test_lens_engine_accepts_natural_language_aliases():
     single = LensEngine(lens="巴菲特模式").build_context(_sample_evidence())
     debate = LensEngine(mode="adversarial", lenses=("巴菲特", "芒格")).build_context(_sample_evidence())

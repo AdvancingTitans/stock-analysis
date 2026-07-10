@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import time
 from dataclasses import asdict
@@ -327,6 +328,73 @@ def fetch_single_quote(symbol: str, trade_date: str) -> QuoteData | None:
 
 def fetch_a_share_financial_snapshot(symbol: str, trade_date: str, limit: int = 8) -> dict[str, Any]:
     return market_core.fetch_a_share_financial_snapshot(symbol, trade_date, limit=limit)
+
+
+def fetch_a_share_annual_report_slice(fiscal_year: int) -> dict[str, Any]:
+    """Stable facade for the auditable whole-market annual-report slice."""
+    return market_core.fetch_a_share_annual_report_slice(fiscal_year)
+
+
+def fetch_a_share_market_breadth(trade_date: str) -> dict[str, Any]:
+    """Return strict current-day A-share breadth, never board-component totals."""
+    return market_core.fetch_a_share_market_breadth(trade_date)
+
+
+def fetch_a_index_price_volume(trade_date: str) -> dict[str, Any]:
+    """Build auditable 5d/20d/60d index metrics from Tencent daily K lines."""
+    indices: dict[str, dict[str, Any]] = {}
+    for code, (symbol, name) in A_INDEX_HISTORY.items():
+        try:
+            rows, _ = _tencent_history(code, trade_date, limit=90)
+        except Exception as exc:
+            indices[symbol] = {"name": name, "available": False, "reason": str(exc)}
+            continue
+        metrics = _price_volume_metrics(rows, trade_date)
+        metrics.update({"name": name, "symbol": symbol, "source": "tencent-kline"})
+        indices[symbol] = metrics
+
+    required = {"returns_5d", "returns_20d", "returns_60d", "volume_zscore", "atr_14_pct"}
+    complete = next((row for row in indices.values() if required <= set(row.get("metrics") or {})), None)
+    return {
+        "available": complete is not None,
+        "source": "tencent-kline",
+        "indices": indices,
+        "available_fields": sorted(required & set((complete or {}).get("metrics") or {})),
+        "missing": [] if complete is not None else sorted(required),
+        "conditions": [] if complete is not None else ["Tencent 指数日 K 线需提供至少 61 个有效交易日"],
+    }
+
+
+def _price_volume_metrics(rows: list[list[Any]], trade_date: str) -> dict[str, Any]:
+    target = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
+    samples = []
+    for row in rows:
+        if not row or len(row) < 6 or str(row[0]) > target:
+            continue
+        close = _safe_float(row[2])
+        high = _safe_float(row[3])
+        low = _safe_float(row[4])
+        volume = _safe_float(row[5])
+        if None in (close, high, low, volume) or close <= 0 or volume < 0:
+            continue
+        samples.append({"date": str(row[0]), "close": close, "high": high, "low": low, "volume": volume})
+    metrics: dict[str, float] = {}
+    for days in (5, 20, 60):
+        if len(samples) > days and samples[-days - 1]["close"] > 0:
+            metrics[f"returns_{days}d"] = (samples[-1]["close"] / samples[-days - 1]["close"] - 1) * 100
+    if len(samples) >= 21:
+        history = [item["volume"] for item in samples[-21:-1]]
+        average = sum(history) / len(history)
+        variance = sum((value - average) ** 2 for value in history) / len(history)
+        if variance > 0:
+            metrics["volume_zscore"] = (samples[-1]["volume"] - average) / math.sqrt(variance)
+    if len(samples) >= 15:
+        ranges = []
+        for index in range(len(samples) - 14, len(samples)):
+            current, previous = samples[index], samples[index - 1]
+            ranges.append(max(current["high"] - current["low"], abs(current["high"] - previous["close"]), abs(current["low"] - previous["close"])))
+        metrics["atr_14_pct"] = sum(ranges) / len(ranges) / samples[-1]["close"] * 100
+    return {"available": bool(metrics), "sample_size": len(samples), "metrics": metrics}
 
 
 def _safe_float(value: Any) -> float | None:

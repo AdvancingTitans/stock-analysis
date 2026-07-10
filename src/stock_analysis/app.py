@@ -10,8 +10,11 @@ from .config import SourceConfig
 from .diagnostics import run_diagnostics
 from .evidence import EvidenceBundle
 from .integrations import (
+    fetch_a_index_price_volume,
     fetch_a_indices,
+    fetch_a_share_annual_report_slice,
     fetch_a_share_financial_snapshot,
+    fetch_a_share_market_breadth,
     fetch_a_share_order_book_snapshot,
     fetch_board_list,
     fetch_fund_estimate,
@@ -35,6 +38,9 @@ from .models import Holding
 from .portfolio import build_portfolio_snapshot
 from .profile import load_holdings_from_profile
 from .reporting import render_diagnostics, render_report_with_metadata
+from .screening import load_security_master, parse_filter, parse_sort, screen
+from .screening import render_markdown as render_screen_markdown
+from .screening import write_evidence as write_screen_evidence
 from .trading import IncompleteHoldingsError, parse_user_holdings_json, plan_trading_task, resolve_holdings
 
 
@@ -45,7 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--market",
         default="daily",
-        choices=["daily", "a", "hk", "us", "global", "stock", "fund", "diagnose"],
+        choices=["daily", "a", "hk", "us", "global", "stock", "fund", "screen", "diagnose"],
     )
     parser.add_argument(
         "--format",
@@ -73,6 +79,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--symbol", help="Symbol for --market stock or --market fund")
     parser.add_argument("--stock", dest="symbol", help="Alias for --symbol with --market stock")
     parser.add_argument("--fund", dest="symbol", help="Alias for --symbol with --market fund")
+    parser.add_argument("--fiscal-year", type=int, help="Fiscal year for --market screen")
+    parser.add_argument(
+        "--filter",
+        dest="screen_filters",
+        action="append",
+        default=[],
+        help="Strict whole-market condition: field:gt:value, e.g. roe_weighted:gt:8%% (repeat at most twice)",
+    )
+    parser.add_argument("--sort", dest="screen_sort", help="Screen sort: field:asc or field:desc")
+    parser.add_argument("--limit", type=int, default=20, help="Maximum condition-matching stocks for --market screen")
+    parser.add_argument(
+        "--universe-file",
+        help="Complete official security-master JSON snapshot required by --market screen",
+    )
     return parser
 
 
@@ -133,7 +153,8 @@ def build_evidence(
     pool_stats = _pool_statistics(pools)
     feature_groups = _feature_groups(pools)
     concentration = _concentration_snapshot(pools, industry, concept)
-    breadth = _market_breadth(industry)
+    breadth = fetch_a_share_market_breadth(trade_date)
+    price_volume = fetch_a_index_price_volume(trade_date)
     sentiment = _safe_market_sentiment(trade_date, market) if session_label == "盘后" else {}
     announcement_candidates = _announcement_candidates(pool_stats, portfolio_snapshot)
     lhb = fetch_lhb_aftermarket(trade_date, limit=5) if session_label == "盘后" and market in {"daily", "a", "global"} else {"available": False, "rows": []}
@@ -153,6 +174,7 @@ def build_evidence(
         announcements=announcements,
     )
     stock_financials = _stock_financial_snapshots(portfolio_snapshot, trade_date)
+    fund_profiles = _fund_profiles(portfolio_snapshot, trade_date)
     stock_microstructure = _stock_microstructure_snapshots(portfolio_snapshot, trade_date)
     stock_trading_costs = _stock_trading_cost_packs(portfolio_snapshot, stock_microstructure)
 
@@ -163,6 +185,7 @@ def build_evidence(
         "us_indices": us_indices,
         "northbound": northbound,
         "breadth": breadth,
+        "price_volume": price_volume,
         "cross_market_comment": _cross_market_comment(a_indices, hk_indices, us_indices),
     }
     _enrich_portfolio_benchmarks(portfolio_snapshot, m1)
@@ -216,6 +239,22 @@ def build_evidence(
         if detail.get("public_pulse")
     ]
     source_events = _source_events(a_indices, hk_indices, us_indices, industry, concept)
+    source_events.extend(
+        [
+            {
+                "module": "M1.breadth",
+                "sources": [str(breadth.get("source") or "eastmoney:clist")],
+                "status": "ok" if breadth.get("available") else "unavailable",
+                "reason": breadth.get("reason") or breadth.get("errors"),
+            },
+            {
+                "module": "M1.price_volume",
+                "sources": [str(price_volume.get("source") or "tencent-kline")],
+                "status": "ok" if price_volume.get("available") else "unavailable",
+                "reason": price_volume.get("conditions"),
+            },
+        ]
+    )
     if public_pulses:
         source_events.append(
             {
@@ -235,12 +274,15 @@ def build_evidence(
             "portfolio_exposure": _portfolio_exposure_pack(portfolio_snapshot),
             "stock_microstructure": stock_microstructure,
             "stock_trading_costs": stock_trading_costs,
+            "market_price_volume": price_volume,
             "portfolio_advice_sections": _portfolio_advice_sections(portfolio_snapshot, m1, m2, m3, m4),
             "facts": facts,
         },
     )
     if stock_financials:
         evidence.meta["stock_financials"] = stock_financials
+    if fund_profiles:
+        evidence.meta["fund_profiles"] = fund_profiles
     if public_pulses:
         evidence.meta["portfolio_public_pulse"] = public_pulses
     if sentiment.get("market_public_pulse"):
@@ -273,6 +315,23 @@ def _market_breadth(industry: dict[str, Any]) -> dict[str, Any]:
         "ratio": (up / down) if down else None,
         "scope": "行业板块成分汇总",
     }
+
+
+def _fund_profiles(portfolio_snapshot: dict[str, Any], trade_date: str) -> dict[str, Any]:
+    profiles: dict[str, Any] = {}
+    for detail in portfolio_snapshot.get("details") or []:
+        if detail.get("market") != "fund":
+            continue
+        symbol = str(detail.get("symbol") or "")
+        if not symbol:
+            continue
+        try:
+            profile = fetch_fund_profile(symbol, trade_date)
+        except Exception as exc:
+            profile = {"fundcode": symbol, "_error": str(exc)}
+        if profile and not profile.get("_error"):
+            profiles[symbol] = profile
+    return profiles
 
 
 def _portfolio_exposure_pack(portfolio_snapshot: dict[str, Any]) -> dict[str, Any]:
@@ -378,7 +437,7 @@ def run(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     now = datetime.now()
-    market = "a" if args.market in {"daily", "a", "global"} else args.market
+    market = "a" if args.market in {"daily", "a", "global", "screen"} else args.market
     explicit_date = args.date or args.legacy_date
     if explicit_date and (len(explicit_date) != 8 or not explicit_date.isdigit()):
         parser.error("--date must use YYYYMMDD")
@@ -402,6 +461,32 @@ def run(argv: list[str] | None = None) -> int:
         if not args.symbol:
             parser.error("--symbol or --fund is required when --market fund")
         print(_render_fund_snapshot(args.symbol, trade_date))
+        return 0
+    if args.market == "screen":
+        if args.fiscal_year is None:
+            parser.error("--fiscal-year is required when --market screen")
+        if not args.universe_file:
+            parser.error("--universe-file is required when --market screen")
+        if not args.screen_filters:
+            parser.error("at least one --filter is required when --market screen")
+        if not args.screen_sort:
+            parser.error("--sort is required when --market screen")
+        try:
+            financials = fetch_a_share_annual_report_slice(args.fiscal_year)
+            result = screen(
+                financials["rows"],
+                fiscal_year=args.fiscal_year,
+                universe=load_security_master(args.universe_file),
+                filters=[parse_filter(item) for item in args.screen_filters],
+                sort=parse_sort(args.screen_sort),
+                limit=args.limit,
+                pagination=financials,
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
+        print(render_screen_markdown(result), end="")
+        if args.emit_evidence:
+            write_screen_evidence(result, Path.cwd())
         return 0
 
     lenses = tuple(item.strip() for item in (args.lenses or "").split(",") if item.strip()) or None

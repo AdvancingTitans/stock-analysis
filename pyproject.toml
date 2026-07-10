@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "stock-analysis"
-version = "4.3.11"
+version = "4.4.0"
 description = "Evidence-driven global stock recap skill with portfolio analysis and resilient multi-source routing."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -25,6 +25,9 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/stock_analysis"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"skills/stock-analysis/config/lenses" = "stock_analysis/lens_config"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

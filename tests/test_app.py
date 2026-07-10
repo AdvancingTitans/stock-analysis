@@ -1,5 +1,8 @@
+import json
 from datetime import datetime
 from unittest.mock import patch
+
+import pytest
 
 from stock_analysis.app import (
     _append_fund_profile_tables,
@@ -17,6 +20,18 @@ from stock_analysis.market_time import detect_market_session
 from stock_analysis.models import Holding, QuoteData
 
 
+@pytest.fixture(autouse=True)
+def _keep_build_evidence_tests_offline(monkeypatch):
+    monkeypatch.setattr(
+        "stock_analysis.app.fetch_a_share_market_breadth",
+        lambda _: {"available": False, "scope": "A股全市场个股", "reason": "test fixture"},
+    )
+    monkeypatch.setattr(
+        "stock_analysis.app.fetch_a_index_price_volume",
+        lambda _: {"available": False, "source": "tencent-kline", "missing": ["returns_60d"]},
+    )
+
+
 def test_report_format_defaults_to_session_aware_auto():
     args = build_parser().parse_args([])
     assert args.report_format == "auto"
@@ -27,6 +42,50 @@ def test_report_format_defaults_to_session_aware_auto():
 def test_explicit_date_option_is_supported():
     args = build_parser().parse_args(["--date", "20260618"])
     assert args.date == "20260618"
+
+
+def test_screen_help_is_renderable():
+    assert "roe_weighted:gt:8%" in build_parser().format_help()
+
+
+def test_screen_cli_writes_one_evidence_file(monkeypatch, tmp_path, capsys):
+    annual_rows = [
+        {
+            "SECURITY_CODE": "600000",
+            "SECURITY_NAME_ABBR": "浦发银行",
+            "DATATYPE": "2025年 年报",
+            "SECURITY_TYPE": "A股",
+            "QDATE": "2025Q4",
+            "REPORTDATE": "2025-12-31 00:00:00",
+            "NOTICE_DATE": "2026-03-01 00:00:00",
+            "WEIGHTAVG_ROE": 9.15,
+            "YSTZ": 9.2,
+        }
+    ]
+    universe = {
+        "complete": True,
+        "reported_total": 1,
+        "pages_fetched": 1,
+        "unique_symbols": 1,
+        "universe_as_of": "2026-07-10",
+        "records": [{"symbol": "600000"}],
+    }
+    universe_file = tmp_path / "universe.json"
+    universe_file.write_text(json.dumps(universe), encoding="utf-8")
+    monkeypatch.setattr(
+        "stock_analysis.app.fetch_a_share_annual_report_slice",
+        lambda _: {"rows": annual_rows, "complete": True, "reported_total": 1, "expected_pages": 1, "pages_fetched": 1},
+    )
+    monkeypatch.chdir(tmp_path)
+
+    assert run([
+        "--market", "screen", "--fiscal-year", "2025", "--universe-file", str(universe_file),
+        "--filter", "roe_weighted:gt:8", "--sort", "roe_weighted:desc", "--emit-evidence",
+    ]) == 0
+
+    assert "条件命中股票" in capsys.readouterr().out
+    evidence = list(tmp_path.glob("screen_evidence_*.json"))
+    assert len(evidence) == 1
 
 
 def test_trade_date_and_market_breadth_are_normalized():
@@ -46,6 +105,25 @@ def test_trade_date_and_market_breadth_are_normalized():
         "ratio": 1.5,
         "scope": "行业板块成分汇总",
     }
+
+
+def test_fund_profiles_are_added_to_market_evidence(monkeypatch):
+    monkeypatch.setattr(
+        "stock_analysis.app.fetch_fund_profile",
+        lambda symbol, _: {
+            "fundcode": symbol,
+            "returns": {"近1年": 3.2},
+            "scale": {"latest_size_yi": 10.0},
+            "fees": {"front_end_rate_pct": 0.15},
+            "managers": [{"name": "样本经理"}],
+        },
+    )
+
+    from stock_analysis.app import _fund_profiles
+
+    profiles = _fund_profiles({"details": [{"symbol": "512480", "market": "fund"}]}, "20260710")
+
+    assert profiles["512480"]["returns"]["近1年"] == 3.2
 
 
 def test_pool_statistics_use_actual_board_count_and_standard_blowup_rate():

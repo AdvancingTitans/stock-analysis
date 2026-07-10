@@ -33,6 +33,7 @@ uv tool install stock-analysis
 
 stock-analysis --market daily
 stock-analysis --market stock --symbol 600519
+stock-analysis --market screen --fiscal-year 2025 --universe-file official_universe.json --filter roe_weighted:gt:8% --sort roe_weighted:desc
 stock-analysis --market global --format full --with-holdings --emit-evidence
 ```
 
@@ -71,6 +72,7 @@ stock-analysis --market global --format full --with-holdings --emit-evidence
 | 质量评分 | 报告带 100 分证据质量评分，并明确标出缺失模块。 |
 | 投资者 lens | 内置 Buffett、Munger、Graham、Simons、Dalio、Duan Yongping、Zhang Kun 等结构化 lens。 |
 | 本地持仓记忆 | 可选的本地持仓 profile，支持基准对比、集中度风险和汇率归一。 |
+| A 股确定性选股 | 严格年报条件、官方 Universe 门禁、逐股 PASS/FAIL/UNKNOWN 与可审计 Evidence JSON。 |
 
 ## 快速开始
 
@@ -104,6 +106,11 @@ stock-analysis --market stock --symbol 600519
 # 带公开画像和持仓数据的基金快照
 stock-analysis --market fund --symbol 161725
 
+# 确定性 A 股年报选股；必须提供完整的官方 Security Master 快照
+stock-analysis --market screen --fiscal-year 2025 --universe-file official_universe.json \
+  --filter roe_weighted:gt:8% --filter revenue_growth_yoy:gt:8% \
+  --sort roe_weighted:desc --limit 20 --emit-evidence
+
 # 诊断 Tencent、Sina、Eastmoney、browser 和可选 mootdx 路由
 stock-analysis --market diagnose
 ```
@@ -134,6 +141,8 @@ m6_YYYYMMDD.json
 | M6 | 韧性方向和下一交易日观察清单 | 10 |
 
 即使质量评分偏低，完整报告也会保持相同结构；缺失模块会在相关章节自然说明。
+
+当前交易日的 A 股全市场广度，优先要求东财 `clist` 的每一页、服务端总数和有效行数全部对账；若连接失败，Sina `hs_a` 必须分页至空页/短页，并核对唯一代码和有效行数。历史日期保留“不可用”，不会把行业板块成分汇总冒充全市场。Tencent 日 K 线样本齐全时，Evidence 还会提供 5d/20d/60d 收益、成交量 z-score 与 ATR。
 
 ## 为 Agent 而设计
 
@@ -187,7 +196,7 @@ Lens 会改变证据优先级和叙事结构，但不会绕过数据质量规则
 
 ### 内置 lens 与 committee 边界
 
-当前 CLI 版本为 `4.3.11`。
+当前 CLI 版本为 `4.4.0`。
 
 LensEngine 是报告生成的核心编排器。默认使用 committee 模式；该模式会综合 M1-M6 证据做跨模块深度分析，也就是原来的 m1/m6 综合深度分析边界。自然语言调用可以表达为“用巴菲特模式分析贵州茅台”或“用 adversarial 模式让巴菲特和芒格辩论腾讯”。如果 `committee` 失败，会降级为 `single`，也就是 committee 失败时降级为 single，并在 metadata 中保留 fallback 原因。
 

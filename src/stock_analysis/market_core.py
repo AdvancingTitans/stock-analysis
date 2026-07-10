@@ -154,6 +154,8 @@ INDEX_URL = (
     "https://push2.eastmoney.com/api/qt/ulist.np/get"
     "?fltt=2&secids={secids}&fields={fields}&_={ts}"
 )
+A_SHARE_BREADTH_FS = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"
+SINA_A_SHARE_BREADTH_URL = "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData"
 
 # 东财 clist — 美股/港股/指数统一接口（免登录、不限流）
 EM_CLIST_URL = (
@@ -2448,6 +2450,304 @@ def eastmoney_datacenter(
         diag(f"Eastmoney datacenter {report_name}: {data['_error']}")
         return []
     return ((data.get("result") or {}).get("data") or []) if data.get("success", True) else []
+
+
+def fetch_a_share_annual_report_slice(fiscal_year: int, *, page_size: int = 500) -> dict[str, Any]:
+    """Fetch a complete, auditable A-share annual-report cross section.
+
+    A partial response is returned for diagnosis but is deliberately never
+    cached.  Callers must check ``complete`` before describing results as a
+    whole-market screen.
+    """
+    from .screening_baseline import annual_report_filter
+
+    if fiscal_year < 1990 or fiscal_year > 9999:
+        raise ValueError("fiscal_year must be a four-digit year")
+    page_size = max(1, min(int(page_size or 500), 500))
+    cache_key = str(fiscal_year)
+    cached = cache_load("screen_financials", cache_key, "eastmoney_annual", ttl=24 * 3600)
+    if cached and cached.get("complete"):
+        cached = dict(cached)
+        cached["cache"] = "hit"
+        return cached
+
+    filter_str = annual_report_filter(fiscal_year)
+    rows: list[dict[str, Any]] = []
+    pages_fetched = 0
+    expected_pages = 0
+    expected_total: int | None = None
+    errors: list[str] = []
+    page_number = 1
+    while True:
+        params = {
+            "reportName": "RPT_LICO_FN_CPD",
+            "columns": "ALL",
+            "filter": filter_str,
+            "pageSize": page_size,
+            "pageNumber": page_number,
+            "sortColumns": "SECURITY_CODE",
+            "sortTypes": "1",
+            "source": "WEB",
+            "client": "WEB",
+        }
+        url = f"{EASTMONEY_DATACENTER_URL}?{urllib.parse.urlencode(params)}"
+        payload = fetch_json(url, {"Referer": "https://data.eastmoney.com/"})
+        if payload.get("_error"):
+            errors.append(str(payload["_error"]))
+            break
+        result = payload.get("result") or {}
+        page_rows = result.get("data") or []
+        try:
+            reported_total = int(result.get("count"))
+        except (TypeError, ValueError):
+            reported_total = -1
+        try:
+            reported_pages = int(result.get("pages"))
+        except (TypeError, ValueError):
+            reported_pages = 0
+        if reported_total < 0 or reported_pages < 1:
+            errors.append("Eastmoney response omitted count or pages")
+            break
+        if expected_total is None:
+            expected_total, expected_pages = reported_total, reported_pages
+        elif expected_total != reported_total or expected_pages != reported_pages:
+            errors.append("Eastmoney pagination metadata changed during refresh")
+            break
+        rows.extend(page_rows)
+        pages_fetched += 1
+        if page_number >= expected_pages:
+            break
+        page_number += 1
+        # The endpoint is public but rate-limited.  Keep the documented
+        # serial cadence while avoiding an unnecessary sleep after the last page.
+        time.sleep(1.0)
+
+    unique_symbols = {str(row.get("SECURITY_CODE") or "") for row in rows}
+    valid_symbols = all(len(symbol) == 6 and symbol.isdigit() for symbol in unique_symbols)
+    complete = bool(
+        expected_total is not None
+        and pages_fetched == expected_pages
+        and len(rows) == expected_total
+        and len(unique_symbols) == expected_total
+        and valid_symbols
+        and not errors
+    )
+    response = {
+        "fiscal_year": fiscal_year,
+        "rows": rows,
+        "reported_total": expected_total,
+        "expected_pages": expected_pages,
+        "pages_fetched": pages_fetched,
+        "unique_symbols": len(unique_symbols),
+        "complete": complete,
+        "source": "eastmoney:RPT_LICO_FN_CPD",
+        "filter": filter_str,
+        "errors": errors,
+        "cache": "miss",
+    }
+    if complete:
+        cache_save("screen_financials", cache_key, "eastmoney_annual", response)
+    return response
+
+
+def fetch_a_share_market_breadth(date_str: str, *, page_size: int = 500) -> dict[str, Any]:
+    """Count current A-share up/down/flat stocks from every clist page.
+
+    Industry-board component totals are not a substitute for this population.
+    A partial refresh remains diagnostic-only and is never cached as breadth.
+    """
+    compact = _compact_date(date_str)
+    if not re.fullmatch(r"\d{8}", compact):
+        return {"available": False, "reason": "trade_date must use YYYYMMDD"}
+    if compact != nearest_trade_date():
+        return {
+            "available": False,
+            "reason": "strict whole-market breadth is only collected for the current trading day",
+            "scope": "A股全市场个股",
+        }
+
+    page_size = max(1, min(int(page_size or 500), 500))
+    for cache_source in ("eastmoney_clist", "sina_hs_a"):
+        cached = cache_load("a_share_market_breadth", compact, cache_source, ttl=24 * 3600)
+        if cached and cached.get("available"):
+            return dict(cached, cache="hit")
+
+    expected_total: int | None = None
+    expected_pages = pages_fetched = valid_rows = 0
+    up = down = flat = 0
+    errors: list[str] = []
+    page_number = 1
+    while True:
+        params = {
+            "pn": page_number,
+            "pz": page_size,
+            "po": 1,
+            "np": 1,
+            "fltt": 2,
+            "invt": 2,
+            "fid": "f3",
+            "fs": A_SHARE_BREADTH_FS,
+            "fields": "f3",
+            "_": int(time.time() * 1000),
+        }
+        payload = fetch_json(
+            f"https://push2.eastmoney.com/api/qt/clist/get?{urllib.parse.urlencode(params)}",
+            {"Referer": "https://quote.eastmoney.com/"},
+        )
+        if payload.get("_error"):
+            errors.append(str(payload["_error"]))
+            break
+        data = payload.get("data") or {}
+        try:
+            reported_total = int(data.get("total"))
+        except (TypeError, ValueError):
+            errors.append("Eastmoney breadth response omitted total")
+            break
+        raw_rows = data.get("diff") or []
+        rows = list(raw_rows.values()) if isinstance(raw_rows, dict) else list(raw_rows)
+        if expected_total is None:
+            expected_total = reported_total
+            expected_pages = (reported_total + page_size - 1) // page_size
+        elif expected_total != reported_total:
+            errors.append("Eastmoney breadth total changed during refresh")
+            break
+        for row in rows:
+            change_pct = _safe_float(row.get("f3"))
+            if change_pct is None:
+                continue
+            valid_rows += 1
+            if change_pct > 0:
+                up += 1
+            elif change_pct < 0:
+                down += 1
+            else:
+                flat += 1
+        pages_fetched += 1
+        if page_number >= expected_pages:
+            break
+        page_number += 1
+        time.sleep(1.0)
+
+    complete = bool(
+        expected_total is not None
+        and expected_total > 0
+        and pages_fetched == expected_pages
+        and valid_rows == expected_total
+        and not errors
+    )
+    result = {
+        "available": complete,
+        "up": up if complete else None,
+        "down": down if complete else None,
+        "flat": flat if complete else None,
+        "ratio": (up / down) if complete and down else None,
+        "scope": "A股全市场个股（Eastmoney clist 全分页）",
+        "source": "eastmoney:clist",
+        "reported_total": expected_total,
+        "pages_fetched": pages_fetched,
+        "expected_pages": expected_pages,
+        "valid_rows": valid_rows,
+        "errors": errors,
+        "cache": "miss",
+    }
+    if complete:
+        cache_save("a_share_market_breadth", compact, "eastmoney_clist", result)
+        return result
+
+    fallback = _fetch_sina_a_share_market_breadth()
+    if fallback.get("available"):
+        cache_save("a_share_market_breadth", compact, "sina_hs_a", fallback)
+        return fallback
+    result["fallback"] = {"source": fallback.get("source"), "errors": fallback.get("errors")}
+    return result
+
+
+def _fetch_sina_a_share_market_breadth(*, page_size: int = 100) -> dict[str, Any]:
+    """Fallback breadth from Sina's complete `hs_a` list, paginated to EOF.
+
+    Sina does not expose a server-side total, so completion is evidenced by a
+    non-full final page (or an empty next page), unique codes, and valid change
+    fields rather than by inventing an Eastmoney count.
+    """
+    page_size = max(1, min(int(page_size or 100), 100))
+    pages_fetched = rows_fetched = valid_rows = up = down = flat = 0
+    unique_symbols: set[str] = set()
+    errors: list[str] = []
+    page_number = 1
+    terminated = ""
+    while page_number <= 100:
+        params = {
+            "page": page_number,
+            "num": page_size,
+            "sort": "symbol",
+            "asc": 1,
+            "node": "hs_a",
+            "symbol": "",
+            "_s_r_a": "page",
+        }
+        try:
+            raw = _fetch_raw(
+                f"{SINA_A_SHARE_BREADTH_URL}?{urllib.parse.urlencode(params)}",
+                {"Referer": "https://finance.sina.com.cn/"},
+            )
+            rows = json.loads(raw)
+        except Exception as exc:
+            errors.append(str(exc))
+            break
+        if not isinstance(rows, list):
+            errors.append("Sina breadth response is not a list")
+            break
+        if not rows:
+            terminated = "empty_page"
+            break
+        pages_fetched += 1
+        rows_fetched += len(rows)
+        for row in rows:
+            symbol = str(row.get("code") or "")
+            change_pct = _safe_float(row.get("changepercent"))
+            if len(symbol) != 6 or not symbol.isdigit() or change_pct is None:
+                continue
+            unique_symbols.add(symbol)
+            valid_rows += 1
+            if change_pct > 0:
+                up += 1
+            elif change_pct < 0:
+                down += 1
+            else:
+                flat += 1
+        if len(rows) < page_size:
+            terminated = "short_page"
+            break
+        page_number += 1
+    else:
+        errors.append("Sina breadth pagination exceeded 100 pages")
+
+    complete = bool(
+        terminated
+        and rows_fetched > 0
+        and valid_rows == rows_fetched
+        and len(unique_symbols) == rows_fetched
+        and not errors
+    )
+    return {
+        "available": complete,
+        "up": up if complete else None,
+        "down": down if complete else None,
+        "flat": flat if complete else None,
+        "ratio": (up / down) if complete and down else None,
+        "scope": "A股全市场个股（Sina hs_a 全分页）",
+        "source": "sina:hs_a",
+        "reported_total": None,
+        "reported_total_note": "Sina 未提供服务端总数；以分页至空页/短页、唯一代码和有效行数核对",
+        "pages_fetched": pages_fetched,
+        "expected_pages": None,
+        "rows_fetched": rows_fetched,
+        "valid_rows": valid_rows,
+        "unique_symbols": len(unique_symbols),
+        "pagination_termination": terminated or None,
+        "errors": errors,
+        "cache": "miss",
+    }
 
 
 def fetch_a_share_financial_snapshot(symbol: str, date_str: str, limit: int = 8) -> dict[str, Any]:

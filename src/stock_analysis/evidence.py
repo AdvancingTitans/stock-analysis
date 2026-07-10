@@ -222,7 +222,13 @@ def _conditional_evidence(modules: dict[str, dict], meta: dict[str, Any]) -> dic
     has_microstructure = _has_available_pack(meta.get("stock_microstructure") or {})
     has_trading_costs = _has_available_pack(meta.get("stock_trading_costs") or {})
     has_news = _has_news_samples(meta)
-    has_fund_profile = bool((meta.get("fund_profile") or {}).get("returns") or (meta.get("fund_profiles") or {}))
+    price_volume = meta.get("market_price_volume") or m1.get("price_volume") or {}
+    has_price_volume = bool(price_volume.get("available"))
+    price_volume_fields = list(price_volume.get("available_fields") or [])
+    price_volume_missing = list(price_volume.get("missing") or [])
+    fund_profile_fields = _fund_profile_fields(meta)
+    fund_profile_missing = [field for field in ("returns", "scale", "fees", "managers") if field not in fund_profile_fields]
+    has_fund_profile = bool(fund_profile_fields)
 
     return {
         "market_index_activity": _evidence_status(
@@ -231,11 +237,11 @@ def _conditional_evidence(modules: dict[str, dict], meta: dict[str, Any]) -> dic
             missing=[] if has_index_activity else ["index_turnover_or_volume"],
         ),
         "price_volume_behavior": _evidence_status(
-            False,
-            conditional=has_index_activity,
-            available_fields=["1d_return", "turnover_or_volume"] if has_index_activity else [],
-            missing=["returns_5d", "returns_20d", "returns_60d", "volume_zscore", "atr"],
-            conditions=["Tencent/Sina K线样本可用后升级为多周期量价包"] if has_index_activity else ["先恢复指数行情与成交字段"],
+            has_price_volume,
+            conditional=has_index_activity or bool(price_volume_fields),
+            available_fields=price_volume_fields or (["1d_return", "turnover_or_volume"] if has_index_activity else []),
+            missing=price_volume_missing or (["returns_5d", "returns_20d", "returns_60d", "volume_zscore", "atr_14_pct"] if not has_price_volume else []),
+            conditions=list(price_volume.get("conditions") or ([] if has_price_volume else ["先恢复指数行情与成交字段"])),
         ),
         "sector_rotation_leaders": _evidence_status(
             has_board_rows and has_flow,
@@ -306,11 +312,27 @@ def _conditional_evidence(modules: dict[str, dict], meta: dict[str, Any]) -> dic
             conditions=["资讯样本必须带 source/url/time/title，并先去重聚合"],
         ),
         "fund_profile": _evidence_status(
-            has_fund_profile,
-            missing=[] if has_fund_profile else ["returns", "scale", "fees", "managers"],
-            conditions=["基金持仓变化仅在解析出有效 holdings 后进入证据"],
+            has_fund_profile and not fund_profile_missing,
+            conditional=has_fund_profile and bool(fund_profile_missing),
+            available_fields=sorted(fund_profile_fields),
+            missing=fund_profile_missing,
+            conditions=[] if not fund_profile_missing else ["基金持仓变化仅在解析出有效 holdings 后进入证据"],
         ),
     }
+
+
+def _fund_profile_fields(meta: dict[str, Any]) -> set[str]:
+    profiles = list((meta.get("fund_profiles") or {}).values())
+    if meta.get("fund_profile"):
+        profiles.append(meta["fund_profile"])
+    fields: set[str] = set()
+    for profile in profiles:
+        if not isinstance(profile, dict):
+            continue
+        for profile_field in ("returns", "scale", "fees", "managers"):
+            if profile.get(profile_field):
+                fields.add(profile_field)
+    return fields
 
 
 def _evidence_status(

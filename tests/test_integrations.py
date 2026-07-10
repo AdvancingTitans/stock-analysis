@@ -26,6 +26,50 @@ def test_get_index_ignores_cached_rows_missing_configured_index(monkeypatch):
     assert any(row.get("f12") == "000300" for row in rows)
 
 
+def test_strict_market_breadth_requires_all_clist_pages(monkeypatch):
+    responses = iter(
+        [
+            {"data": {"total": 3, "diff": [{"f3": 1.2}, {"f3": -0.4}]}},
+            {"data": {"total": 3, "diff": [{"f3": 0.0}]}},
+        ]
+    )
+    monkeypatch.setattr(market_core, "nearest_trade_date", lambda: "20260710")
+    monkeypatch.setattr(market_core, "cache_load", lambda *args, **kwargs: None)
+    monkeypatch.setattr(market_core, "cache_save", lambda *args, **kwargs: None)
+    monkeypatch.setattr(market_core, "fetch_json", lambda *args, **kwargs: next(responses))
+    monkeypatch.setattr(market_core.time, "sleep", lambda _: None)
+
+    breadth = market_core.fetch_a_share_market_breadth("20260710", page_size=2)
+
+    assert breadth["available"] is True
+    assert breadth["up"] == 1
+    assert breadth["down"] == 1
+    assert breadth["flat"] == 1
+    assert breadth["pages_fetched"] == 2
+    assert breadth["valid_rows"] == breadth["reported_total"]
+
+
+def test_market_breadth_falls_back_to_sina_full_pagination(monkeypatch):
+    sina_pages = iter(
+        [
+            '[{"code":"600000","changepercent":1.0},{"code":"000001","changepercent":-1.0}]',
+            '[{"code":"920000","changepercent":0.0}]',
+        ]
+    )
+    monkeypatch.setattr(market_core, "nearest_trade_date", lambda: "20260710")
+    monkeypatch.setattr(market_core, "cache_load", lambda *args, **kwargs: None)
+    monkeypatch.setattr(market_core, "cache_save", lambda *args, **kwargs: None)
+    monkeypatch.setattr(market_core, "fetch_json", lambda *args, **kwargs: {"_error": "Eastmoney unavailable"})
+    monkeypatch.setattr(market_core, "_fetch_raw", lambda *args, **kwargs: next(sina_pages))
+
+    breadth = market_core.fetch_a_share_market_breadth("20260710", page_size=2)
+
+    assert breadth["available"] is True
+    assert breadth["source"] == "sina:hs_a"
+    assert breadth["pagination_termination"] == "short_page"
+    assert (breadth["up"], breadth["down"], breadth["flat"]) == (1, 1, 1)
+
+
 def test_historical_board_list_never_uses_live_endpoint():
     result = integrations.fetch_board_list("industry", "20200102")
     assert result["rows"] == []
@@ -242,6 +286,18 @@ def test_stock_get_quote_preserves_turnover_from_f48():
 
     assert quote.volume == 4567
     assert quote.turnover == 890000000
+
+
+def test_price_volume_metrics_require_a_full_multiperiod_kline_sample():
+    rows = []
+    for day in range(61):
+        close = 3000 + day
+        rows.append([f"2026-05-{day + 1:02d}", close - 1, close, close + 2, close - 2, 1000 + day])
+
+    metrics = integrations._price_volume_metrics(rows, "20260630")
+
+    assert metrics["sample_size"] == 61
+    assert set(metrics["metrics"]) == {"returns_5d", "returns_20d", "returns_60d", "volume_zscore", "atr_14_pct"}
 
 
 def test_fund_nav_quote_prefers_official_daily_growth_when_split_happens(monkeypatch):

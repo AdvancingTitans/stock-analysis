@@ -33,6 +33,7 @@ uv tool install stock-analysis
 
 stock-analysis --market daily
 stock-analysis --market stock --symbol 600519
+stock-analysis --market screen --fiscal-year 2025 --universe-file official_universe.json --filter roe_weighted:gt:8% --sort roe_weighted:desc
 stock-analysis --market global --format full --with-holdings --emit-evidence
 ```
 
@@ -71,6 +72,7 @@ Browse the [report directory](reports/) for the six 2026-07-09 Markdown reports,
 | Quality scoring | Reports carry a 100-point evidence quality score and identify missing modules. |
 | Investor lenses | Built-in Buffett, Munger, Graham, Simons, Dalio, Duan Yongping, Zhang Kun, and other structured lenses. |
 | Portfolio memory | Optional local holdings profile with benchmark comparison, concentration risk, and FX normalization. |
+| Deterministic A-share screening | Strict annual-report conditions with official-Universe gating, per-stock PASS/FAIL/UNKNOWN decisions, and one auditable Evidence JSON. |
 
 ## Quickstart
 
@@ -104,6 +106,11 @@ stock-analysis --market stock --symbol 600519
 # Deterministic fund snapshot with public profile and holdings data
 stock-analysis --market fund --symbol 161725
 
+# Deterministic A-share annual-report screen; requires a complete official Security Master snapshot
+stock-analysis --market screen --fiscal-year 2025 --universe-file official_universe.json \
+  --filter roe_weighted:gt:8% --filter revenue_growth_yoy:gt:8% \
+  --sort roe_weighted:desc --limit 20 --emit-evidence
+
 # Diagnose Tencent, Sina, Eastmoney, browser, and optional mootdx routes
 stock-analysis --market diagnose
 ```
@@ -134,6 +141,8 @@ The six-module score is designed for report trust, not performance marketing:
 | M6 | Resilient directions and next-session watchlist | 10 |
 
 Full reports keep the same structure even when quality is low, but missing modules are called out naturally in the relevant section.
+
+For current-day A-share reports, whole-market breadth is counted only after every Eastmoney `clist` page reconciles; a Sina `hs_a` fallback must paginate to EOF with unique valid codes. Historical reports keep strict breadth unavailable rather than relabeling industry-board components as all-market breadth. Tencent daily K lines add 5d/20d/60d returns, volume z-score, and ATR only when the sample is complete.
 
 ## Built For Agents
 
@@ -187,7 +196,7 @@ Lenses change evidence priority and narrative structure. They do not override da
 
 ### Built-in Lens and Committee Boundaries
 
-Current CLI version: `4.3.11`.
+Current CLI version: `4.4.0`.
 
 `LensEngine` is the report orchestration layer. The default mode is `committee`, which combines M1-M6 evidence into a deeper cross-module analysis. Natural-language callers can ask for requests such as "analyze Kweichow Moutai in Buffett mode" or "run an adversarial debate between Buffett and Munger on Tencent." If `committee` mode fails, the engine falls back to `single` mode and preserves the fallback reason in metadata.
 

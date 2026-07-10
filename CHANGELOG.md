@@ -1,5 +1,13 @@
 # Changelog
 
+## v4.4.0 - 2026-07-10
+
+- 新增 A 股确定性年报选股：仅支持加权 ROE、营收同比两个严格 `gt` 条件的 AND 筛选，输出 `PASS` / `FAIL` / `UNKNOWN` 逐股判定和单一 Evidence JSON；不完整年报分页或 Security Master 一律拒绝“全市场”结论。
+- 新增 current-day A 股全市场涨跌家数：东财 `clist` 必须全分页、总数和有效行数对账成功后才写入 Evidence；连接失败时降级 Sina `hs_a` 至空页/短页并核对唯一代码和有效行数。行业板块成分汇总不再冒充全市场广度，历史日期保留明确缺口。
+- Evidence Pack 新增 Tencent 指数日 K 线的 5d/20d/60d 收益、成交量 z-score 与 14 日 ATR；样本不足时仍为 `conditional`，不会生成可交易信号。
+- 持仓中的基金现在会把公开 `pingzhongdata` / FundMob 画像写入 Evidence Pack，并按长期业绩、规模、费率、经理四项分别标注覆盖情况。
+- Wheel 继续内置 lens JSON；新增选股在线源契约的独立周检，README、中文 README 与 Skill 同步更新。
+
 ## v4.3.11 - 2026-07-10
 
 - Evidence Pack 新增 `stock_microstructure` 和 `stock_trading_costs`，A股持仓可记录 Sina 盘口快照、买卖价差 bps、盘口深度和中低频交易成本 proxy。
