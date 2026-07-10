@@ -16,6 +16,7 @@ from .integrations import (
     fetch_a_share_financial_snapshot,
     fetch_a_share_market_breadth,
     fetch_a_share_order_book_snapshot,
+    fetch_a_share_price_volume,
     fetch_board_list,
     fetch_fund_estimate,
     fetch_fund_flow,
@@ -27,6 +28,7 @@ from .integrations import (
     fetch_important_announcements,
     fetch_lhb_aftermarket,
     fetch_limit_pools,
+    fetch_listed_fund_premium_discount,
     fetch_northbound_flow,
     fetch_single_quote,
     fetch_us_indices,
@@ -204,6 +206,11 @@ def build_evidence(
         "concentration": concentration,
         "summary": _module2_summary(industry, concept, fund_flow, concentration),
         "fallback": industry.get("_fallback") or concept.get("_fallback"),
+        "taxonomy": {
+            "industry": industry.get("taxonomy") or "unknown",
+            "concept": concept.get("taxonomy") or "unknown",
+            "note": industry.get("taxonomy_note") or concept.get("taxonomy_note") or "板块分类来源未返回。",
+        },
         "board_rankings_available": has_board_rows,
         "fund_flow_available": has_fund_flow,
     }
@@ -241,6 +248,12 @@ def build_evidence(
     source_events = _source_events(a_indices, hk_indices, us_indices, industry, concept)
     source_events.extend(
         [
+            {
+                "module": "M1.northbound",
+                "sources": [str(northbound.get("_source") or "同花顺北向资金 hsgtApi")],
+                "status": "ok" if northbound.get("_quality_status") == "validated_full_day" else "unavailable",
+                "reason": northbound.get("_error") or northbound.get("_source_note"),
+            },
             {
                 "module": "M1.breadth",
                 "sources": [str(breadth.get("source") or "eastmoney:clist")],
@@ -586,9 +599,31 @@ def _render_stock_snapshot(symbol: str, trade_date: str) -> str:
                 lines,
                 _safe_a_share_order_book_snapshot(quote.symbol, trade_date),
             )
+            _append_price_volume_snapshot(lines, fetch_a_share_price_volume(quote.symbol, trade_date))
     _append_stock_financial_snapshot(lines, financials)
     lines.extend(["", "以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。"])
     return "\n".join(lines)
+
+
+def _append_price_volume_snapshot(lines: list[str], pack: dict[str, Any]) -> None:
+    metrics = pack.get("metrics") or {}
+    if not pack.get("available"):
+        missing = ", ".join(pack.get("missing") or [])
+        lines.extend(["", f"多周期量价包暂缺（{missing or '日 K 样本不足'}）；不以单日行情替代。"])
+        return
+    lines.extend(
+        [
+            "",
+            "## 多周期量价（个股/场内基金）",
+            "| 5日收益 | 20日收益 | 60日收益 | 成交量 z-score | 14日 ATR | 样本数 |",
+            "|---:|---:|---:|---:|---:|---:|",
+            (
+                f"| {_format_pct(metrics.get('returns_5d'))} | {_format_pct(metrics.get('returns_20d'))} | "
+                f"{_format_pct(metrics.get('returns_60d'))} | {_format_number(metrics.get('volume_zscore'))} | "
+                f"{_format_pct(metrics.get('atr_14_pct'), signed=False)} | {pack.get('sample_size') or ''} |"
+            ),
+        ]
+    )
 
 
 def _safe_a_share_financial_snapshot(symbol: str, trade_date: str) -> dict[str, Any]:
@@ -705,6 +740,10 @@ def _render_fund_snapshot(code: str, trade_date: str) -> str:
         ]
     )
     _append_fund_profile_tables(lines, profile)
+    listed_price_volume = fetch_a_share_price_volume(code, trade_date)
+    if listed_price_volume.get("available"):
+        _append_price_volume_snapshot(lines, listed_price_volume)
+    _append_listed_fund_premium_discount(lines, fetch_listed_fund_premium_discount(code, trade_date))
     if holdings:
         lines.extend(
             [
@@ -757,6 +796,8 @@ def _append_fund_profile_tables(lines: list[str], profile: dict[str, Any]) -> No
             f"| 前端申购费 | {_format_pct(source_rate, signed=False)} | "
             f"{_format_pct(current_rate, signed=False)} |"
         )
+    elif profile.get("fundcode") and "fees" in profile:
+        lines.extend(["", "前端费率/起购金额未从公开画像返回；不进行费率比较。"])
     if has_scale:
         lines.extend(["", "| 规模项 | 数值 | 截止日 | 环比 |", "|---|---:|---|---:|"])
         size = _format_number(scale.get("latest_size_yi"))
@@ -767,6 +808,8 @@ def _append_fund_profile_tables(lines: list[str], profile: dict[str, Any]) -> No
             lines.append(f"| 综合评分 | {_format_number(performance.get('average_score'))} |")
         for name, score in metrics.items():
             lines.append(f"| {name} | {_format_number(score)} |")
+    elif profile.get("fundcode") and "performance_evaluation" in profile:
+        lines.extend(["", "业绩评价字段未从公开画像返回；不以空值推断基金评价。"])
     if managers:
         lines.extend(
             [
@@ -786,6 +829,49 @@ def _append_fund_profile_tables(lines: list[str], profile: dict[str, Any]) -> No
                     tenure_return=_format_pct(manager.get("tenure_return_pct")),
                 )
             )
+
+
+def _append_listed_fund_premium_discount(lines: list[str], pack: dict[str, Any]) -> None:
+    metadata = pack.get("tracking_metadata") or {}
+    if not pack.get("available"):
+        if metadata.get("reported_annual_tracking_error_pct") is not None:
+            lines.extend(
+                [
+                    "",
+                    "场内折溢价序列暂缺；基金披露年化跟踪误差 "
+                    f"{_format_pct(metadata['reported_annual_tracking_error_pct'], signed=False)}，"
+                    "披露窗口未知，非本工具重算值。",
+                ]
+            )
+        return
+    latest = pack.get("latest") or {}
+    lines.extend(
+        [
+            "",
+            "## 场内折溢价与跟踪信息",
+            "| 日期 | 场内收盘 | 官方净值 | 折溢价 | 20日均值 | 20日标准差 | 重合样本 |",
+            "|---|---:|---:|---:|---:|---:|---:|",
+            (
+                f"| {latest.get('date') or ''} | {_format_number(latest.get('close'), digits=4)} | "
+                f"{_format_number(latest.get('official_nav'), digits=4)} | "
+                f"{_format_pct(latest.get('premium_discount_pct'))} | "
+                f"{_format_pct(pack.get('premium_discount_20d_mean_pct'))} | "
+                f"{_format_pct(pack.get('premium_discount_20d_std_pct'), signed=False)} | "
+                f"{pack.get('matched_days') or ''} |"
+            ),
+        ]
+    )
+    if pack.get("split_events"):
+        lines.append("> 已按公开份额拆分事件将官方净值归一到腾讯前复权场内价格口径。")
+    tracked_index = metadata.get("tracked_index") or metadata.get("benchmark")
+    reported_error = metadata.get("reported_annual_tracking_error_pct")
+    if tracked_index or reported_error is not None:
+        lines.append(
+            "> 跟踪标的：{index}；基金披露年化跟踪误差：{error}。该披露值不是本工具按日序列重算的 tracking error。".format(
+                index=tracked_index or "未返回",
+                error=_format_pct(reported_error, signed=False) if reported_error is not None else "未返回",
+            )
+        )
 
 
 def _market_label(value: str) -> str:
@@ -834,6 +920,9 @@ def _source_events(
         dates = sorted({str(row.get("trade_date") or "") for row in rows if row.get("trade_date")})
         events.append({"market": market, "sources": sources, "trade_dates": dates})
     for board_type, payload in (("industry", industry), ("concept", concept)):
+        taxonomy = str(payload.get("taxonomy") or "")
+        if taxonomy:
+            events.append({"module": board_type, "taxonomy": taxonomy, "source": payload.get("_source")})
         if payload.get("_fallback"):
             events.append({"module": board_type, "fallback": payload["_fallback"]})
         elif not payload.get("rows"):

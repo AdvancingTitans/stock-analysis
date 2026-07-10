@@ -365,6 +365,170 @@ def fetch_a_index_price_volume(trade_date: str) -> dict[str, Any]:
     }
 
 
+def fetch_a_share_price_volume(symbol: str, trade_date: str) -> dict[str, Any]:
+    """Build a single listed A-share/ETF multi-period price-volume pack."""
+    normalized = normalize_code(symbol)
+    if not normalized.isdigit() or len(normalized) != 6:
+        return {
+            "available": False,
+            "symbol": normalized,
+            "missing": ["returns_5d", "returns_20d", "returns_60d", "volume_zscore", "atr_14_pct"],
+            "conditions": ["个股多周期量价包当前只覆盖 6 位 A股/场内基金代码"],
+        }
+    prefix = "sh" if normalized.startswith(("5", "6", "9")) else "bj" if normalized.startswith(("4", "8")) else "sz"
+    try:
+        rows, _ = _tencent_history(f"{prefix}{normalized}", trade_date, limit=90)
+    except Exception as exc:
+        return {
+            "available": False,
+            "symbol": normalized,
+            "source": "tencent-kline",
+            "missing": ["returns_5d", "returns_20d", "returns_60d", "volume_zscore", "atr_14_pct"],
+            "conditions": [f"腾讯个股日 K 线不可用：{exc}"],
+        }
+    payload = _price_volume_metrics(rows, trade_date)
+    required = {"returns_5d", "returns_20d", "returns_60d", "volume_zscore", "atr_14_pct"}
+    metrics = payload.get("metrics") or {}
+    return {
+        "available": required <= set(metrics),
+        "symbol": normalized,
+        "source": "tencent-kline",
+        "sample_size": payload.get("sample_size", 0),
+        "metrics": metrics,
+        "available_fields": sorted(required & set(metrics)),
+        "missing": sorted(required - set(metrics)),
+        "conditions": [] if required <= set(metrics) else ["腾讯个股日 K 线需提供至少 61 个有效交易日"],
+    }
+
+
+def fetch_listed_fund_premium_discount(code: str, trade_date: str) -> dict[str, Any]:
+    """Build a split-normalized listed-fund premium/discount series from public sources."""
+    normalized = normalize_code(code)
+    if not normalized.isdigit() or len(normalized) != 6:
+        return {
+            "available": False,
+            "fundcode": normalized,
+            "_error": "场内基金折溢价仅支持 6 位代码",
+        }
+    nav_history = market_core.fetch_fund_nav_history(normalized, trade_date)
+    metadata = market_core.fetch_fund_tracking_metadata(normalized)
+    if not nav_history.get("complete"):
+        return {
+            "available": False,
+            "fundcode": normalized,
+            "nav_history": nav_history,
+            "tracking_metadata": metadata,
+            "_error": nav_history.get("_error") or "official NAV history unavailable",
+        }
+    prefix = "sh" if normalized.startswith(("5", "6", "9")) else "bj" if normalized.startswith(("4", "8")) else "sz"
+    try:
+        kline_rows, _ = _tencent_history(f"{prefix}{normalized}", trade_date, limit=90)
+    except Exception as exc:
+        return {
+            "available": False,
+            "fundcode": normalized,
+            "nav_history": nav_history,
+            "tracking_metadata": metadata,
+            "_error": f"腾讯场内基金日 K 线不可用：{exc}",
+        }
+    prices = {
+        str(row[0]): close
+        for row in kline_rows
+        if row and len(row) >= 3 and (close := _safe_float(row[2])) is not None and close > 0
+    }
+    nav_by_date = {str(row["date"]): row for row in nav_history["rows"]}
+    split_events, unparsed_actions = _fund_split_events(nav_history["rows"])
+    matched: list[dict[str, Any]] = []
+    for date in sorted(set(prices) & set(nav_by_date)):
+        nav = _safe_float(nav_by_date[date].get("nav"))
+        factor = _qfq_nav_factor(date, split_events)
+        if nav is None or nav <= 0 or factor is None:
+            continue
+        adjusted_nav = nav * factor
+        matched.append(
+            {
+                "date": date,
+                "close": prices[date],
+                "official_nav": nav,
+                "qfq_nav": adjusted_nav,
+                "premium_discount_pct": (prices[date] / adjusted_nav - 1) * 100,
+            }
+        )
+    if unparsed_actions:
+        return {
+            "available": False,
+            "fundcode": normalized,
+            "rows": matched,
+            "nav_history": nav_history,
+            "tracking_metadata": metadata,
+            "split_events": split_events,
+            "_error": "存在无法解析的分红/拆分事件，不能将前复权场内价与原始净值混算",
+            "unparsed_actions": unparsed_actions,
+        }
+    if len(matched) < 20:
+        return {
+            "available": False,
+            "fundcode": normalized,
+            "rows": matched,
+            "nav_history": nav_history,
+            "tracking_metadata": metadata,
+            "split_events": split_events,
+            "_error": "场内价与官方净值重合样本少于 20 个交易日",
+        }
+    recent = matched[-20:]
+    values = [row["premium_discount_pct"] for row in recent]
+    average = sum(values) / len(values)
+    variance = sum((value - average) ** 2 for value in values) / len(values)
+    return {
+        "available": True,
+        "fundcode": normalized,
+        "source": "腾讯前复权日K线 + 东方财富官方历史净值",
+        "rows": matched,
+        "matched_days": len(matched),
+        "latest": matched[-1],
+        "premium_discount_20d_mean_pct": average,
+        "premium_discount_20d_std_pct": math.sqrt(variance),
+        "premium_discount_20d_min_pct": min(values),
+        "premium_discount_20d_max_pct": max(values),
+        "split_events": split_events,
+        "tracking_metadata": metadata,
+        "limitations": [
+            "场内价格使用腾讯前复权日K线；官方净值在份额拆分日前按公开拆分比例归一。",
+            "基金页面的年化跟踪误差为披露值，当前没有标的指数日线时不重算日频 tracking error。",
+        ],
+    }
+
+
+def _fund_split_events(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    split_events: list[dict[str, Any]] = []
+    unparsed_actions: list[dict[str, Any]] = []
+    for row in rows:
+        action = str(row.get("corporate_action") or "").strip()
+        if not action:
+            continue
+        matched = re.search(r"分拆\s*(\d+(?:\.\d+)?)\s*份", action)
+        if not matched:
+            unparsed_actions.append({"date": row.get("date"), "corporate_action": action})
+            continue
+        ratio = _safe_float(matched.group(1))
+        if ratio is None or ratio <= 0:
+            unparsed_actions.append({"date": row.get("date"), "corporate_action": action})
+            continue
+        split_events.append({"date": str(row["date"]), "ratio": ratio, "corporate_action": action})
+    return sorted(split_events, key=lambda row: row["date"]), unparsed_actions
+
+
+def _qfq_nav_factor(date: str, split_events: list[dict[str, Any]]) -> float | None:
+    factor = 1.0
+    for event in split_events:
+        if date < event["date"]:
+            ratio = _safe_float(event.get("ratio"))
+            if ratio is None or ratio <= 0:
+                return None
+            factor /= ratio
+    return factor
+
+
 def _price_volume_metrics(rows: list[list[Any]], trade_date: str) -> dict[str, Any]:
     target = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
     samples = []

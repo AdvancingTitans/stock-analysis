@@ -265,6 +265,9 @@ def _append_board_summary_tables(lines: list[str], m2: dict[str, Any], limit: in
     if not visible:
         lines.append("> 行业/概念板块榜暂缺；以下集中度来自涨跌停主题统计。")
         return
+    taxonomy = m2.get("taxonomy") or {}
+    if taxonomy.get("note"):
+        lines.append(f"> 板块口径：{taxonomy['note']}")
     for title, rows in visible:
         lines.extend([f"**{title}**", ""])
         _append_sector_table(lines, rows, limit=limit)

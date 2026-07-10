@@ -185,3 +185,34 @@ def test_quality_adds_health_readiness_and_conditional_evidence_pack():
     assert "crowding_proxy" in bundle.meta["lens_readiness"]["simons"]["conditional"]
     assert bundle.meta["lens_readiness"]["o_neil"]["status"] == "partial"
     assert bundle.meta["lens_readiness"]["buffett"]["status"] == "partial"
+
+
+def test_fund_profile_requires_every_fund_to_have_each_field():
+    bundle = EvidenceBundle(
+        trade_date="20260710",
+        modules={"M1": {}, "M2": {}, "M3": {}, "M4": {}, "M5": {}, "M6": {}},
+        meta={
+            "fund_profiles": {
+                "161725": {
+                    "returns": {"近1年": 1.0},
+                    "scale": {"latest_size_yi": 10.0},
+                    "fees": {"front_end_rate_pct": 0.15},
+                    "managers": [{"name": "甲"}],
+                },
+                "512480": {
+                    "returns": {"近1年": 1.0},
+                    "scale": {"latest_size_yi": 10.0},
+                    "fees": {"front_end_rate_pct": None},
+                    "managers": [{"name": "乙"}],
+                },
+            }
+        },
+    )
+
+    bundle.quality()
+    profile = bundle.meta["conditional_evidence"]["fund_profile"]
+
+    assert profile["status"] == "conditional"
+    assert profile["available"] == ["managers", "returns", "scale"]
+    assert profile["missing"] == ["fees"]
+    assert profile["coverage"]["512480"]["fees"] is False

@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from stock_analysis import integrations, market_core
 
 
@@ -298,6 +300,94 @@ def test_price_volume_metrics_require_a_full_multiperiod_kline_sample():
 
     assert metrics["sample_size"] == 61
     assert set(metrics["metrics"]) == {"returns_5d", "returns_20d", "returns_60d", "volume_zscore", "atr_14_pct"}
+
+
+def test_a_share_price_volume_reuses_strict_multiperiod_contract(monkeypatch):
+    rows = [
+        [
+            f"2026-{1 + day // 28:02d}-{1 + day % 28:02d}",
+            "10",
+            str(10 + day),
+            str(11 + day),
+            str(9 + day),
+            str(100 + day),
+        ]
+        for day in range(61)
+    ]
+    monkeypatch.setattr(integrations, "_tencent_history", lambda *args, **kwargs: (rows, {}))
+
+    pack = integrations.fetch_a_share_price_volume("600519", "20260305")
+
+    assert pack["available"] is True
+    assert pack["symbol"] == "600519"
+    assert set(pack["metrics"]) == {"returns_5d", "returns_20d", "returns_60d", "volume_zscore", "atr_14_pct"}
+
+
+def test_fund_nav_history_paginates_official_rows(monkeypatch):
+    first_page = [
+        {"FSRQ": f"2026-06-{day:02d}", "DWJZ": "1.0", "LJJZ": "1.0", "JZZZL": "0", "FHSP": ""}
+        for day in range(1, 21)
+    ]
+    second_page = [
+        {"FSRQ": "2026-07-01", "DWJZ": "1.1", "LJJZ": "1.1", "JZZZL": "10", "FHSP": ""}
+    ]
+    responses = iter([{"Data": {"LSJZList": first_page}}, {"Data": {"LSJZList": second_page}}])
+    monkeypatch.setattr(market_core, "cache_load", lambda *args, **kwargs: None)
+    monkeypatch.setattr(market_core, "cache_save", lambda *args, **kwargs: None)
+    monkeypatch.setattr(market_core, "fetch_json", lambda *args, **kwargs: next(responses))
+
+    history = market_core.fetch_fund_nav_history("512480", "20260710")
+
+    assert history["complete"] is True
+    assert history["pages_fetched"] == 2
+    assert history["pagination_termination"] == "short_page"
+    assert len(history["rows"]) == 21
+
+
+def test_listed_fund_premium_discount_normalizes_share_split(monkeypatch):
+    start = datetime(2026, 3, 1)
+    nav_rows = []
+    kline_rows = []
+    for offset in range(41):
+        date = (start + timedelta(days=offset)).strftime("%Y-%m-%d")
+        pre_split = offset < 20
+        nav_rows.append(
+            {
+                "date": date,
+                "nav": 10.0 if pre_split else 5.0,
+                "corporate_action": "每份基金份额分拆2.0份" if offset == 20 else "",
+            }
+        )
+        close = 5.0
+        kline_rows.append([date, "5", str(close), "5", "5", "100"])
+    monkeypatch.setattr(
+        market_core,
+        "fetch_fund_nav_history",
+        lambda *args, **kwargs: {"complete": True, "rows": nav_rows},
+    )
+    monkeypatch.setattr(
+        market_core,
+        "fetch_fund_tracking_metadata",
+        lambda *_: {"tracked_index": "样本指数", "reported_annual_tracking_error_pct": 0.2},
+    )
+    monkeypatch.setattr(integrations, "_tencent_history", lambda *args, **kwargs: (kline_rows, {}))
+
+    pack = integrations.fetch_listed_fund_premium_discount("512480", "20260410")
+
+    assert pack["available"] is True
+    assert pack["matched_days"] == 41
+    assert pack["latest"]["premium_discount_pct"] == 0.0
+    assert pack["premium_discount_20d_mean_pct"] == 0.0
+    assert pack["split_events"][0]["ratio"] == 2.0
+
+
+def test_fund_tracking_metadata_parsers_keep_disclosed_fields_distinct():
+    basic = "<th>业绩比较基准</th><td>样本指数收益率</td><th>跟踪标的</th><td>样本指数</td>"
+    home = "<a>年化跟踪误差：</a>0.20%"
+
+    assert market_core._fund_basic_table_value(basic, "业绩比较基准") == "样本指数收益率"
+    assert market_core._fund_basic_table_value(basic, "跟踪标的") == "样本指数"
+    assert market_core._fund_tracking_error_text(home) == 0.2
 
 
 def test_fund_nav_quote_prefers_official_daily_growth_when_split_happens(monkeypatch):

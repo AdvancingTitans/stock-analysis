@@ -133,9 +133,14 @@ FFLOW_HIS_URL = (
 STOCK_FUND_FLOW_DAILY_URL = (
     "https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get"
     "?secid={secid}&fields1=f1,f2,f3,f7"
-    "&fields2=f51,f52,f53,f54,f55,f56,f57&klt=101&lmt={limit}&_={ts}"
+    "&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65"
+    "&klt=101&lmt={limit}&ut=b2884a393a59ad64002292a3e90d46a5&_={ts}"
 )
 THS_NORTHBOUND_FLOW_URL = "https://data.hexin.cn/market/hsgtApi/method/dayChart/"
+NORTHBOUND_VALIDATION_VERSION = 2
+NORTHBOUND_CLOSE_MINUTE = 14 * 60 + 50
+NORTHBOUND_MIN_FULL_DAY_POINTS = 200
+NORTHBOUND_OPENING_ABS_LIMIT_YI = 100.0
 EASTMONEY_DATACENTER_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
 FUND_FLOW_COLS = "date,主力净流入,小单净流入,中单净流入,大单净流入,超大单净流入,主力净流入占比,小单净流入占比,中单净流入占比,大单净流入占比,超大单净流入占比,收盘价,涨跌幅,总成交额".split(",")
 FFLOW_MARKET_FIELDS = "f62,f184,f66,f69,f72,f75,f78,f81,f84,f87,f124,f6"
@@ -234,6 +239,8 @@ FUND_NAV_HISTORY_URL = (
     "https://api.fund.eastmoney.com/f10/lsjz"
     "?fundCode={code}&pageIndex=1&pageSize=20&startDate={start}&endDate={end}&_={ts}"
 )
+FUND_BASIC_INFO_URL = "https://fundf10.eastmoney.com/jbgk_{code}.html"
+FUND_HOME_URL = "https://fund.eastmoney.com/{code}.html"
 FUND_PROFILE_URL = "https://fund.eastmoney.com/pingzhongdata/{code}.js?v={ts}"
 FUND_MOB_F10_URL = "https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo"
 EM_KLINE_URL = (
@@ -2263,33 +2270,38 @@ def fetch_stock_fund_flow_daily(symbol: str, date_str: str, limit: int = 20) -> 
 
     last_error = ""
     for secid in _stock_flow_secid_candidates(normalized, market):
-        url = STOCK_FUND_FLOW_DAILY_URL.format(
-            secid=secid, limit=limit, ts=int(datetime.now().timestamp() * 1000)
-        )
-        data = fetch_json(url, {"Referer": "https://quote.eastmoney.com/"})
-        if "_error" in data:
-            last_error = data["_error"]
-            continue
-        payload = data.get("data") or {}
-        rows = _parse_stock_flow_rows(payload.get("klines") or [])
-        if not rows:
-            last_error = f"{secid}: empty klines"
-            continue
-        result = {
-            "symbol": normalized,
-            "market": market,
-            "secid": secid,
-            "name": payload.get("name") or normalized,
-            "rows": rows,
-            "latest_date": rows[-1]["date"],
-            "_requested_date": _display_date(date_str),
-            "_source": "东方财富 push2his 个股日级资金流",
-            "_source_note": "按单只股票查询；该接口偶发受网络/IP风控影响，失败时不会替代默认行情源。",
-        }
-        if not any(str(row.get("date", "")).replace("-", "") == date_str for row in rows):
-            result["_date_note"] = "latest_available"
-        cache_save("stock_fund_flow", cache_date, "eastmoney_push2his", result)
-        return result
+        # fetch_json turns transport failures into error payloads, so the outer
+        # retry decorator cannot see them. Retry the request here instead.
+        for attempt in range(MAX_RETRIES + 1):
+            url = STOCK_FUND_FLOW_DAILY_URL.format(
+                secid=secid, limit=limit, ts=int(datetime.now().timestamp() * 1000)
+            )
+            data = fetch_json(url, {"Referer": "https://quote.eastmoney.com/"})
+            if "_error" in data:
+                last_error = f"{secid}: {data['_error']}"
+                if attempt < MAX_RETRIES:
+                    time.sleep(INITIAL_BACKOFF * (attempt + 1))
+                continue
+            payload = data.get("data") or {}
+            rows = _parse_stock_flow_rows(payload.get("klines") or [])
+            if not rows:
+                last_error = f"{secid}: empty klines"
+                break
+            result = {
+                "symbol": normalized,
+                "market": market,
+                "secid": secid,
+                "name": payload.get("name") or normalized,
+                "rows": rows,
+                "latest_date": rows[-1]["date"],
+                "_requested_date": _display_date(date_str),
+                "_source": "东方财富 push2his 个股日级资金流",
+                "_source_note": "按单只股票查询；传输失败已按退避重试，仍失败时保留缺口而不以零值替代。",
+            }
+            if not any(str(row.get("date", "")).replace("-", "") == date_str for row in rows):
+                result["_date_note"] = "latest_available"
+            cache_save("stock_fund_flow", cache_date, "eastmoney_push2his", result)
+            return result
 
     return {
         "symbol": normalized,
@@ -2302,9 +2314,16 @@ def fetch_stock_fund_flow_daily(symbol: str, date_str: str, limit: int = 20) -> 
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
 def fetch_northbound_flow_snapshot(date_str: str) -> dict[str, Any]:
-    """Fetch intraday northbound flow from THS hsgtApi, unit: 亿元."""
+    """Fetch a validated full-day northbound-flow snapshot, unit: 亿元."""
+    current_trade_date = nearest_trade_date()
+    if date_str != current_trade_date:
+        return _northbound_unavailable(
+            date_str,
+            "同花顺 hsgtApi 只提供当前盘中序列，历史日期无可核验回溯源",
+        )
+
     cached = cache_load("northbound_flow", date_str, "ths")
-    if cached:
+    if cached and cached.get("_validation_version") == NORTHBOUND_VALIDATION_VERSION:
         return cached
     try:
         raw = _fetch_raw(
@@ -2317,14 +2336,18 @@ def fetch_northbound_flow_snapshot(date_str: str) -> dict[str, Any]:
         )
         data = _parse_json_text(raw)
     except Exception as exc:
-        return {"_error": str(exc), "_source": "同花顺北向资金 hsgtApi"}
+        return _northbound_unavailable(date_str, str(exc))
 
     times = data.get("time") or []
     hgt = data.get("hgt") or []
     sgt = data.get("sgt") or []
     if not times or not hgt or not sgt:
-        return {"_error": "empty northbound flow", "_source": "同花顺北向资金 hsgtApi"}
-    idx = min(len(times), len(hgt), len(sgt)) - 1
+        return _northbound_unavailable(date_str, "empty northbound flow")
+    issue = _northbound_validation_issue(times, hgt, sgt)
+    if issue:
+        return _northbound_unavailable(date_str, issue, latest_time=str(times[-1]) if times else "", points=min(len(times), len(hgt), len(sgt)))
+
+    idx = len(times) - 1
     hgt_yi = _safe_float(hgt[idx]) or 0.0
     sgt_yi = _safe_float(sgt[idx]) or 0.0
     result = {
@@ -2336,10 +2359,72 @@ def fetch_northbound_flow_snapshot(date_str: str) -> dict[str, Any]:
         "points": idx + 1,
         "series": [{"time": str(times[i]), "hgt_yi": _safe_float(hgt[i]) or 0.0, "sgt_yi": _safe_float(sgt[i]) or 0.0} for i in range(idx + 1)],
         "_source": "同花顺北向资金 hsgtApi",
-        "_source_note": "分钟累计流向，单位亿元；用于替代已失效的东财北向口径。",
+        "_source_note": "分钟累计流向，单位亿元；仅在收盘覆盖、序列长度和开盘基线均通过校验后采用。",
+        "_validation_version": NORTHBOUND_VALIDATION_VERSION,
+        "_quality_status": "validated_full_day",
     }
     cache_save("northbound_flow", date_str, "ths", result)
     return result
+
+
+def _northbound_unavailable(
+    date_str: str,
+    reason: str,
+    *,
+    latest_time: str = "",
+    points: int = 0,
+) -> dict[str, Any]:
+    return {
+        "date": _display_date(date_str),
+        "latest_time": latest_time,
+        "points": points,
+        "available": False,
+        "_quality_status": "unavailable",
+        "_error": f"北向资金序列未通过采用校验：{reason}",
+        "_source": "同花顺北向资金 hsgtApi",
+        "_source_note": "当前端点无可核验完整序列；不展示北向绝对值。",
+    }
+
+
+def _northbound_validation_issue(times: list[Any], hgt: list[Any], sgt: list[Any]) -> str:
+    if len(times) != len(hgt) or len(times) != len(sgt):
+        return "time/hgt/sgt 序列长度不一致"
+    if len(times) < NORTHBOUND_MIN_FULL_DAY_POINTS:
+        return f"points={len(times)}，少于完整交易日阈值 {NORTHBOUND_MIN_FULL_DAY_POINTS}"
+
+    minutes = [_northbound_time_to_minute(value) for value in times]
+    if any(value is None for value in minutes):
+        return "时间字段格式异常"
+    parsed_minutes = [int(value) for value in minutes if value is not None]
+    if parsed_minutes != sorted(parsed_minutes) or len(set(parsed_minutes)) != len(parsed_minutes):
+        return "分钟时间序列非严格递增"
+    if parsed_minutes[-1] < NORTHBOUND_CLOSE_MINUTE:
+        return f"latest_time={times[-1]}，未覆盖至 14:50 后"
+
+    opening_values = []
+    for minute, hgt_value, sgt_value in zip(parsed_minutes, hgt, sgt):
+        if minute > 9 * 60 + 40:
+            continue
+        parsed_hgt = _safe_float(hgt_value)
+        parsed_sgt = _safe_float(sgt_value)
+        if parsed_hgt is None or parsed_sgt is None:
+            return "北向数值字段异常"
+        opening_values.extend((abs(parsed_hgt), abs(parsed_sgt)))
+    if not opening_values:
+        return "缺少开盘后 10 分钟基线"
+    if max(opening_values) > NORTHBOUND_OPENING_ABS_LIMIT_YI:
+        return f"开盘后 10 分钟累计绝对值超过 {NORTHBOUND_OPENING_ABS_LIMIT_YI:.0f} 亿"
+    return ""
+
+
+def _northbound_time_to_minute(value: Any) -> int | None:
+    matched = re.fullmatch(r"(\d{1,2}):(\d{2})", str(value).strip())
+    if not matched:
+        return None
+    hour, minute = (int(part) for part in matched.groups())
+    if hour > 23 or minute > 59:
+        return None
+    return hour * 60 + minute
 
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
@@ -2385,6 +2470,8 @@ def fetch_eastmoney_board_list(board_type: str, date_str: str, limit: int = 100)
         "rows": rows,
         "count": len(rows),
         "_source": "东方财富行业/概念板块",
+        "taxonomy": f"eastmoney_bk_{normalized_type}",
+        "taxonomy_note": "东方财富 BK 板块分类；不可与其他来源的行业层级直接横向比较。",
         "_source_note": "东财 clist 板块排名；轻量单请求，失败时回退到浏览器板块页。",
     }
     if rows:
@@ -2654,7 +2741,7 @@ def fetch_a_share_market_breadth(date_str: str, *, page_size: int = 500) -> dict
         cache_save("a_share_market_breadth", compact, "eastmoney_clist", result)
         return result
 
-    fallback = _fetch_sina_a_share_market_breadth()
+    fallback = _fetch_sina_a_share_market_breadth(page_size=page_size)
     if fallback.get("available"):
         cache_save("a_share_market_breadth", compact, "sina_hs_a", fallback)
         return fallback
@@ -3727,6 +3814,8 @@ def fetch_ths_board_list(board_type: str, limit: int = 100) -> dict[str, Any]:
         "rows": rows,
         "count": len(rows),
         "_source": "同花顺板块页",
+        "taxonomy": f"ths_{normalized_type}",
+        "taxonomy_note": "同花顺板块分类；不可与东方财富 BK 分类直接横向比较。",
         "_source_note": "东财 clist 不可用时的 HTML 表格 fallback；字段来自公开板块行情页。",
     }
 
@@ -4429,6 +4518,155 @@ def fetch_fund_nav_quote(fund_code: str, trade_date: str) -> dict[str, Any]:
         result["_requested_date"] = compact
     cache_save(f"fund_nav_quote_{fund_code}", compact, "eastmoney_fund_nav", result)
     return result
+
+
+def fetch_fund_nav_history(
+    fund_code: str,
+    trade_date: str,
+    *,
+    calendar_days: int = 150,
+    page_size: int = 20,
+) -> dict[str, Any]:
+    """Fetch complete paged official NAV rows needed for listed-fund premium analysis."""
+    fund_code = normalize_fund_code(fund_code)
+    compact = _compact_date(trade_date)
+    if not re.fullmatch(r"\d{8}", compact):
+        return {"fundcode": fund_code, "rows": [], "_error": "交易日期应为 YYYYMMDD 或 YYYY-MM-DD"}
+    page_size = max(1, min(int(page_size or 20), 20))
+    calendar_days = max(30, min(int(calendar_days or 150), 365))
+    cache_date = f"{compact}_{calendar_days}_{page_size}"
+    cached = cache_load(f"fund_nav_history_{fund_code}", cache_date, "eastmoney_fund_nav", ttl=86400)
+    if cached and cached.get("complete"):
+        return cached
+
+    end = datetime.strptime(compact, "%Y%m%d")
+    start = end - timedelta(days=calendar_days)
+    rows: list[dict[str, Any]] = []
+    seen_dates: set[str] = set()
+    page = 1
+    termination = ""
+    while page <= 30:
+        url = (
+            "https://api.fund.eastmoney.com/f10/lsjz"
+            f"?fundCode={fund_code}&pageIndex={page}&pageSize={page_size}"
+            f"&startDate={start:%Y-%m-%d}&endDate={end:%Y-%m-%d}&_={int(time.time() * 1000)}"
+        )
+        data = fetch_json(url, {"Referer": f"https://fundf10.eastmoney.com/jjjz_{fund_code}.html"})
+        if "_error" in data:
+            return {
+                "fundcode": fund_code,
+                "rows": [],
+                "complete": False,
+                "pages_fetched": page - 1,
+                "_error": data["_error"],
+                "_source": "东方财富官方历史净值",
+            }
+        page_rows = ((data.get("Data") or {}).get("LSJZList") or [])
+        if not isinstance(page_rows, list):
+            return {
+                "fundcode": fund_code,
+                "rows": [],
+                "complete": False,
+                "pages_fetched": page - 1,
+                "_error": "invalid official NAV page payload",
+                "_source": "东方财富官方历史净值",
+            }
+        valid_rows = []
+        for row in page_rows:
+            date = str(row.get("FSRQ") or "")
+            nav = _safe_float(row.get("DWJZ"))
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date) or nav is None or nav <= 0:
+                continue
+            if date in seen_dates:
+                continue
+            seen_dates.add(date)
+            valid_rows.append(
+                {
+                    "date": date,
+                    "nav": nav,
+                    "cumulative_nav": _safe_float(row.get("LJJZ")),
+                    "change_pct": _safe_float(row.get("JZZZL")),
+                    "corporate_action": str(row.get("FHSP") or "").strip(),
+                }
+            )
+        if len(valid_rows) != len(page_rows):
+            return {
+                "fundcode": fund_code,
+                "rows": rows,
+                "complete": False,
+                "pages_fetched": page,
+                "_error": "official NAV page contains invalid or duplicate rows",
+                "_source": "东方财富官方历史净值",
+            }
+        rows.extend(valid_rows)
+        if not page_rows:
+            termination = "empty_page"
+            break
+        if len(page_rows) < page_size:
+            termination = "short_page"
+            break
+        page += 1
+    else:
+        return {
+            "fundcode": fund_code,
+            "rows": rows,
+            "complete": False,
+            "pages_fetched": page,
+            "_error": "official NAV pagination exceeded safety limit",
+            "_source": "东方财富官方历史净值",
+        }
+    result = {
+        "fundcode": fund_code,
+        "rows": sorted(rows, key=lambda row: row["date"]),
+        "complete": bool(rows) and bool(termination),
+        "pages_fetched": page,
+        "pagination_termination": termination,
+        "_source": "东方财富官方历史净值",
+    }
+    if result["complete"]:
+        cache_save(f"fund_nav_history_{fund_code}", cache_date, "eastmoney_fund_nav", result)
+    return result
+
+
+def fetch_fund_tracking_metadata(fund_code: str) -> dict[str, Any]:
+    """Fetch publicly disclosed benchmark and annualized tracking-error text."""
+    fund_code = normalize_fund_code(fund_code)
+    try:
+        basic_raw = _fetch_raw(
+            FUND_BASIC_INFO_URL.format(code=fund_code),
+            {"Referer": "https://fund.eastmoney.com/"},
+        )
+        home_raw = _fetch_raw(
+            FUND_HOME_URL.format(code=fund_code),
+            {"Referer": "https://fund.eastmoney.com/"},
+        )
+    except Exception as exc:
+        return {"fundcode": fund_code, "available": False, "_error": str(exc), "_source": "天天基金公开基金档案"}
+
+    benchmark = _fund_basic_table_value(basic_raw, "业绩比较基准")
+    tracked_index = _fund_basic_table_value(basic_raw, "跟踪标的")
+    tracking_error = _fund_tracking_error_text(home_raw)
+    return {
+        "fundcode": fund_code,
+        "available": bool(benchmark or tracked_index or tracking_error is not None),
+        "benchmark": benchmark,
+        "tracked_index": tracked_index,
+        "reported_annual_tracking_error_pct": tracking_error,
+        "_source": "天天基金公开基金档案",
+        "_source_note": "年化跟踪误差为基金页面披露值；未取得其计算窗口，不能视为本工具按日序列重算结果。",
+    }
+
+
+def _fund_basic_table_value(raw: str, label: str) -> str:
+    matched = re.search(
+        rf"{re.escape(label)}</th>\s*<td[^>]*>(.*?)</td>", raw, re.IGNORECASE | re.DOTALL
+    )
+    return _html_to_text(matched.group(1)) if matched else ""
+
+
+def _fund_tracking_error_text(raw: str) -> float | None:
+    matched = re.search(r"年化跟踪误差.*?([+-]?\d+(?:\.\d+)?)%", raw, re.DOTALL)
+    return _safe_float(matched.group(1)) if matched else None
 
 
 def fetch_fund_estimate(fund_code: str, date_str: str) -> dict[str, Any]:

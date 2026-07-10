@@ -30,6 +30,10 @@ def _keep_build_evidence_tests_offline(monkeypatch):
         "stock_analysis.app.fetch_a_index_price_volume",
         lambda _: {"available": False, "source": "tencent-kline", "missing": ["returns_60d"]},
     )
+    monkeypatch.setattr(
+        "stock_analysis.app.fetch_listed_fund_premium_discount",
+        lambda *_: {"available": False},
+    )
 
 
 def test_report_format_defaults_to_session_aware_auto():
@@ -570,6 +574,27 @@ def test_fund_profile_tables_skip_empty_public_profile():
     )
 
     assert lines == []
+
+
+def test_fund_profile_tables_disclose_missing_fee_fields():
+    lines = []
+
+    _append_fund_profile_tables(
+        lines,
+        {
+            "fundcode": "512480",
+            "fees": {
+                "front_end_source_rate_pct": None,
+                "front_end_rate_pct": None,
+                "min_purchase_cny": None,
+            },
+            "performance_evaluation": {"average_score": None, "metrics": {}},
+        },
+    )
+
+    rendered = "\n".join(lines)
+    assert "不进行费率比较" in rendered
+    assert "不以空值推断" in rendered
 
 
 def test_m1_remains_available_when_indices_exist_but_breadth_is_missing():

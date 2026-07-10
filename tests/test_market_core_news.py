@@ -1,6 +1,60 @@
 from stock_analysis import market_core
 
 
+def test_northbound_rejects_incomplete_or_abnormal_series(monkeypatch):
+    monkeypatch.setattr(market_core, "nearest_trade_date", lambda: "20260710")
+    monkeypatch.setattr(market_core, "cache_load", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        market_core,
+        "_fetch_raw",
+        lambda *args, **kwargs: '{"time":["09:10","09:11"],"hgt":[0.0,0.1],"sgt":[364.0,365.0]}',
+    )
+
+    result = market_core.fetch_northbound_flow_snapshot("20260710")
+
+    assert result["available"] is False
+    assert result["_quality_status"] == "unavailable"
+    assert "total_yi" not in result
+    assert "points=2" in result["_error"]
+
+
+def test_northbound_requires_current_day_and_validated_cache(monkeypatch):
+    monkeypatch.setattr(market_core, "nearest_trade_date", lambda: "20260710")
+    stale_cache = {"total_yi": 999.0, "_validation_version": 1}
+    monkeypatch.setattr(market_core, "cache_load", lambda *args, **kwargs: stale_cache)
+    monkeypatch.setattr(
+        market_core,
+        "_fetch_raw",
+        lambda *args, **kwargs: '{"time":[],"hgt":[],"sgt":[]}',
+    )
+
+    historical = market_core.fetch_northbound_flow_snapshot("20260709")
+    current = market_core.fetch_northbound_flow_snapshot("20260710")
+
+    assert historical["available"] is False
+    assert "历史日期" in historical["_error"]
+    assert current["available"] is False
+    assert "total_yi" not in current
+
+
+def test_stock_fund_flow_retries_error_payload_before_marking_gap(monkeypatch):
+    responses = iter(
+        [
+            {"_error": "connection reset"},
+            {"data": {"name": "样本股", "klines": ["2026-07-10,1,2,3,4,5,6"]}},
+        ]
+    )
+    monkeypatch.setattr(market_core, "cache_load", lambda *args, **kwargs: None)
+    monkeypatch.setattr(market_core, "cache_save", lambda *args, **kwargs: None)
+    monkeypatch.setattr(market_core, "fetch_json", lambda *args, **kwargs: next(responses))
+    monkeypatch.setattr(market_core.time, "sleep", lambda _: None)
+
+    result = market_core.fetch_stock_fund_flow_daily("600519", "20260710", limit=1)
+
+    assert result["rows"][0]["date"] == "2026-07-10"
+    assert "重试" in result["_source_note"]
+
+
 def test_fund_flow_merges_sector_fallback_when_ths_concept_flow_is_available(monkeypatch):
     monkeypatch.setattr(
         market_core,

@@ -226,9 +226,10 @@ def _conditional_evidence(modules: dict[str, dict], meta: dict[str, Any]) -> dic
     has_price_volume = bool(price_volume.get("available"))
     price_volume_fields = list(price_volume.get("available_fields") or [])
     price_volume_missing = list(price_volume.get("missing") or [])
-    fund_profile_fields = _fund_profile_fields(meta)
+    fund_profile_coverage = _fund_profile_coverage(meta)
+    fund_profile_fields = _common_fund_profile_fields(fund_profile_coverage)
     fund_profile_missing = [field for field in ("returns", "scale", "fees", "managers") if field not in fund_profile_fields]
-    has_fund_profile = bool(fund_profile_fields)
+    has_fund_profile = bool(fund_profile_coverage)
 
     return {
         "market_index_activity": _evidence_status(
@@ -311,28 +312,73 @@ def _conditional_evidence(modules: dict[str, dict], meta: dict[str, Any]) -> dic
             missing=[] if has_news else ["deduped_news_or_community_samples"],
             conditions=["资讯样本必须带 source/url/time/title，并先去重聚合"],
         ),
-        "fund_profile": _evidence_status(
+        "fund_profile": _fund_profile_evidence_status(
             has_fund_profile and not fund_profile_missing,
             conditional=has_fund_profile and bool(fund_profile_missing),
             available_fields=sorted(fund_profile_fields),
             missing=fund_profile_missing,
-            conditions=[] if not fund_profile_missing else ["基金持仓变化仅在解析出有效 holdings 后进入证据"],
+            conditions=[] if not fund_profile_missing else ["每只基金须逐字段有有效公开值；空对象或全 null 不计为可用"],
+            coverage=fund_profile_coverage,
         ),
     }
 
 
-def _fund_profile_fields(meta: dict[str, Any]) -> set[str]:
-    profiles = list((meta.get("fund_profiles") or {}).values())
+def _fund_profile_coverage(meta: dict[str, Any]) -> dict[str, dict[str, bool]]:
+    profiles = dict(meta.get("fund_profiles") or {})
     if meta.get("fund_profile"):
-        profiles.append(meta["fund_profile"])
-    fields: set[str] = set()
-    for profile in profiles:
+        profile = meta["fund_profile"]
+        if isinstance(profile, dict):
+            profiles.setdefault(str(profile.get("fundcode") or "current_fund"), profile)
+    coverage: dict[str, dict[str, bool]] = {}
+    for symbol, profile in profiles.items():
         if not isinstance(profile, dict):
             continue
-        for profile_field in ("returns", "scale", "fees", "managers"):
-            if profile.get(profile_field):
-                fields.add(profile_field)
-    return fields
+        coverage[str(symbol)] = {
+            "returns": _has_profile_values(profile.get("returns")),
+            "scale": _has_profile_values(profile.get("scale")),
+            "fees": _has_profile_values(profile.get("fees")),
+            "managers": any(
+                isinstance(manager, dict) and bool(manager.get("name"))
+                for manager in (profile.get("managers") or [])
+            ),
+        }
+    return coverage
+
+
+def _has_profile_values(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return any(item not in (None, "", [], {}) for item in value.values())
+
+
+def _common_fund_profile_fields(coverage: dict[str, dict[str, bool]]) -> set[str]:
+    if not coverage:
+        return set()
+    return {
+        field
+        for field in ("returns", "scale", "fees", "managers")
+        if all(profile.get(field) for profile in coverage.values())
+    }
+
+
+def _fund_profile_evidence_status(
+    is_available: bool,
+    *,
+    conditional: bool,
+    available_fields: list[str],
+    missing: list[str],
+    conditions: list[str],
+    coverage: dict[str, dict[str, bool]],
+) -> dict[str, Any]:
+    result = _evidence_status(
+        is_available,
+        conditional=conditional,
+        available_fields=available_fields,
+        missing=missing,
+        conditions=conditions,
+    )
+    result["coverage"] = coverage
+    return result
 
 
 def _evidence_status(
