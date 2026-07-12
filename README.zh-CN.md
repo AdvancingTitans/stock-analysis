@@ -19,6 +19,7 @@
 
 <p align="center">
   <a href="https://github.com/thuquant/awesome-quant"><img alt="Listed in thuquant/awesome-quant" src="https://img.shields.io/badge/listed%20in-thuquant%2Fawesome--quant-2ea44f"></a>
+  <a href="https://github.com/leoncuhk/awesome-quant-ai"><img alt="Listed in leoncuhk/awesome-quant-ai" src="https://img.shields.io/badge/listed%20in-leoncuhk%2Fawesome--quant--ai-2ea44f"></a>
 </p>
 
 <p align="center">
@@ -71,7 +72,7 @@ stock-analysis --market global --format full --with-holdings --emit-evidence
 | 找出满足明确财务条件的 A 股 | 已有 ROE、营收增速等硬条件，且希望结果可重复 | `/stock-screen` | `--market screen …` |
 | 留下并复查自己的投资理由 | 已经形成投资假设，想在以后用新事实重新核对 | `/thesis-create`、`/thesis-review` | `--market thesis-create|thesis-review --symbol` |
 
-Claude Code 原生支持 `/command`。Codex 安装生成的 Skill 后可自然语言调用，例如“用 stock-review 分析腾讯”；Custom Prompt 则显示为 `/prompts:stock-review`。三种入口从同一份 canonical catalog 生成，避免工作流漂移。
+Claude Code 原生支持 `/command` 入口。Codex 的 Custom Prompt 显示为 `/prompts:stock-review`；安装生成的 Skill 后，Agent 可以根据 Skill 描述把“分析腾讯”这类自然语言请求匹配到相应 Skill，并执行其中的确定性命令。意图识别发生在宿主 Agent，而非 `stock-analysis` Python 包内部。所有入口均从同一份 canonical catalog 生成，避免工作流漂移。
 
 ## 系统如何工作
 
