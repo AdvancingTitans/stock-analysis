@@ -26,6 +26,12 @@
   <a href="https://github.com/thuquant/awesome-quant/pull/48">#48</a>.
 </p>
 
+<p align="center">
+  Listed in <a href="https://github.com/leoncuhk/awesome-quant-ai">leoncuhk/awesome-quant-ai</a>
+  under <em>Tools and Platforms / Data Providers</em> via merged PR
+  <a href="https://github.com/leoncuhk/awesome-quant-ai/pull/39">#39</a>.
+</p>
+
 `stock-analysis` turns public market data into deterministic Markdown reports and machine-readable evidence. It is built for repeatable market recaps, not black-box trading signals.
 
 ```bash
@@ -52,18 +58,18 @@ If a data source fails, the report records the gap. Missing metrics stay missing
 
 ## Start with the investor question
 
-Choose a scenario rather than assembling low-level flags. Each scenario starts with deterministic evidence; an Agent may interpret it, but cannot bypass its source and completeness rules.
+Choose the investing question you have rather than assembling low-level flags. Each scenario starts with deterministic evidence (checkable prices, disclosed financial facts, or public events); an Agent may interpret it, but cannot bypass its source, trading-date, and completeness rules.
 
-| If you need to… | Use | Deterministic entrypoint |
-|---|---|---|
-| Understand today's market | `/market-recap` | `--market daily` |
-| Fact-check a ticker | `/stock-snapshot` | `--market stock --symbol` |
-| Research a company with explicit gaps | `/stock-review` | `--market stock-review --symbol` |
-| Recheck a reporting period | `/earnings-review` | `--market earnings --symbol` |
-| Explain a sharp move without inventing causality | `/price-move` | `--market price-move --symbol` |
-| Review saved holdings | `/portfolio-review` | `--market portfolio` |
-| Run a reproducible annual-report filter | `/stock-screen` | `--market screen …` |
-| Create or revisit a thesis | `/thesis-create`, `/thesis-review` | `--market thesis-create|thesis-review --symbol` |
+| If you need to… | Use it when… | Scenario | Deterministic entrypoint |
+|---|---|---|---|
+| Understand today's market | You want market context before, during, or after a trading session. | `/market-recap` | `--market daily` |
+| Fact-check a ticker | You only need price, recent performance, turnover, and disclosed facts—not an opinion. | `/stock-snapshot` | `--market stock --symbol` |
+| Decide whether a company merits more research | You are considering a position, a hold, or a structured fact check. | `/stock-review` | `--market stock-review --symbol` |
+| See what actually changed after results | A quarterly or annual report has been released and you want disclosed financial facts. | `/earnings-review` | `--market earnings --symbol` |
+| Investigate a sharp move cautiously | You want price, volume, and public events without treating a headline as proof of cause. | `/price-move` | `--market price-move --symbol` |
+| Check whether holdings are too concentrated | You have already saved complete holdings information. | `/portfolio-review` | `--market portfolio` |
+| Find A-shares meeting explicit financial conditions | You have hard conditions such as ROE or revenue growth and need repeatable results. | `/stock-screen` | `--market screen …` |
+| Record and revisit your investment case | You have an investment hypothesis and want to check it against later facts. | `/thesis-create`, `/thesis-review` | `--market thesis-create|thesis-review --symbol` |
 
 `/command` is native in Claude Code. In Codex, install the generated Skills and use natural language such as “use stock-review for Tencent”; Custom Prompts appear as `/prompts:stock-review`. The same canonical catalog generates both forms, so their workflow contract does not drift.
 
@@ -80,7 +86,7 @@ flowchart TB
     R --> O
 ```
 
-The essential boundary is deliberate: **the scenario chooses the research question, code obtains and validates evidence, and a lens only interprets the available evidence.** Market M1–M6 is for market/portfolio state; the separate C1–C8 Company Evidence Pack prevents a market proxy from masquerading as a company fact.
+The essential boundary is deliberate: **the scenario chooses the research question, code obtains and validates evidence, and a lens only interprets the available evidence.** Market M1–M6 is for market/portfolio state; the separate C1–C8 Company Evidence Pack answers “what do we actually know about this company?” rather than treating market heat or a one-day move as a company fact.
 
 ```mermaid
 flowchart LR
@@ -158,13 +164,13 @@ stock-analysis --market global --format full --emit-evidence
 # Deterministic single-stock snapshot, no LLM required
 stock-analysis --market stock --symbol 600519
 
-# Company Evidence Pack: C1 business through C8 catalyst/thesis, with explicit gaps
+# Use when you want a structured company fact check: it gives facts and gaps, not a buy score
 stock-analysis --market stock-review --symbol 600519 --emit-evidence
 
-# Financial facts only; it will not infer missing original-report data
+# Use after a results release: disclosed structured financial facts only
 stock-analysis --market earnings --symbol 600519 --emit-evidence
 
-# Price, volume and public-event samples without claiming a causal explanation
+# Use after a sharp move: price, volume, and public events without asserting causality
 stock-analysis --market price-move --symbol 600519 --emit-evidence
 
 # Create and later compare a local structured thesis snapshot
@@ -187,9 +193,28 @@ stock-analysis --market diagnose
 
 ### Company Evidence Pack (C1–C8)
 
-Company research has a different contract from daily market recap. `company_evidence_<symbol>_<date>.json` groups verified facts and gaps into business quality, financial quality, growth, moat evidence, management/capital allocation, valuation, risk/counter-evidence, and catalysts/thesis tracking. The current structured financial adapter is A-share focused; HK/US primary-filing fields intentionally remain gaps until a verified adapter exists.
+Think of this as a “facts to check before doing more research” list. It is neither a stock screener nor an automatic buy/sell answer.
 
-Every financial fact includes period, currency, accounting scope, source type, source, and confidence. The metric registry at [`config/metric_registry.json`](config/metric_registry.json) declares how a metric is validated and which framework can use it. It never produces a composite “buy score.”
+**When does it run?** Use `/stock-review` or `stock-analysis --market stock-review --symbol <symbol>` when you want to answer “should I spend more time researching or holding this company?” Running it does not create a portfolio, save an investment case, or assign a composite score. A thesis is saved locally only when you explicitly run `thesis-create`.
+
+**What will you get?** The report separates checked facts, missing public data, and the next evidence you would need. For example, if financial quality and valuation facts are available, it shows their period and source. If there is not enough observable material on moat, management, or capital allocation, it says the evidence is missing instead of calling the company “high quality.”
+
+| Module | Investor question | What it checks first |
+|---|---|---|
+| C1 Business quality | How does the company make money? | Quote, market, and available business facts; missing business breakdowns stay gaps. |
+| C2 Financial quality | Are earnings and cash flow supported by disclosed facts? | Revenue, margins, ROE, leverage, operating cash flow, and free cash flow where disclosed. |
+| C3 Growth quality | Is the claimed growth visible in disclosed numbers? | Structured revenue/profit history; it does not guess the source of growth. |
+| C4 Moat evidence | Is there evidence for pricing power, stickiness, or cost advantage? | Observable evidence only; absent data is explicit. |
+| C5 Management and capital allocation | Can buybacks, dividends, deals, dilution, or governance events be checked? | Available public events; no management verdict where coverage is absent. |
+| C6 Valuation and margin of safety | What do price and valuation-related facts say today? | Quote, disclosed financial facts, and calculable metrics; never a “buy score.” |
+| C7 Risk and counter-evidence | What facts would weaken the original case? | Price/volume anomalies, disclosed risks, and evidence gaps. |
+| C8 Catalysts and thesis tracking | What public events should be revisited next? | News/event samples and the local-thesis review entrypoint. |
+
+**Simplest choice:** run `stock-review` once, then read its available and missing modules. If you only want today’s price and recent movement, use `stock-snapshot`. If results have just been released, use `earnings-review`. If the price has moved sharply, use `price-move`. These are four different questions and should not substitute for one another.
+
+Company research has a different data boundary from daily market recap. `company_evidence_<symbol>_<date>.json` stores C1–C8 verified facts and gaps. The current structured financial adapter is A-share focused; HK/US primary-filing fields intentionally remain gaps until a verified adapter exists, so those results are not a complete fundamental-research conclusion.
+
+Every financial fact records its period, currency, accounting scope, source type, source, and confidence so that you can trace a number back to its origin. The metric registry at [`config/metric_registry.json`](config/metric_registry.json) declares how a metric is validated and which framework can use it. It never produces a composite “buy score.”
 
 When `--emit-evidence` is enabled, the CLI writes:
 

@@ -26,6 +26,12 @@
   <a href="https://github.com/thuquant/awesome-quant">thuquant/awesome-quant</a>。
 </p>
 
+<p align="center">
+  已通过 PR <a href="https://github.com/leoncuhk/awesome-quant-ai/pull/39">#39</a> 收录到
+  <a href="https://github.com/leoncuhk/awesome-quant-ai">leoncuhk/awesome-quant-ai</a> 的
+  <em>Tools and Platforms / Data Providers</em>。
+</p>
+
 `stock-analysis` 把公开市场数据整理成可复查的 Markdown 报告和机器可读的证据文件。它适合做稳定、可重复的行情复盘，而不是输出黑箱交易信号。
 
 ```bash
@@ -52,18 +58,18 @@ stock-analysis --market global --format full --with-holdings --emit-evidence
 
 ## 从投资问题开始
 
-先选择场景，而不是拼凑底层参数。每个场景先生成确定性证据；Agent 可以解释证据，但不能绕过来源、交易日和完整性校验。
+先选择你遇到的投资问题，而不是拼凑底层参数。每个场景先生成确定性证据（可回查的价格、已披露财务或公开事件）；Agent 可以解释证据，但不能绕过来源、交易日和完整性校验。
 
-| 你现在要解决的问题 | 场景入口 | 确定性 CLI |
-|---|---|---|
-| 今天市场发生了什么 | `/market-recap` | `--market daily` |
-| 核对一个标的的事实 | `/stock-snapshot` | `--market stock --symbol` |
-| 做有明确证据缺口的公司研究 | `/stock-review` | `--market stock-review --symbol` |
-| 复核财报已披露事实 | `/earnings-review` | `--market earnings --symbol` |
-| 审慎排查突然涨跌 | `/price-move` | `--market price-move --symbol` |
-| 检查本地已授权持仓 | `/portfolio-review` | `--market portfolio` |
-| 运行可复现年报条件筛选 | `/stock-screen` | `--market screen …` |
-| 创建或复查投资论文 | `/thesis-create`、`/thesis-review` | `--market thesis-create|thesis-review --symbol` |
+| 你现在要解决的问题 | 什么时候用 | 场景入口 | 确定性 CLI |
+|---|---|---|---|
+| 今天市场发生了什么 | 开盘前、盘中或收盘后想先掌握市场背景 | `/market-recap` | `--market daily` |
+| 核对一个标的的事实 | 只想看现价、近期涨跌、成交和已披露财务，不想要观点 | `/stock-snapshot` | `--market stock --symbol` |
+| 这家公司是否值得继续花时间研究 | 准备建仓、继续持有或做一次更系统的事实核对 | `/stock-review` | `--market stock-review --symbol` |
+| 财报出来后，哪些数字真的变了 | 已发布季报/年报后，只复核公开披露的财务事实 | `/earnings-review` | `--market earnings --symbol` |
+| 一只股票突然涨跌，先发生了什么 | 想区分价格、成交和公开事件，避免把新闻直接当原因 | `/price-move` | `--market price-move --symbol` |
+| 我的持仓是否过于集中 | 已保存完整持仓资料后检查集中度、市场和币种暴露 | `/portfolio-review` | `--market portfolio` |
+| 找出满足明确财务条件的 A 股 | 已有 ROE、营收增速等硬条件，且希望结果可重复 | `/stock-screen` | `--market screen …` |
+| 留下并复查自己的投资理由 | 已经形成投资假设，想在以后用新事实重新核对 | `/thesis-create`、`/thesis-review` | `--market thesis-create|thesis-review --symbol` |
 
 Claude Code 原生支持 `/command`。Codex 安装生成的 Skill 后可自然语言调用，例如“用 stock-review 分析腾讯”；Custom Prompt 则显示为 `/prompts:stock-review`。三种入口从同一份 canonical catalog 生成，避免工作流漂移。
 
@@ -80,7 +86,7 @@ flowchart TB
     R --> O
 ```
 
-核心边界是：**场景选择研究问题，代码获取并校验证据，lens 只能解释已存在的证据。** M1–M6 服务于市场与组合状态；独立的 C1–C8 Company Evidence Pack 防止把市场代理指标误当成公司事实。
+核心边界是：**场景选择研究问题，代码获取并校验证据，lens 只能解释已存在的证据。** M1–M6 服务于市场与组合状态；独立的 C1–C8 Company Evidence Pack 用于“这家公司本身怎么样”，避免把市场热度或单日涨跌误当成公司事实。
 
 ```mermaid
 flowchart LR
@@ -158,13 +164,13 @@ stock-analysis --market global --format full --emit-evidence
 # 确定性的单股快照，不依赖 LLM
 stock-analysis --market stock --symbol 600519
 
-# 独立于 M1-M6 的 C1-C8 Company Evidence Pack；保留证据缺口
+# 想系统核对一家公司时使用：输出公司事实和明确缺口，不给综合买入分
 stock-analysis --market stock-review --symbol 600519 --emit-evidence
 
-# 仅复核已披露的结构化财务事实，不推断缺失的原始财报数据
+# 财报发布后使用：仅复核已披露的结构化财务事实
 stock-analysis --market earnings --symbol 600519 --emit-evidence
 
-# 量价与公开事件样本，不把相关性断言为因果
+# 股价突然涨跌时使用：列出量价和公开事件，但不把相关性断言为因果
 stock-analysis --market price-move --symbol 600519 --emit-evidence
 
 # 建立并复查本地结构化投资论文快照
@@ -187,9 +193,28 @@ stock-analysis --market diagnose
 
 ### Company Evidence Pack（C1–C8）
 
-公司研究和每日市场复盘使用不同契约。`company_evidence_<symbol>_<date>.json` 将可验证事实和缺口组织为商业质量、财务质量、增长质量、护城河证据、管理层与资本配置、估值、风险与反证、催化剂与论文跟踪。当前结构化财务适配器以 A 股为主；港美股一手披露字段在接入可验证适配器前会明确保留为缺口。
+把它理解为一份“继续研究前的事实清单”，不是选股器，也不是自动给出买卖答案。
 
-每个 financial fact 都包含期间、币种、会计范围、来源类型、来源和置信度。[`config/metric_registry.json`](config/metric_registry.json) 规定指标如何校验、可被哪些框架使用；它不会输出综合“买入评分”。
+**什么时候触发？** 当你准备回答“我是否要继续研究/持有这家公司？”时，运行 `/stock-review` 或 `stock-analysis --market stock-review --symbol <代码>`。它不会因你输入一个代码就自动创建持仓、保存投资理由或给出综合评分；只有你明确运行 `thesis-create` 时，才会在本地保存一份论文快照。
+
+**它会给你什么？** 报告逐项列出已经核验到的事实、还没有公开或尚未接入的数据，以及下一步该补什么。例如：财务质量和估值数据可用时会列出对应期间和来源；护城河、管理层与资本配置没有足够可观察资料时，会直接写“证据暂缺”，而不是用“优质公司”之类的主观判断代替。
+
+| 模块 | 用投资者语言回答的问题 | 当前会优先核对的内容 |
+|---|---|---|
+| C1 商业质量 | 它靠什么赚钱？ | 报价、市场和可获得的业务事实；业务拆分不足会保留缺口。 |
+| C2 财务质量 | 赚的钱和现金流是否有公开证据支持？ | 已披露营收、利润率、ROE、负债、经营现金流、自由现金流等。 |
+| C3 增长质量 | 增长是否能从已披露数字中看出来？ | 收入和利润等结构化历史数据；无法拆解的增长来源不猜测。 |
+| C4 护城河证据 | 定价权、客户黏性或成本优势有数据支持吗？ | 只采用可观察证据；没有资料就明确缺失。 |
+| C5 管理层与资本配置 | 回购、分红、并购、稀释或治理事件是否可核对？ | 已接入的公开事件；未覆盖时不作管理层评价。 |
+| C6 估值与安全边际 | 当前价格、估值相关事实和条件是什么？ | 报价、已披露财务事实和可计算指标；不输出“买入评分”。 |
+| C7 风险与反证 | 哪些事实会削弱原先的判断？ | 量价异常、已披露风险及证据缺口。 |
+| C8 催化剂与论文跟踪 | 接下来有什么公开事件值得复查？ | 新闻/事件样本与本地论文快照的复查入口。 |
+
+**最简单的用法：** 先运行一次 `stock-review`，阅读“可用模块”和“缺失模块”；若你只是想确认今天价格和近期表现，用 `stock-snapshot` 即可；若财报刚发布，优先用 `earnings-review`；若价格突变，优先用 `price-move`。这是四个不同的问题，不能互相替代。
+
+公司研究和每日市场复盘使用不同的数据边界。`company_evidence_<symbol>_<date>.json` 保存 C1–C8 的可验证事实和缺口；当前结构化财务适配器以 A 股为主。港美股的原始披露字段在接入可验证适配器前会明确保留为缺口，因此它们不应被当作完整的基本面研究结论。
+
+每个财务事实都会记录期间、币种、会计范围、来源类型、来源和置信度，方便你回查数字来自哪里。[`config/metric_registry.json`](config/metric_registry.json) 规定指标如何校验、可被哪些框架使用；它不会输出综合“买入评分”。
 
 启用 `--emit-evidence` 后，CLI 会写出：
 
