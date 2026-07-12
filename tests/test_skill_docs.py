@@ -56,6 +56,24 @@ def test_skill_documents_stock_analysis_entry_contracts():
     assert "内置 lens 与 committee 边界" in zh_readme
 
 
+def test_readmes_list_both_accepted_awesome_quant_repositories_and_agent_entrypoints():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    zh_readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+    badge = (
+        '<a href="https://github.com/leoncuhk/awesome-quant-ai"><img '
+        'alt="Listed in leoncuhk/awesome-quant-ai" '
+        'src="https://img.shields.io/badge/listed%20in-leoncuhk%2Fawesome--quant--ai-2ea44f"></a>'
+    )
+
+    for text in (readme, zh_readme):
+        assert badge in text
+        assert "https://github.com/thuquant/awesome-quant" in text
+        assert "https://github.com/leoncuhk/awesome-quant-ai" in text
+
+    assert "Intent matching happens in the host Agent" in readme
+    assert "意图识别发生在宿主 Agent" in zh_readme
+
+
 def test_skill_documents_lens_engine_natural_language_committee_contract():
     skill = (ROOT / "skills" / "stock-analysis" / "SKILL.md").read_text(encoding="utf-8")
     zh_readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
