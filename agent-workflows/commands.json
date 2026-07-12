@@ -1,0 +1,13 @@
+[
+  {"id":"market-recap","summary":"根据当前时段生成 A 股或全球市场复盘。","cli":"stock-analysis --market daily --emit-evidence","output":"先报告事实、质量与缺口；再给条件式观察清单。"},
+  {"id":"stock-snapshot","summary":"获取一个标的的确定性报价、量价和已披露财务快照。","cli":"stock-analysis --market stock --symbol <symbol>","output":"不要把快照当作完整公司研究或买卖建议。"},
+  {"id":"stock-review","summary":"生成独立于 M1-M6 的 C1-C8 Company Evidence Pack。","cli":"stock-analysis --market stock-review --symbol <symbol> --emit-evidence","output":"严格区分可验证事实、证据缺口与需要补充的一手资料。"},
+  {"id":"earnings-review","summary":"复核已披露结构化财务事实，并明确财报研究缺口。","cli":"stock-analysis --market earnings --symbol <symbol> --emit-evidence","output":"在取得原始财报前，不推断 GAAP、指引或估值结论。"},
+  {"id":"price-move","summary":"把量价、新闻样本和未知部分分开，审慎解释异动。","cli":"stock-analysis --market price-move --symbol <symbol> --emit-evidence","output":"不能把单条新闻或同日相关性断言为价格主因。"},
+  {"id":"fund-review","summary":"获取基金净值、画像、持仓和公开缺口。","cli":"stock-analysis --market fund --symbol <fund_code>","output":"说明基金持有者关心的风格、集中度与重仓股风险；不编造未披露指标。"},
+  {"id":"portfolio-review","summary":"读取已明确授权的本地持仓记忆，复核集中度、暴露和相对表现。","cli":"stock-analysis --market portfolio --emit-evidence","output":"没有完整持仓时，只报告市场，不能虚构组合收益。"},
+  {"id":"stock-screen","summary":"执行有完整官方 Universe 门禁的确定性 A 股年报筛选。","cli":"stock-analysis --market screen --fiscal-year <year> --universe-file <path> --filter roe_weighted:gt:8% --sort roe_weighted:desc --emit-evidence","output":"只报告 PASS/FAIL/UNKNOWN，不能把硬筛选结果说成优质公司名单。"},
+  {"id":"data-diagnose","summary":"检查当前数据源、浏览器接管边界和缺失字段。","cli":"stock-analysis --market diagnose","output":"把不可用数据源、fallback 与下一步补数路径明确告知用户。"},
+  {"id":"thesis-create","summary":"为一个标的创建本地、可审计的投资论文骨架。","cli":"stock-analysis --market thesis-create --symbol <symbol> --emit-evidence","output":"只写入可验证事实；假设、反证与失效条件保持为空直到用户或一手资料补充。"},
+  {"id":"thesis-review","summary":"将当前 Company Evidence 与持久化论文快照比较。","cli":"stock-analysis --market thesis-review --symbol <symbol> --emit-evidence","output":"区分事实变化、证据覆盖变化和仍需人工判断的论文变化。"}
+]

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "stock-analysis Thesis",
+  "type": "object",
+  "required": ["schema_version", "symbol", "status", "thesis", "evidence_snapshot"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "symbol": {"type": "string"},
+    "status": {"enum": ["under_review", "evidence_insufficient"]},
+    "thesis": {"type": "object"},
+    "evidence_snapshot": {"type": "object"}
+  }
+}

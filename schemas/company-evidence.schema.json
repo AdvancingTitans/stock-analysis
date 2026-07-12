@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "stock-analysis Company Evidence Pack",
+  "type": "object",
+  "required": ["schema_version", "symbol", "trade_date", "financial_facts", "modules", "_meta"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "symbol": {"type": "string"},
+    "trade_date": {"type": "string", "pattern": "^[0-9]{8}$"},
+    "financial_facts": {"type": "array"},
+    "modules": {"type": "object", "required": ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8"]},
+    "_meta": {"type": "object", "required": ["coverage", "available_modules", "missing_modules", "source_events"]}
+  }
+}

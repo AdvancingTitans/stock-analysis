@@ -1,5 +1,12 @@
 # Changelog
 
+## v4.5.0 - 2026-07-12
+
+- 新增 Agent-native 场景层：`market-recap`、`stock-snapshot`、`stock-review`、`earnings-review`、`price-move`、`fund-review`、`portfolio-review`、`stock-screen`、`data-diagnose`、`thesis-create` 和 `thesis-review` 从同一份 canonical catalog 生成 Codex Skill、Codex Custom Prompt 和 Claude Code command；提供同步校验与安装脚本。
+- 新增独立的 Company Evidence Pack（C1–C8）和 `--market stock-review|earnings|price-move`。公司证据与 M1–M6 市场复盘分离，财务事实保留期间、来源、口径与置信度，护城河、治理、估值和一手披露未具备时明确保留缺口。
+- 新增 `--market thesis-create|thesis-review`：把结构化 Evidence 快照写入用户本地 thesis 状态，并只对可自动核验的事实和覆盖变化做 diff。
+- 新增 Decimal 精确计算工具、指标注册表、Company Evidence/Thesis JSON Schema，以及 README 的场景选择表、双层架构图、Agent 安装说明和公司研究边界。
+
 ## v4.4.2 - 2026-07-11
 
 - 新增场内 ETF 折溢价 fallback：腾讯前复权日 K 线与天天基金官方历史净值分页逐日对齐；公开份额拆分事件会把净值归一至前复权口径，无法解析的分红/拆分事件则拒绝生成序列。

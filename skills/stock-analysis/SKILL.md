@@ -21,6 +21,11 @@ uv run python -m stock_analysis --market stock --symbol 600519
 uv run python -m stock_analysis --market fund --symbol 161725
 uv run python -m stock_analysis --market screen --fiscal-year 2025 --universe-file official_universe.json --filter roe_weighted:gt:8% --sort roe_weighted:desc --limit 20 --emit-evidence
 uv run python -m stock_analysis --market diagnose
+uv run python -m stock_analysis --market stock-review --symbol 600519 --emit-evidence
+uv run python -m stock_analysis --market earnings --symbol 600519 --emit-evidence
+uv run python -m stock_analysis --market price-move --symbol 600519 --emit-evidence
+uv run python -m stock_analysis --market thesis-create --symbol 600519
+uv run python -m stock_analysis --market thesis-review --symbol 600519
 ```
 
 - 默认 `--format auto`：根据当前北京时间自动选择 `summary`、`key-points` 或 `full`。
@@ -30,6 +35,8 @@ uv run python -m stock_analysis --market diagnose
 - `--emit-evidence` 保留 `evidence_YYYYMMDD.json` 与 6 个模块 JSON。
 - trading 入口按“用户完整持仓输入 → 本技能投资记忆 → 无持仓”的优先级决定是否输出持仓分析；用户完整输入会覆盖写入 `~/.stock_analysis/profile.json` 或 `STOCK_ANALYSIS_PROFILE`。
 - `--market stock --symbol <代码>` 与 `--market fund --symbol <代码>` 是确定性速览入口，不触发 LLM；A股单股速览会补充东财 datacenter 已披露财务快照和 Sina 盘口价差快照，基金速览会补充公开长期业绩、前端费率、规模和基金经理画像，缺字段保留空值并提示缺口。
+- `stock-review`、`earnings`、`price-move` 与 `thesis-*` 是公司场景入口：先生成独立的 C1–C8 Company Evidence Pack，绝不把 M1–M6 市场证据当作公司事实。`stock-review` 只能给出已验证事实、明确缺口和观察条件；`earnings` 只复核已披露结构化财务事实；`price-move` 区分价格/量价/新闻样本与未解释部分，不能把相关性断言为主因。
+- `thesis-create` 和 `thesis-review` 只在用户明确请求时读写 `~/.stock_analysis/theses`（可由 `STOCK_ANALYSIS_THESIS_DIR` 覆盖）。论文保存支持事实、反证和失效条件的结构，自动 diff 只比较结构化 Evidence，不能替代一手披露复核。
 - `mootdx` 默认关闭；只有明确需要五档、逐笔或深度分钟 K 时才使用 `--enable-mootdx`。
 - 专用能力由 `sources/mootdx_adapter.py` 执行；依赖缺失、TCP 失败或返回空数据时自动回普通腾讯/新浪报价并记录原因。
 

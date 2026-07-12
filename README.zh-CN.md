@@ -50,6 +50,60 @@ stock-analysis --market global --format full --with-holdings --emit-evidence
 
 如果数据源失败，报告会记录缺口。缺失指标保持缺失，不会用 `0` 回填，也不会用邻近信号硬猜。
 
+## 从投资问题开始
+
+先选择场景，而不是拼凑底层参数。每个场景先生成确定性证据；Agent 可以解释证据，但不能绕过来源、交易日和完整性校验。
+
+| 你现在要解决的问题 | 场景入口 | 确定性 CLI |
+|---|---|---|
+| 今天市场发生了什么 | `/market-recap` | `--market daily` |
+| 核对一个标的的事实 | `/stock-snapshot` | `--market stock --symbol` |
+| 做有明确证据缺口的公司研究 | `/stock-review` | `--market stock-review --symbol` |
+| 复核财报已披露事实 | `/earnings-review` | `--market earnings --symbol` |
+| 审慎排查突然涨跌 | `/price-move` | `--market price-move --symbol` |
+| 检查本地已授权持仓 | `/portfolio-review` | `--market portfolio` |
+| 运行可复现年报条件筛选 | `/stock-screen` | `--market screen …` |
+| 创建或复查投资论文 | `/thesis-create`、`/thesis-review` | `--market thesis-create|thesis-review --symbol` |
+
+Claude Code 原生支持 `/command`。Codex 安装生成的 Skill 后可自然语言调用，例如“用 stock-review 分析腾讯”；Custom Prompt 则显示为 `/prompts:stock-review`。三种入口从同一份 canonical catalog 生成，避免工作流漂移。
+
+## 系统如何工作
+
+```mermaid
+flowchart TB
+    U["投资者 / Codex / Claude Code / Hermes"] --> S["场景入口\n市场复盘 · 快照 · 公司研究 · 财报 · 异动 · 组合 · 论文"]
+    S --> O["研究编排\n意图、范围、框架、反证检查"]
+    O --> E["Evidence Engine\n市场包 M1–M6 · 公司包 C1–C8 · 基金 · 组合"]
+    E --> G["数据治理\n代码 · 交易日 · 数据路由 · 校验 · 缺失抑制"]
+    G --> D["公开数据源\nTencent · Sina · 东方财富 · 天天基金 · 披露/资讯 · 可选浏览器"]
+    E --> R["Markdown 报告 + JSON Evidence + 本地论文状态"]
+    R --> O
+```
+
+核心边界是：**场景选择研究问题，代码获取并校验证据，lens 只能解释已存在的证据。** M1–M6 服务于市场与组合状态；独立的 C1–C8 Company Evidence Pack 防止把市场代理指标误当成公司事实。
+
+```mermaid
+flowchart LR
+    Q["用户问题"] --> P["主公开数据源"]
+    P --> V{"字段与日期通过校验？"}
+    V -- 是 --> N["标准化与计算"] --> J["Evidence JSON"] --> A["报告 / Agent 分析"]
+    V -- 否 --> F["已验证备选来源"] --> V2{"仍可验证？"}
+    V2 -- 是 --> N
+    V2 -- 否 --> G["明确保留证据缺口"] --> J
+```
+
+## Agent 安装
+
+在仓库根目录生成并校验已跟踪入口：
+
+```bash
+python3 scripts/sync_agent_entrypoints.py --check
+scripts/install-agent-entrypoints.sh codex
+scripts/install-agent-entrypoints.sh claude
+```
+
+安装器只复制 Codex Skills 到 `${CODEX_HOME:-~/.codex}/skills`、Claude commands 到 `${CLAUDE_CONFIG_DIR:-~/.claude}/commands`；不会安装新的行情依赖，也不会修改持仓记忆。
+
 ## 报告示例
 
 | 投委会复盘 | Buffett 视角复盘 | Simons 视角复盘 |
@@ -104,6 +158,19 @@ stock-analysis --market global --format full --emit-evidence
 # 确定性的单股快照，不依赖 LLM
 stock-analysis --market stock --symbol 600519
 
+# 独立于 M1-M6 的 C1-C8 Company Evidence Pack；保留证据缺口
+stock-analysis --market stock-review --symbol 600519 --emit-evidence
+
+# 仅复核已披露的结构化财务事实，不推断缺失的原始财报数据
+stock-analysis --market earnings --symbol 600519 --emit-evidence
+
+# 量价与公开事件样本，不把相关性断言为因果
+stock-analysis --market price-move --symbol 600519 --emit-evidence
+
+# 建立并复查本地结构化投资论文快照
+stock-analysis --market thesis-create --symbol 600519
+stock-analysis --market thesis-review --symbol 600519
+
 # 带公开画像和持仓数据的基金快照
 stock-analysis --market fund --symbol 161725
 
@@ -117,6 +184,12 @@ stock-analysis --market diagnose
 ```
 
 ## 证据模块
+
+### Company Evidence Pack（C1–C8）
+
+公司研究和每日市场复盘使用不同契约。`company_evidence_<symbol>_<date>.json` 将可验证事实和缺口组织为商业质量、财务质量、增长质量、护城河证据、管理层与资本配置、估值、风险与反证、催化剂与论文跟踪。当前结构化财务适配器以 A 股为主；港美股一手披露字段在接入可验证适配器前会明确保留为缺口。
+
+每个 financial fact 都包含期间、币种、会计范围、来源类型、来源和置信度。[`config/metric_registry.json`](config/metric_registry.json) 规定指标如何校验、可被哪些框架使用；它不会输出综合“买入评分”。
 
 启用 `--emit-evidence` 后，CLI 会写出：
 
@@ -197,7 +270,7 @@ Lens 会改变证据优先级和叙事结构，但不会绕过数据质量规则
 
 ### 内置 lens 与 committee 边界
 
-当前 CLI 版本为 `4.4.2`。
+当前 CLI 版本为 `4.5.0`。
 
 LensEngine 是报告生成的核心编排器。默认使用 committee 模式；该模式会综合 M1-M6 证据做跨模块深度分析，也就是原来的 m1/m6 综合深度分析边界。自然语言调用可以表达为“用巴菲特模式分析贵州茅台”或“用 adversarial 模式让巴菲特和芒格辩论腾讯”。如果 `committee` 失败，会降级为 `single`，也就是 committee 失败时降级为 single，并在 metadata 中保留 fallback 原因。
 

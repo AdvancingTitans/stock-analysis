@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .company_evidence import build_company_evidence
 from .config import SourceConfig
 from .diagnostics import run_diagnostics
 from .evidence import EvidenceBundle
@@ -43,7 +44,9 @@ from .reporting import render_diagnostics, render_report_with_metadata
 from .screening import load_security_master, parse_filter, parse_sort, screen
 from .screening import render_markdown as render_screen_markdown
 from .screening import write_evidence as write_screen_evidence
+from .thesis import create_thesis, review_thesis
 from .trading import IncompleteHoldingsError, parse_user_holdings_json, plan_trading_task, resolve_holdings
+from .workflows import render_earnings_review, render_price_move, render_stock_review
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -53,7 +56,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--market",
         default="daily",
-        choices=["daily", "a", "hk", "us", "global", "stock", "fund", "screen", "diagnose"],
+        choices=[
+            "daily", "a", "hk", "us", "global", "stock", "fund", "screen", "diagnose",
+            "stock-review", "earnings", "price-move", "portfolio", "thesis-create", "thesis-review",
+        ],
     )
     parser.add_argument(
         "--format",
@@ -78,7 +84,10 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["classic", "committee"],
         help="deprecated alias; all reports use committee structure (default)",
     )
-    parser.add_argument("--symbol", help="Symbol for --market stock or --market fund")
+    parser.add_argument(
+        "--symbol",
+        help="Symbol for --market stock, fund, stock-review, earnings, price-move, thesis-create or thesis-review",
+    )
     parser.add_argument("--stock", dest="symbol", help="Alias for --symbol with --market stock")
     parser.add_argument("--fund", dest="symbol", help="Alias for --symbol with --market fund")
     parser.add_argument("--fiscal-year", type=int, help="Fiscal year for --market screen")
@@ -450,7 +459,7 @@ def run(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     now = datetime.now()
-    market = "a" if args.market in {"daily", "a", "global", "screen"} else args.market
+    market = "a" if args.market in {"daily", "a", "global", "screen", "portfolio"} else args.market
     explicit_date = args.date or args.legacy_date
     if explicit_date and (len(explicit_date) != 8 or not explicit_date.isdigit()):
         parser.error("--date must use YYYYMMDD")
@@ -474,6 +483,27 @@ def run(argv: list[str] | None = None) -> int:
         if not args.symbol:
             parser.error("--symbol or --fund is required when --market fund")
         print(_render_fund_snapshot(args.symbol, trade_date))
+        return 0
+    if args.market in {"stock-review", "earnings", "price-move", "thesis-create", "thesis-review"}:
+        if not args.symbol:
+            parser.error(f"--symbol is required when --market {args.market}")
+        pack = build_company_evidence(args.symbol, trade_date)
+        if args.market == "stock-review":
+            print(render_stock_review(pack))
+        elif args.market == "earnings":
+            print(render_earnings_review(pack))
+        elif args.market == "price-move":
+            print(render_price_move(pack))
+        elif args.market == "thesis-create":
+            thesis, path = create_thesis(pack)
+            print(_render_thesis_create(thesis, path))
+        else:
+            thesis, path, changes = review_thesis(pack)
+            print(_render_thesis_review(thesis, path, changes))
+        if args.emit_evidence:
+            (Path.cwd() / f"company_evidence_{pack['symbol']}_{trade_date}.json").write_text(
+                json.dumps(pack, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+            )
         return 0
     if args.market == "screen":
         if args.fiscal_year is None:
@@ -501,6 +531,10 @@ def run(argv: list[str] | None = None) -> int:
         if args.emit_evidence:
             write_screen_evidence(result, Path.cwd())
         return 0
+
+    if args.market == "portfolio":
+        args.market = "daily"
+        args.with_holdings = True
 
     lenses = tuple(item.strip() for item in (args.lenses or "").split(",") if item.strip()) or None
     try:
@@ -556,6 +590,35 @@ def _should_include_holdings(market: str, explicitly_requested: bool) -> bool:
     if explicitly_requested:
         return True
     return resolve_holdings(user_holdings=None).include_holdings
+
+
+def _render_thesis_create(thesis: dict[str, Any], path: Path) -> str:
+    return "\n".join(
+        [
+            f"# 投资论文已创建：{thesis['name']}（{thesis['symbol']}）",
+            "",
+            f"- 状态：{thesis['status']}",
+            f"- 文件：{path}",
+            f"- 证据覆盖：{thesis['evidence_snapshot']['coverage']}%",
+            "- 已保存结构化事实、反证栏位、失效条件栏位和下一次复查栏位；请仅以可验证来源补充内容。",
+        ]
+    )
+
+
+def _render_thesis_review(thesis: dict[str, Any] | None, path: Path, changes: list[str]) -> str:
+    if thesis is None:
+        return "\n".join(["# 投资论文复查", "", f"- 文件：{path}", f"- {changes[0]}"])
+    return "\n".join(
+        [
+            f"# 投资论文复查：{thesis['name']}（{thesis['symbol']}）",
+            "",
+            f"- 文件：{path}",
+            f"- 当前状态：{thesis['status']}",
+            "- 自动识别的变化：",
+            *[f"  - {change}" for change in changes],
+            "- 自动 diff 只比较结构化 Evidence；商业判断、管理层评价和证伪条件仍需核对原始披露。",
+        ]
+    )
 
 
 def _render_stock_snapshot(symbol: str, trade_date: str) -> str:

@@ -50,6 +50,60 @@ Most market "AI analysis" starts with a prompt and ends with a fluent paragraph.
 
 If a data source fails, the report records the gap. Missing metrics stay missing; they are not filled with zeroes or guessed from nearby signals.
 
+## Start with the investor question
+
+Choose a scenario rather than assembling low-level flags. Each scenario starts with deterministic evidence; an Agent may interpret it, but cannot bypass its source and completeness rules.
+
+| If you need to… | Use | Deterministic entrypoint |
+|---|---|---|
+| Understand today's market | `/market-recap` | `--market daily` |
+| Fact-check a ticker | `/stock-snapshot` | `--market stock --symbol` |
+| Research a company with explicit gaps | `/stock-review` | `--market stock-review --symbol` |
+| Recheck a reporting period | `/earnings-review` | `--market earnings --symbol` |
+| Explain a sharp move without inventing causality | `/price-move` | `--market price-move --symbol` |
+| Review saved holdings | `/portfolio-review` | `--market portfolio` |
+| Run a reproducible annual-report filter | `/stock-screen` | `--market screen …` |
+| Create or revisit a thesis | `/thesis-create`, `/thesis-review` | `--market thesis-create|thesis-review --symbol` |
+
+`/command` is native in Claude Code. In Codex, install the generated Skills and use natural language such as “use stock-review for Tencent”; Custom Prompts appear as `/prompts:stock-review`. The same canonical catalog generates both forms, so their workflow contract does not drift.
+
+## How the system works
+
+```mermaid
+flowchart TB
+    U["Investor / Codex / Claude Code / Hermes"] --> S["Scenario entry\nmarket recap · snapshot · review · earnings · price move · portfolio · thesis"]
+    S --> O["Research orchestration\nintent, scope, framework, counter-evidence"]
+    O --> E["Evidence Engine\nMarket Pack M1–M6 · Company Pack C1–C8 · Fund · Portfolio"]
+    E --> G["Data governance\nsymbols · trade dates · source routes · validation · missing-data suppression"]
+    G --> D["Public sources\nTencent · Sina · Eastmoney · Tiantian Fund · filings/news · optional browser"]
+    E --> R["Markdown report + JSON Evidence + local thesis state"]
+    R --> O
+```
+
+The essential boundary is deliberate: **the scenario chooses the research question, code obtains and validates evidence, and a lens only interprets the available evidence.** Market M1–M6 is for market/portfolio state; the separate C1–C8 Company Evidence Pack prevents a market proxy from masquerading as a company fact.
+
+```mermaid
+flowchart LR
+    Q["Question"] --> P["Primary public source"]
+    P --> V{"Valid fields and date?"}
+    V -- Yes --> N["Normalize + calculate"] --> J["Evidence JSON"] --> A["Report / Agent reasoning"]
+    V -- No --> F["Validated alternate source"] --> V2{"Verified?"}
+    V2 -- Yes --> N
+    V2 -- No --> G["Explicit evidence gap"] --> J
+```
+
+## Agent installation
+
+From a checkout, generate and verify the tracked entrypoints:
+
+```bash
+python3 scripts/sync_agent_entrypoints.py --check
+scripts/install-agent-entrypoints.sh codex
+scripts/install-agent-entrypoints.sh claude
+```
+
+The installer copies Codex Skills into `${CODEX_HOME:-~/.codex}/skills` and Claude commands into `${CLAUDE_CONFIG_DIR:-~/.claude}/commands`. It does not install data-source dependencies or modify a portfolio profile.
+
 ## Report Showcase
 
 | Committee recap | Buffett recap | Simons recap |
@@ -104,6 +158,19 @@ stock-analysis --market global --format full --emit-evidence
 # Deterministic single-stock snapshot, no LLM required
 stock-analysis --market stock --symbol 600519
 
+# Company Evidence Pack: C1 business through C8 catalyst/thesis, with explicit gaps
+stock-analysis --market stock-review --symbol 600519 --emit-evidence
+
+# Financial facts only; it will not infer missing original-report data
+stock-analysis --market earnings --symbol 600519 --emit-evidence
+
+# Price, volume and public-event samples without claiming a causal explanation
+stock-analysis --market price-move --symbol 600519 --emit-evidence
+
+# Create and later compare a local structured thesis snapshot
+stock-analysis --market thesis-create --symbol 600519
+stock-analysis --market thesis-review --symbol 600519
+
 # Deterministic fund snapshot with public profile and holdings data
 stock-analysis --market fund --symbol 161725
 
@@ -117,6 +184,12 @@ stock-analysis --market diagnose
 ```
 
 ## Evidence Modules
+
+### Company Evidence Pack (C1–C8)
+
+Company research has a different contract from daily market recap. `company_evidence_<symbol>_<date>.json` groups verified facts and gaps into business quality, financial quality, growth, moat evidence, management/capital allocation, valuation, risk/counter-evidence, and catalysts/thesis tracking. The current structured financial adapter is A-share focused; HK/US primary-filing fields intentionally remain gaps until a verified adapter exists.
+
+Every financial fact includes period, currency, accounting scope, source type, source, and confidence. The metric registry at [`config/metric_registry.json`](config/metric_registry.json) declares how a metric is validated and which framework can use it. It never produces a composite “buy score.”
 
 When `--emit-evidence` is enabled, the CLI writes:
 
@@ -197,7 +270,7 @@ Lenses change evidence priority and narrative structure. They do not override da
 
 ### Built-in Lens and Committee Boundaries
 
-Current CLI version: `4.4.2`.
+Current CLI version: `4.5.0`.
 
 `LensEngine` is the report orchestration layer. The default mode is `committee`, which combines M1-M6 evidence into a deeper cross-module analysis. Natural-language callers can ask for requests such as "analyze Kweichow Moutai in Buffett mode" or "run an adversarial debate between Buffett and Munger on Tencent." If `committee` mode fails, the engine falls back to `single` mode and preserves the fallback reason in metadata.
 

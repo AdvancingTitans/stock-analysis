@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "purpose": "Maps deterministic metrics to source, validation, and research use; it does not score investments.",
+  "metrics": [
+    {"metric_id":"roe_weighted","category":"financial_quality","markets":["CN"],"source":"eastmoney_datacenter","missing_policy":"unknown","framework_usage":{"buffett":"core","graham":"secondary","simons":"feature"}},
+    {"metric_id":"free_cash_flow_lite","category":"financial_quality","markets":["CN"],"source":"eastmoney_datacenter","missing_policy":"unknown","framework_usage":{"buffett":"core","munger":"core","graham":"secondary"}},
+    {"metric_id":"debt_asset_ratio","category":"balance_sheet","markets":["CN"],"source":"eastmoney_datacenter","missing_policy":"unknown","framework_usage":{"graham":"core","klarman":"core","buffett":"secondary"}},
+    {"metric_id":"returns_5d_20d_60d","category":"market_behavior","markets":["CN","HK","US"],"source":"tencent_or_sina_kline","missing_policy":"conditional","framework_usage":{"simons":"feature","o_neil":"secondary","minervini":"secondary"}},
+    {"metric_id":"volume_zscore","category":"market_behavior","markets":["CN","HK","US"],"source":"tencent_or_sina_kline","missing_policy":"conditional","framework_usage":{"simons":"feature","o_neil":"core","livermore":"secondary"}},
+    {"metric_id":"portfolio_hhi","category":"portfolio_risk","markets":["CN","HK","US","FUND"],"source":"portfolio_snapshot","missing_policy":"unknown","framework_usage":{"dalio":"core","committee":"core"}}
+  ]
+}
