@@ -35,8 +35,7 @@
 </p>
 
 <p align="center">
-  Listed in <a href="https://github.com/wangzhe3224/awesome-systematic-trading">wangzhe3224/awesome-systematic-trading</a>
-  under <em>Tools and Platforms / Data Providers</em> via merged PR
+  Listed in <a href="https://github.com/wangzhe3224/awesome-systematic-trading">wangzhe3224/awesome-systematic-trading</a> via merged PR
   <a href="https://github.com/wangzhe3224/awesome-systematic-trading/pull/124">#124</a>.
 </p>
 
