@@ -34,6 +34,12 @@
   <a href="https://github.com/leoncuhk/awesome-quant-ai/pull/39">#39</a>.
 </p>
 
+<p align="center">
+  Listed in <a href="https://github.com/wangzhe3224/awesome-systematic-trading">wangzhe3224/awesome-systematic-trading</a>
+  under <em>Tools and Platforms / Data Providers</em> via merged PR
+  <a href="https://github.com/wangzhe3224/awesome-systematic-trading/pull/124">#124</a>.
+</p>
+
 `stock-analysis` turns public market data into deterministic Markdown reports and machine-readable evidence. It is built for repeatable market recaps, not black-box trading signals.
 
 ```bash
