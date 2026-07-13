@@ -20,6 +20,7 @@
 <p align="center">
   <a href="https://github.com/thuquant/awesome-quant"><img alt="Listed in thuquant/awesome-quant" src="https://img.shields.io/badge/listed%20in-thuquant%2Fawesome--quant-2ea44f"></a>
   <a href="https://github.com/leoncuhk/awesome-quant-ai"><img alt="Listed in leoncuhk/awesome-quant-ai" src="https://img.shields.io/badge/listed%20in-leoncuhk%2Fawesome--quant--ai-2ea44f"></a>
+  <a href="https://github.com/wangzhe3224/awesome-systematic-trading"><img alt="Listed in wangzhe3224/awesome-systematic-trading" src="https://img.shields.io/badge/listed%20in-wangzhe3224%2Fawesome--systematic--trading-2ea44f"></a>
 </p>
 
 <p align="center">
@@ -31,6 +32,11 @@
   已通过 PR <a href="https://github.com/leoncuhk/awesome-quant-ai/pull/39">#39</a> 收录到
   <a href="https://github.com/leoncuhk/awesome-quant-ai">leoncuhk/awesome-quant-ai</a> 的
   <em>Tools and Platforms / Data Providers</em>。
+</p>
+
+<p align="center">
+  已通过 PR <a href="https://github.com/wangzhe3224/awesome-systematic-trading/pull/124">#124</a> 收录到
+  <a href="https://github.com/wangzhe3224/awesome-systematic-trading">wangzhe3224/awesome-systematic-trading</a>。
 </p>
 
 `stock-analysis` 把公开市场数据整理成可复查的 Markdown 报告和机器可读的证据文件。它适合做稳定、可重复的行情复盘，而不是输出黑箱交易信号。
