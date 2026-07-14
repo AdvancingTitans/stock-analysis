@@ -1,0 +1,5 @@
+node_modules/
+.DS_Store
+out/*
+!out/stock-analysis-demo-en.mp4
+!out/stock-analysis-demo-zh-CN.mp4

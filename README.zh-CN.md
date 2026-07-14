@@ -52,6 +52,13 @@ stock-analysis --market global --format full --with-holdings --emit-evidence
 
 > 输出仅供研究参考，不构成投资建议。
 
+## 72 秒演示
+
+- [简体中文视频](promo/demo-video/out/stock-analysis-demo-zh-CN.mp4)
+- [English video](promo/demo-video/out/stock-analysis-demo-en.mp4)
+
+两个演示均为 1080p，以字幕传递完整信息，静音也能观看；可编辑的 Remotion 工程位于 [`promo/demo-video`](promo/demo-video/)。
+
 ## 为什么需要它
 
 很多“AI 行情分析”是先写 prompt，再得到一段看起来流畅的文字。`stock-analysis` 的顺序相反：先有证据，再写结论。
