@@ -52,6 +52,13 @@ stock-analysis --market global --format full --with-holdings --emit-evidence
 
 > The output is for research only and does not constitute investment advice.
 
+## 72-second demo
+
+- [English video](promo/demo-video/out/stock-analysis-demo-en.mp4)
+- [简体中文视频](promo/demo-video/out/stock-analysis-demo-zh-CN.mp4)
+
+Both 1080p demos are caption-led and work without audio. The editable Remotion source lives in [`promo/demo-video`](promo/demo-video/).
+
 ## Why It Exists
 
 Most market "AI analysis" starts with a prompt and ends with a fluent paragraph. `stock-analysis` starts with evidence:

@@ -1,0 +1,19 @@
+{
+  "name": "stock-analysis-demo-video",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "studio": "remotion studio src/index.jsx",
+    "still": "remotion still src/index.jsx StockAnalysisDemo out/preview-en.png --frame=1050 --scale=0.5 --browser-executable='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' && remotion still src/index.jsx StockAnalysisDemoZh out/preview-zh-CN.png --frame=1050 --scale=0.5 --browser-executable='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'",
+    "render": "npm run render:en && npm run render:zh",
+    "render:en": "env -u ALL_PROXY -u HTTPS_PROXY -u HTTP_PROXY -u all_proxy -u https_proxy -u http_proxy remotion render src/index.jsx StockAnalysisDemo out/stock-analysis-demo-en.mp4 --browser-executable='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' --concurrency=1",
+    "render:zh": "env -u ALL_PROXY -u HTTPS_PROXY -u HTTP_PROXY -u all_proxy -u https_proxy -u http_proxy remotion render src/index.jsx StockAnalysisDemoZh out/stock-analysis-demo-zh-CN.mp4 --browser-executable='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' --concurrency=1",
+    "check": "remotion compositions src/index.jsx --browser-executable='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.332",
+    "remotion": "4.0.332",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  }
+}
