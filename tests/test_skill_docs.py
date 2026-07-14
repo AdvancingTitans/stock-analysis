@@ -17,11 +17,13 @@ def test_release_version_metadata_stays_in_sync():
     futu_public = (ROOT / "src" / "stock_analysis" / "futu_public.py").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     zh_readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+    skill = (ROOT / "skills" / "stock-analysis" / "SKILL.md").read_text(encoding="utf-8")
 
     assert f'__version__ = "{version}"' in init_file
     assert f"stock-analysis/{version} (Skill)" in futu_public
     assert f"Current CLI version: `{version}`" in readme
     assert f"当前 CLI 版本为 `{version}`" in zh_readme
+    assert f'version: "{version}"' in skill
     assert '<a href="./README.zh-CN.md">简体中文</a>' in readme
     assert '<a href="./README.md">English</a>' in zh_readme
 
