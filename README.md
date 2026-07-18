@@ -155,7 +155,7 @@ flowchart LR
     Q["One claim to verify"] --> P["Preferred public source"]
     P --> V{"Symbol, date, unit, and sample valid?"}
     V -- Yes --> N["Normalize + calculate"] --> A["Consumed by every selected framework"]
-    V -- No --> F["Validated alternate source"] --> V2{"Cross-checkable?"]
+    V -- No --> F["Validated alternate source"] --> V2{"Cross-checkable?"}
     V2 -- Yes --> N
     V2 -- No --> G["Keep a visible research boundary\nnever fill zero or guess"]
 ```
