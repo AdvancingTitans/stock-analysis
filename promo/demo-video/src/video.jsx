@@ -181,7 +181,7 @@ const Brand = ({zh}) => {
             <Badge>{zh ? '全球行情' : 'Global markets'}</Badge>
             <Badge>{zh ? '个股' : 'Stocks'}</Badge>
             <Badge>{zh ? '基金' : 'Funds'}</Badge>
-            <Badge tone={C.lime}>{zh ? '15+种投资框架' : '15+ investment frameworks'}</Badge>
+            <Badge tone={C.lime}>{zh ? '15种投资框架' : '15 investment frameworks'}</Badge>
           </div>
         </div>
       </div>
@@ -197,13 +197,13 @@ const Terminal = ({zh}) => {
   const prompts = zh
     ? [
         '复盘今天全球行情 用投委会框架给出下一交易日观察清单',
-        '用巴菲特视角分析贵州茅台 重点看护城河与安全边际',
-        '分析半导体 ETF 512480 看净值 持仓 折溢价和风险',
+        '深度分析贵州茅台 核对年报 现金流 分红与估值',
+        '研究512480 重算指数跟踪误差 回撤和交易成本',
       ]
     : [
         'Recap global markets through the committee framework and build a next-session watchlist',
-        'Review Kweichow Moutai through the Buffett lens focusing on moat and margin of safety',
-        'Review semiconductor ETF 512480 for NAV holdings premium discount and risk',
+        'Research Kweichow Moutai using filings cash flow payout and valuation',
+        'Review 512480 with index tracking drawdown and execution costs',
       ];
   return (
     <Scene duration={360} label={zh ? '安装 Skill 后直接提问' : 'install the Skill then ask'} zh={zh}>
@@ -253,8 +253,8 @@ const Evidence = ({zh}) => {
   const {fps} = useVideoConfig();
   const coverage = zh ? ['A股', '港股', '美股', '基金', '持仓组合'] : ['A-shares', 'Hong Kong', 'US stocks', 'Funds', 'Portfolios'];
   const evidenceTypes = zh
-    ? ['行情', '量价', '资金', '板块', '涨跌停', 'A股财务披露', '公告与新闻', '持仓']
-    : ['Quotes', 'Price and volume', 'Flows', 'Sectors', 'Limit pools', 'A-share disclosures', 'Filings and news', 'Holdings'];
+    ? ['行情与量价', '资金与板块', '官方年报PDF', '治理与资本配置', '指数成分与日线', '跟踪误差', '订单成本', '持仓组合']
+    : ['Quotes and volume', 'Flows and sectors', 'Official annual reports', 'Governance and allocation', 'Index constituents and history', 'Tracking error', 'Order costs', 'Portfolios'];
   return (
     <Scene duration={330} label={zh ? '数据广度与证据深度' : 'market breadth and evidence depth'} zh={zh}>
       <div style={{position: 'absolute', left: 130, right: 130, top: 115}}>
@@ -301,9 +301,9 @@ const Outputs = ({zh}) => {
         ['Macro and reflexivity', ['Dalio', 'Soros']],
       ];
   return (
-    <Scene duration={300} label={zh ? '15+种投资框架' : '15+ investment frameworks'} zh={zh}>
+    <Scene duration={300} label={zh ? '15种投资框架' : '15 investment frameworks'} zh={zh}>
       <div style={{position: 'absolute', left: 105, right: 105, top: 115}}>
-        <div style={{fontSize: 52, fontWeight: 600}}>{zh ? '同一份行情证据 15+种投资框架' : 'One evidence base. 15+ investment frameworks.'}</div>
+        <div style={{fontSize: 52, fontWeight: 600}}>{zh ? '同一批结构化指标 15种投资框架' : 'One structured evidence base. 15 investment frameworks.'}</div>
         <div style={{fontSize: 24, color: C.muted, marginTop: 14}}>{zh ? '从商业质量到量价趋势 从宏观周期到统计检验' : 'Business quality to price action · Macro regimes to statistical validation'}</div>
         <div style={{display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 14, marginTop: 35}}>
           {groups.map(([title, names], i) => (
@@ -317,7 +317,7 @@ const Outputs = ({zh}) => {
         </div>
         <div style={{marginTop: 26, display: 'flex', gap: 16}}>
           <Badge>{zh ? '单框架深挖' : 'Single-framework depth'}</Badge>
-          <Badge>{zh ? '默认6框架投委会综合' : 'Default six-framework committee'}</Badge>
+          <Badge>{zh ? '根据问题动态选择6位' : 'Six selected for each question'}</Badge>
           <Badge tone={C.lime}>{zh ? '双框架对照' : 'Two-framework comparison'}</Badge>
         </div>
       </div>
@@ -331,13 +331,13 @@ const AgentFlow = ({zh}) => {
   const flows = zh
     ? [
         ['复盘今天全球行情', 'M1–M6 行情证据', '投委会或指定框架复盘'],
-        ['分析个股 财报或异动', 'C1–C8 量价 公告与新闻', '可指定投资视角的个股报告'],
-        ['分析基金', '净值 持仓 折溢价与暴露', '基金风险报告'],
+        ['分析个股 财报或异动', 'C1–C8 财务 年报 治理与估值', '动态投委会个股报告'],
+        ['分析基金', 'F1–F8 指数 日线 跟踪与成本', 'ETF深度研究报告'],
       ]
     : [
         ['Recap global markets', 'M1–M6 market evidence', 'Committee or chosen-framework recap'],
-        ['Review a stock earnings or move', 'C1–C8 price-volume filings and news', 'Stock report through the chosen lens'],
-        ['Review a fund', 'NAV holdings premium discount and exposure', 'Fund risk report'],
+        ['Review a stock earnings or move', 'C1–C8 financials filings governance and value', 'Dynamic committee stock report'],
+        ['Review a fund', 'F1–F8 index history tracking and costs', 'Deep ETF research report'],
       ];
   return (
     <Scene duration={300} label={zh ? '从问题到对应报告' : 'from question to the matching report'} zh={zh}>
@@ -380,7 +380,7 @@ const Close = ({zh}) => {
           </div>
           <div style={{...rise(frame, fps, 24), marginTop: 30, fontSize: 26, color: C.muted}}>github.com/AdvancingTitans/stock-analysis</div>
           <div style={{...rise(frame, fps, 34), marginTop: 24, display: 'flex', justifyContent: 'center', gap: 12}}>
-            <Badge>{zh ? '15+种投资框架' : '15+ investment frameworks'}</Badge><Badge>{zh ? '行情 财报 公告 新闻' : 'Quotes Disclosures Filings News'}</Badge><Badge tone={C.lime}>{zh ? '证据可复用' : 'Reusable evidence'}</Badge>
+            <Badge>{zh ? '动态6人投委会' : 'Dynamic six-member committee'}</Badge><Badge>{zh ? '年报 指数 成本' : 'Filings Index Costs'}</Badge><Badge tone={C.lime}>{zh ? '下次研究可对比' : 'Compare the next review'}</Badge>
           </div>
         </div>
       </div>

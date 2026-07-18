@@ -114,6 +114,40 @@ def test_default_engine_uses_committee_and_deepens_m1_m6():
     assert any("committee" in note for note in context.debate_or_synthesis_notes)
 
 
+def test_default_committee_selection_uses_question_across_market_scenarios():
+    quality = LensEngine(research_question="长期护城河、现金流、治理和安全边际")
+    momentum = LensEngine(research_question="短线趋势、量价突破、交易成本和止损")
+
+    assert len(quality.lenses) == len(momentum.lenses) == 6
+    assert {"buffett", "munger", "duan_yongping"} <= set(quality.lenses)
+    assert {"livermore", "o_neil", "minervini"} <= set(momentum.lenses)
+    assert quality.lenses != momentum.lenses
+
+
+def test_every_selected_market_lens_gets_all_common_evidence_metrics():
+    evidence = _sample_evidence()
+    evidence["_meta"] = {
+        "company_primary_disclosures": {
+            "600519": {
+                "C5": [{"metric": "annual_dividend_total", "value": 35_000_000_000}],
+                "C2": [
+                    {"metric": "parent_net_margin_pct", "value": 49.8},
+                    {"metric": "operating_cash_conversion_pct", "value": 98.78},
+                ],
+            }
+        },
+        "stock_trading_costs": {"600519": {"spread_bps": 0.8, "round_trip_cost_bps": 6.2}},
+    }
+    context = LensEngine(research_question="公司质量、资本配置和交易成本").build_context(evidence)
+    consumption = context.adjusted_evidence["_meta"]["lens_metric_analyses"]
+
+    assert set(consumption) == set(context.lenses)
+    assert all("company_primary_disclosures.600519.C5.annual_dividend_total" in rows for rows in consumption.values())
+    assert all("company_primary_disclosures.600519.C2.parent_net_margin_pct" in rows for rows in consumption.values())
+    assert all("company_primary_disclosures.600519.C2.operating_cash_conversion_pct" in rows for rows in consumption.values())
+    assert all("stock_trading_costs.600519.spread_bps" in rows for rows in consumption.values())
+
+
 def test_committee_adds_tradingagents_cn_news_framework():
     context = LensEngine().build_context(
         _sample_evidence(),

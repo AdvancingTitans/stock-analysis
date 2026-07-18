@@ -13,6 +13,7 @@ import requests
 from . import market_core
 from .models import QuoteData
 from .normalize import normalize_code
+from .time_series import build_price_series_pack
 
 A_INDEX_HISTORY = {
     "sh000001": ("000001", "上证指数"),
@@ -330,6 +331,10 @@ def fetch_a_share_financial_snapshot(symbol: str, trade_date: str, limit: int = 
     return market_core.fetch_a_share_financial_snapshot(symbol, trade_date, limit=limit)
 
 
+def fetch_company_disclosures(symbol: str, name: str, trade_date: str, limit: int = 20) -> dict[str, Any]:
+    return market_core.fetch_company_disclosures(symbol, name, trade_date, limit=limit)
+
+
 def fetch_a_share_annual_report_slice(fiscal_year: int) -> dict[str, Any]:
     """Stable facade for the auditable whole-market annual-report slice."""
     return market_core.fetch_a_share_annual_report_slice(fiscal_year)
@@ -395,6 +400,8 @@ def fetch_a_share_price_volume(symbol: str, trade_date: str) -> dict[str, Any]:
         "source": "tencent-kline",
         "sample_size": payload.get("sample_size", 0),
         "metrics": metrics,
+        "liquidity": payload.get("liquidity") or {},
+        "rows": payload.get("rows") or [],
         "available_fields": sorted(required & set(metrics)),
         "missing": sorted(required - set(metrics)),
         "conditions": [] if required <= set(metrics) else ["腾讯个股日 K 线需提供至少 61 个有效交易日"],
@@ -494,7 +501,7 @@ def fetch_listed_fund_premium_discount(code: str, trade_date: str) -> dict[str, 
         "tracking_metadata": metadata,
         "limitations": [
             "场内价格使用腾讯前复权日K线；官方净值在份额拆分日前按公开拆分比例归一。",
-            "基金页面的年化跟踪误差为披露值，当前没有标的指数日线时不重算日频 tracking error。",
+            "基金页面的年化跟踪误差为披露值；重算需与标的指数日线按相同交易日严格对齐。",
         ],
     }
 
@@ -541,24 +548,15 @@ def _price_volume_metrics(rows: list[list[Any]], trade_date: str) -> dict[str, A
         volume = _safe_float(row[5])
         if None in (close, high, low, volume) or close <= 0 or volume < 0:
             continue
-        samples.append({"date": str(row[0]), "close": close, "high": high, "low": low, "volume": volume})
-    metrics: dict[str, float] = {}
-    for days in (5, 20, 60):
-        if len(samples) > days and samples[-days - 1]["close"] > 0:
-            metrics[f"returns_{days}d"] = (samples[-1]["close"] / samples[-days - 1]["close"] - 1) * 100
-    if len(samples) >= 21:
-        history = [item["volume"] for item in samples[-21:-1]]
-        average = sum(history) / len(history)
-        variance = sum((value - average) ** 2 for value in history) / len(history)
-        if variance > 0:
-            metrics["volume_zscore"] = (samples[-1]["volume"] - average) / math.sqrt(variance)
-    if len(samples) >= 15:
-        ranges = []
-        for index in range(len(samples) - 14, len(samples)):
-            current, previous = samples[index], samples[index - 1]
-            ranges.append(max(current["high"] - current["low"], abs(current["high"] - previous["close"]), abs(current["low"] - previous["close"])))
-        metrics["atr_14_pct"] = sum(ranges) / len(ranges) / samples[-1]["close"] * 100
-    return {"available": bool(metrics), "sample_size": len(samples), "metrics": metrics}
+        samples.append({
+            "date": str(row[0]).replace("-", ""),
+            "close": close,
+            "high": high,
+            "low": low,
+            "volume": volume,
+            "turnover_cny": close * volume * 100,
+        })
+    return build_price_series_pack(samples)
 
 
 def _safe_float(value: Any) -> float | None:

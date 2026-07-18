@@ -175,6 +175,28 @@ def test_important_announcements_fallback_to_market_keywords(monkeypatch):
     assert result["rows"][0]["title"] == "样本股份：中标50亿元新能源项目"
 
 
+def test_company_disclosures_classify_governance_and_capital_allocation(monkeypatch):
+    monkeypatch.setattr(
+        market_core,
+        "futu_news_search",
+        lambda *args, **kwargs: {
+            "data": [
+                {"title": "贵州茅台：2025年度分红实施公告", "publish_time": "2026-07-01 09:30:00", "url": "https://example.com/dividend"},
+                {"title": "贵州茅台关于董事会换届的公告", "publish_time": "2026-06-20 09:30:00", "url": "https://example.com/board"},
+                {"title": "贵州茅台产品市场新闻", "publish_time": "2026-06-18 09:30:00", "url": "https://example.com/news"},
+                {"title": "其他公司年度分红公告", "publish_time": "2026-06-18 09:30:00", "url": "https://example.com/other"},
+            ]
+        },
+    )
+
+    result = market_core.fetch_company_disclosures("600519", "贵州茅台", "20260710", limit=10)
+
+    assert result["available"] is True
+    assert {row["category"] for row in result["rows"]} == {"capital_allocation", "governance"}
+    assert all(row["source_type"] == "public_announcement_index" for row in result["rows"])
+    assert all(row["url"] for row in result["rows"])
+
+
 def test_limit_pool_ignores_legacy_empty_cache_and_saves_versioned_payload(monkeypatch):
     monkeypatch.setattr(market_core, "cache_load", lambda *args, **kwargs: {"data": {"pool": []}})
     saved = {}

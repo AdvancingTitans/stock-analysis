@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "stock-analysis Research Workspace Manifest",
+  "type": "object",
+  "required": ["schema_version", "symbol", "trade_date", "status", "stages", "evidence_snapshot", "artifacts"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "symbol": {"type": "string"},
+    "trade_date": {"type": "string", "pattern": "^[0-9]{8}$"},
+    "status": {"enum": ["evidence_insufficient", "ready_for_analysis"]},
+    "stages": {"type": "object"},
+    "evidence_snapshot": {"type": "object", "required": ["coverage", "available_modules", "missing_modules", "sha256", "snapshot_id", "committee_id"]},
+    "artifacts": {"type": "object"}
+  }
+}

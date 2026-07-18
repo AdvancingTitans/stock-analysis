@@ -1,5 +1,54 @@
 # Changelog
 
+## v4.12.0 - 2026-07-18
+
+- CSI Index 适配器新增官方标的指数日线，独立容错样本/权重/估值下载；ETF 与指数严格对齐后重算收益、回撤、波动、相关系数、beta、tracking error 与主动收益。
+- 新增股票/ETF/组合共用的订单成本情景模型：10 万、100 万、500 万元三档覆盖价差、佣金、经手/过户费、适用印花税、20 日成交额参与率、波动率冲击，以及 ETF 年费与折溢价观察。
+- 修复基金报告硬编码“缺少指数日线与交易成本模型”；保留意见改为按实际证据动态生成，并让每位入选委员在正文和结构化 opinion 中消费指数日线、跟踪指标与成本情景。
+- 问题驱动的 6 人投委会扩展到所有 committee 入口；市场/持仓公共证据新增发行人一手披露、结构化财务、基金指数快照与交易成本，年报解析不再只服务单一个股报告。
+- 中英文 README 面向无编程基础投资者重写首页、场景对比、安装提示词、使用提示词与系统架构；72 秒中英文演示同步更新动态投委会、年报、指数日线、跟踪误差和交易成本场景。
+
+## v4.11.0 - 2026-07-18
+
+- 新增通用 CSI Index 适配器，直接读取中证指数官方样本、月末权重和每日指数估值 XLS；512480 在 2026-07-17 验证到 H30184 完整 87 只样本、99.998% 权重覆盖和完整指数口径 PE。
+- 512480 报告改用官方完整指数样本展示前十大权重，并以官方计算用股本/总股本 PE 和股息率替代 5 只基金重仓股估值代理；重仓调和 PE 仅作交叉检查。
+- 新增配置驱动的发行人一手披露解析器：下载官方年报 PDF、只抽取规则指定页面、按 JSON 正则生成 C1–C8 事实并支持安全派生计算；600519 不再在 Python 逻辑中硬编码年报数值。
+- 新增未来日期截断、完整指数数据选择、PDF 数值提取、派生分红率和新增发行人无需代码分支等测试。
+
+## v4.10.0 - 2026-07-18
+
+- Research committee 改为问题驱动：根据 `--research-question` 从 15 个内置 lens 中确定性选择最相关且互补的 6 位委员；显式 `--lenses` 继续作为高级覆盖入口。
+- Company/Fund 每位入选委员必须消费全部结构化指标并生成框架化解释；新增一致性映射，自动验证净利率、经营现金转化、底层估值、最大回撤、波动、指数约束与费率进入所有委员分析。
+- Company 接入贵州茅台 2025 年报的一手经营、渠道、治理和资本配置事实；Fund 接入 512480 官方产品契约与中证指数方法，并新增 60 日最大回撤和年化波动。
+- 用户报告不再展示冻结快照、hash、coverage、missing module、内部 action 或审计待核验术语；保留中文投委会骨架、数据化分歧、条件化动作与自然语言跟踪重点。
+
+## v4.9.0 - 2026-07-18
+
+- `research` 报告恢复中文投委会骨架和 4.5 系列的分析密度；Company/Fund 正文不再展示 `Evidence Dashboard`、`manual_review` 或逐模块“证据暂缺”，缺口统一压缩到审计尾部。
+- Company Evidence 新增归母净利率、经营现金转化和年度毛利稳定性代理，用已有财务历史补强商业经济性与护城河分析，并保留公式、条件状态和直接经营证据边界。
+- Fund Evidence 对披露重仓股增加逐股历史行情 fallback，并以最新已披露年度 EPS 生成静态 PE；新增估值覆盖权重、正盈利成分调和 PE 和亏损权重，修复持仓源仅返回 5 只时误称“前十大”的口径。
+- 个股与基金报告新增真实投委会判断、保留意见、Bull/Base/Bear 或估值敏感性、可证伪跟踪指标和条件化动作；全部 opinions 与 committee 继续强制消费同一冻结 Evidence 快照。
+
+## v4.8.0 - 2026-07-18
+
+- Research Workspace 新增独立 F1–F8 Fund Evidence、冻结快照、指数方法/组合构建/风险管理/交易实现四类 Fund lens，以及同快照 committee synthesis；`--asset-type auto|company|fund` 不再把 ETF 套入 Company C1–C8。
+- Company Evidence 新增同报告期营收/利润同比、完整财务历史、最新已披露年度 EPS/BPS 的静态 PE/PB proxy，以及 15x/18x/22x 估值敏感性情景；情景明确不是目标价。
+- 机构报告 Executive Summary 改为综合已验证的质量、增长、价格与风险事实，不再把模块覆盖率直接改写成“证据不足，维持观察”；缺口转为 thesis 边界、risk veto 和重跑条件。
+- Company committee 以 C2/C3/C5/C6/C7 核心证据门决定是否进入 `manual_review`；商业质量与护城河缺口继续保留为人工复核条件。基金报告新增产品/指数暴露、业绩风险、折溢价与 tracking quality、Bull/Base/Bear 情景和 Committee Decision Memo。
+
+## v4.7.0 - 2026-07-18
+
+- Company Evidence 新增财报/业绩预告/快报、PE/PB/市值、融资现金流，以及公告索引中的治理和资本配置事件；历史财务快照按披露日期执行 as-of 截断。
+- 每条 C1–C8 evidence 新增稳定 `evidence_id` 与 `validation_status`，并以内容 hash 生成不受运行时间影响的冻结 `snapshot_id`。
+- Research Workspace 新增真实 Company lens opinions 与 committee synthesis JSON；所有意见必须消费同一冻结快照，committee 拒绝跨快照拼接并只输出 `observe` / `manual_review`。
+- 新增 Company lens opinion、committee synthesis schema，并支持 `--lenses buffett,graham` 自定义研究委员会成员。
+
+## v4.6.0 - 2026-07-18
+
+- 新增 `--market research --symbol <symbol>` 可恢复 Research Workspace：按研究计划、Company Evidence、验证摘要、专家就绪度、委员会复核、决策 memo 和机构报告保存独立阶段产物。
+- `workspace.json` 记录阶段状态、Evidence hash、历史基线和产物 hash；同一研究日可重复恢复，检测到人工修改时保留原文件并写入 `.generated` 版本。
+- 机构报告新增 Executive Summary、What's Changed、Evidence Dashboard、Expert Debate、风险/催化剂和 Committee Decision Memo；证据不足时固定维持观察，不虚构专家观点。
+
 ## v4.5.0 - 2026-07-12
 
 - 新增 Agent-native 场景层：`market-recap`、`stock-snapshot`、`stock-review`、`earnings-review`、`price-move`、`fund-review`、`portfolio-review`、`stock-screen`、`data-diagnose`、`thesis-create` 和 `thesis-review` 从同一份 canonical catalog 生成 Codex Skill、Codex Custom Prompt 和 Claude Code command；提供同步校验与安装脚本。

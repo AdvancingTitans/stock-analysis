@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "stock-analysis Company Committee Synthesis",
+  "type": "object",
+  "required": ["committee_id", "evidence_snapshot_id", "opinion_ids", "members", "consensus", "disagreements", "risk_vetoes", "action", "action_conditions", "research_question", "evidence_consumption_audit"],
+  "properties": {
+    "committee_id": {"type": "string"},
+    "evidence_snapshot_id": {"type": "string", "pattern": "^sha256:"},
+    "opinion_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "members": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "consensus": {"type": "array", "items": {"type": "string"}},
+    "disagreements": {"type": "array", "items": {"type": "string"}},
+    "risk_vetoes": {"type": "array", "items": {"type": "string"}},
+    "action": {"enum": ["observe", "manual_review"]},
+    "action_conditions": {"type": "array", "items": {"type": "string"}},
+    "research_question": {"type": "string"},
+    "evidence_consumption_audit": {
+      "type": "object",
+      "additionalProperties": {"type": "array", "items": {"type": "string"}}
+    }
+  }
+}

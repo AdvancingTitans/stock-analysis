@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from .chinese_public_sources import build_chinese_public_signal_summary
+from .committee_selection import select_committee
+from .lens_evidence import build_lens_metric_analyses
 
 DEFAULT_COMMITTEE_MEMBERS = (
     "buffett",
@@ -41,6 +43,8 @@ class LensEngine:
         lenses: tuple[str, ...] | list[str] | None = None,
         mode: str | None = None,
         lenses_dir: str | Path | None = None,
+        research_question: str | None = None,
+        asset_type: str = "market",
     ) -> None:
         self.lenses_dir = Path(lenses_dir) if lenses_dir is not None else _default_lenses_dir()
         requested_lenses = tuple(lenses or ())
@@ -54,7 +58,7 @@ class LensEngine:
             raise ValueError(f"mode must be one of {', '.join(sorted(VALID_MODES))}")
 
         if not requested_lenses and mode == "committee":
-            requested_lenses = DEFAULT_COMMITTEE_MEMBERS
+            requested_lenses = select_committee(research_question, asset_type=asset_type)
         if not requested_lenses and mode == "single":
             raise ValueError("single mode requires lens")
         if mode == "adversarial" and len(requested_lenses) != 2:
@@ -63,6 +67,7 @@ class LensEngine:
             raise ValueError("single mode requires exactly one lens")
 
         self.mode = mode
+        self.research_question = research_question
         self.definitions = _load_lens_definitions(self.lenses_dir)
         self.lenses = tuple(_resolve_lens_id(value, self.definitions) for value in requested_lenses)
         unknown = [lens_id for lens_id in self.lenses if lens_id not in self.definitions]
@@ -81,6 +86,8 @@ class LensEngine:
         selected = {lens_id: self.definitions[lens_id] for lens_id in self.lenses}
         weight_adjustments = _combined_weight_adjustments(selected.values())
         _attach_weight_adjustments(adjusted, weight_adjustments, self.mode, self.lenses)
+        adjusted.setdefault("_meta", {})["research_question"] = self.research_question
+        adjusted["_meta"]["lens_metric_analyses"] = build_lens_metric_analyses(adjusted, self.lenses)
 
         activated = _activated_modules(adjusted, selected.values())
         notes: list[str] = []

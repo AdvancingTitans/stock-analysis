@@ -185,7 +185,14 @@ def test_build_evidence_records_portfolio_exposure_when_holdings_exist():
         patch("stock_analysis.app.fetch_fund_flow", return_value={}),
         patch("stock_analysis.app.fetch_board_list", return_value={"rows": []}),
         patch("stock_analysis.app.fetch_limit_pools", return_value={"zt": {}, "dt": {}, "zb": {}}),
-        patch("stock_analysis.app.fetch_a_share_financial_snapshot", return_value={}),
+            patch("stock_analysis.app.fetch_a_share_financial_snapshot", return_value={}),
+            patch(
+                "stock_analysis.app.fetch_a_share_price_volume",
+                return_value={
+                    "metrics": {"annualized_volatility_60d_pct": 25.0},
+                    "liquidity": {"average_turnover_20d_cny": 4_035_216_946},
+                },
+            ),
     ):
         evidence, _ = build_evidence(
             trade_date="20260701",
@@ -376,6 +383,13 @@ def test_build_evidence_records_stock_microstructure_and_cost_proxy_for_a_share_
         patch("stock_analysis.app.fetch_limit_pools", return_value={"zt": {}, "dt": {}, "zb": {}}),
         patch("stock_analysis.app.fetch_a_share_financial_snapshot", return_value={}),
         patch(
+            "stock_analysis.app.fetch_a_share_price_volume",
+            return_value={
+                "metrics": {"annualized_volatility_60d_pct": 25.0},
+                "liquidity": {"average_turnover_20d_cny": 4_035_216_946},
+            },
+        ),
+        patch(
             "stock_analysis.app.fetch_a_share_order_book_snapshot",
             return_value={
                 "available": True,
@@ -393,9 +407,9 @@ def test_build_evidence_records_stock_microstructure_and_cost_proxy_for_a_share_
 
     assert evidence.meta["stock_microstructure"]["600519"]["spread_bps"] == 0.0846
     assert evidence.meta["stock_trading_costs"]["600519"]["liquidity_bucket"] == "very_deep"
-    assert evidence.meta["stock_trading_costs"]["600519"]["slippage_model"] == "daily_rebalance_proxy"
-    assert evidence.meta["stock_trading_costs"]["600519"]["daily_turnover_cny"] == 4_035_216_946
-    assert "ETF/指数期货对冲成本未建模" in evidence.meta["stock_trading_costs"]["600519"]["limitations"]
+    assert evidence.meta["stock_trading_costs"]["600519"]["model_status"] == "scenario_complete"
+    assert evidence.meta["stock_trading_costs"]["600519"]["average_turnover_20d_cny"] == 4_035_216_946
+    assert evidence.meta["stock_trading_costs"]["600519"]["scenarios"][1]["stamp_duty_bps_sell"] == 5.0
 
 
 def test_stock_market_renders_a_share_financial_snapshot(capsys):

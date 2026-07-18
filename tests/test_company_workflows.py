@@ -12,6 +12,7 @@ def _financials():
         "periods": [
             {
                 "report_date": "2026-03-31",
+                "period_label": "2026Q1",
                 "revenue": 78_000_000_000,
                 "parent_netprofit": 25_000_000_000,
                 "roe_weighted": 10.57,
@@ -19,17 +20,52 @@ def _financials():
                 "debt_asset_ratio": 12.12,
                 "operating_cash_flow": 26_910_000_000,
                 "free_cash_flow_lite": 26_305_000_000,
-            }
-        ]
+                "net_cash_finance": -12_000_000_000,
+            },
+            {
+                "report_date": "2025-12-31",
+                "period_label": "2025FY",
+                "basic_eps": 65.66,
+                "bps": 195.36,
+            },
+            {
+                "report_date": "2025-03-31",
+                "period_label": "2025Q1",
+                "revenue": 70_000_000_000,
+                "parent_net_profit": 24_000_000_000,
+            },
+        ],
+        "forecasts": {"available": True, "rows": [{"notice_date": "2026-04-10", "report_date": "2026-03-31", "title": "一季度业绩预告", "type": "预增"}]},
+        "earnings_flash": {"available": True, "rows": [{"notice_date": "2026-04-20", "report_date": "2026-03-31", "title": "一季度业绩快报", "type": "快报"}]},
     }
 
 
 def _company_pack(monkeypatch):
+    def primary_item(module, metric, value):
+        return {
+            "metric": metric, "value": value, "period": "2025FY", "published_at": "2026-04-17",
+            "source": "贵州茅台2025年年度报告", "source_type": "issuer_primary_disclosure",
+            "confidence": "primary", "url": "https://example.com/annual.pdf", "page": 10,
+            "extraction_method": "official_pdf_regex",
+        }
+
+    primary = {f"C{index}": [] for index in range(1, 9)}
+    for module, metric, value in (
+        ("C1", "direct_sales_revenue", 84_543_031_854.63),
+        ("C4", "core_product_gross_margin_pct", 93.53),
+        ("C5", "annual_dividend_total", 35_032_568_759.73),
+        ("C5", "shareholder_payout_ratio_pct", 42.56),
+        ("C7", "series_revenue_yoy_pct", -9.76),
+        ("C8", "moutai_base_capacity_added_tons", 1800),
+    ):
+        primary[module].append(primary_item(module, metric, value))
+    monkeypatch.setattr(company_evidence, "load_issuer_primary_facts", lambda *_: primary)
     monkeypatch.setattr(
         company_evidence,
         "fetch_single_quote",
         lambda *_: QuoteData(
-            symbol="600519", name="贵州茅台", market="a", price=1500.0, currency="CNY", trade_date="20260710", source="tencent"
+            symbol="600519", name="贵州茅台", market="a", price=1500.0, pe=21.5, pb=7.4,
+            total_market_cap=1_880_000_000_000, currency="CNY", trade_date="20260710", source="tencent"
         ),
     )
     monkeypatch.setattr(company_evidence, "fetch_a_share_financial_snapshot", lambda *_: _financials())
@@ -43,6 +79,18 @@ def _company_pack(monkeypatch):
         "fetch_futu_public_pulse",
         lambda *_: {"event_title": "公司回购公告", "evidence_url": "https://example.com", "news_tone": "偏正面", "news_count": 2},
     )
+    monkeypatch.setattr(
+        company_evidence,
+        "fetch_company_disclosures",
+        lambda *_: {
+            "available": True,
+            "rows": [
+                {"title": "年度分红实施公告", "publish_date": "20260701", "url": "https://example.com/dividend", "category": "capital_allocation", "source": "futu_announcement_search", "source_type": "public_announcement_index", "confidence": "secondary"},
+                {"title": "董事会换届公告", "publish_date": "20260620", "url": "https://example.com/board", "category": "governance", "source": "futu_announcement_search", "source_type": "public_announcement_index", "confidence": "secondary"},
+            ],
+            "_source": "Futu 免登录公告搜索",
+        },
+    )
     return company_evidence.build_company_evidence("600519", "20260710")
 
 
@@ -51,12 +99,40 @@ def test_company_evidence_has_c1_to_c8_and_explicit_gaps(monkeypatch):
 
     assert list(pack["modules"]) == ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8"]
     assert pack["modules"]["C2"]["available"] is True
-    assert pack["modules"]["C4"]["available"] is False
-    assert pack["_meta"]["coverage"] == 62.5
-    assert {event["source"] for event in pack["_meta"]["source_events"]} == {
+    assert pack["modules"]["C1"]["available"] is True
+    assert pack["modules"]["C4"]["available"] is True
+    assert pack["modules"]["C5"]["available"] is True
+    assert pack["_meta"]["coverage"] == 100.0
+    primary_metrics = {
+        item["metric"]
+        for code in ("C1", "C4", "C5", "C7", "C8")
+        for item in pack["modules"][code]["evidence"]
+        if item.get("source_type") == "issuer_primary_disclosure"
+    }
+    assert {
+        "direct_sales_revenue", "core_product_gross_margin_pct", "annual_dividend_total",
+        "shareholder_payout_ratio_pct", "series_revenue_yoy_pct",
+    } <= primary_metrics
+    assert all(
+        item.get("url") and item.get("page")
+        for code in ("C1", "C4", "C5", "C7", "C8")
+        for item in pack["modules"][code]["evidence"]
+        if item.get("source_type") == "issuer_primary_disclosure"
+    )
+    assert {item["metric"] for item in pack["modules"]["C6"]["evidence"]} >= {"market_quote", "pe_ttm", "pb"}
+    assert {item["metric"] for item in pack["modules"]["C6"]["evidence"]} >= {
+        "pe_static_proxy", "pb_reported_proxy", "scenario_price_15x_pe", "scenario_price_18x_pe", "scenario_price_22x_pe",
+    }
+    assert pack["financial_history"][0]["period_label"] == "2026Q1"
+    assert all(item["evidence_id"].startswith("C") for section in pack["modules"].values() for item in section["evidence"])
+    assert pack["_meta"]["evidence_snapshot_id"].startswith("sha256:")
+    assert {event["source"] for event in pack["_meta"]["source_events"]} >= {
         "tencent",
         "eastmoney_datacenter",
         "futu_public",
+        "Futu 免登录公告搜索",
+        "issuer_primary_disclosure",
+        "execution_cost_model",
     }
 
 
@@ -69,7 +145,7 @@ def test_company_workflow_reports_do_not_turn_gaps_into_scores(monkeypatch):
 
     assert "证据不足，维持观察" in stock
     assert "C4 护城河证据" in stock
-    assert "护城河只能由可观测" in stock
+    assert "毛利率仅为护城河代理" in stock
     assert "roe_weighted" in earnings
     assert "不将事件断言为异动主因" in price_move
 
@@ -83,7 +159,7 @@ def test_thesis_create_and_review_persist_only_structured_evidence(monkeypatch, 
 
     assert path == reviewed_path
     assert path.exists()
-    assert thesis["status"] == "evidence_insufficient"
+    assert thesis["status"] == "under_review"
     assert reviewed is not None
     assert "未发现可由当前结构化 Evidence 自动判定的变化" in changes
     assert json.loads(path.read_text(encoding="utf-8"))["symbol"] == "600519"

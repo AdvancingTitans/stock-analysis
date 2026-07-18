@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "stock-analysis Company Lens Opinion",
+  "type": "object",
+  "required": ["opinion_id", "lens_id", "evidence_snapshot_id", "status", "required_modules", "supporting_evidence_ids", "counter_evidence_ids", "metric_analyses", "research_question", "confidence", "conclusion"],
+  "properties": {
+    "opinion_id": {"type": "string"},
+    "lens_id": {"type": "string"},
+    "evidence_snapshot_id": {"type": "string", "pattern": "^sha256:"},
+    "status": {"enum": ["review_ready", "evidence_insufficient"]},
+    "required_modules": {"type": "array", "items": {"type": "string"}},
+    "supporting_evidence_ids": {"type": "array", "items": {"type": "string"}},
+    "counter_evidence_ids": {"type": "array", "items": {"type": "string"}},
+    "metric_analyses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["evidence_id", "module", "metric", "relevance", "interpretation"],
+        "properties": {
+          "evidence_id": {"type": "string"},
+          "module": {"type": "string"},
+          "metric": {"type": "string"},
+          "value": {},
+          "relevance": {"enum": ["core", "context"]},
+          "interpretation": {"type": "string"}
+        }
+      }
+    },
+    "research_question": {"type": "string"},
+    "confidence": {"enum": ["low", "medium", "high"]},
+    "conclusion": {"type": "string"}
+  }
+}

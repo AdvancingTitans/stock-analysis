@@ -2851,7 +2851,7 @@ def fetch_a_share_financial_snapshot(symbol: str, date_str: str, limit: int = 8)
             "_source": "东方财富 datacenter",
         }
     limit = max(1, min(int(limit or 8), 20))
-    cache_key = f"v3_{date_str}_{normalized}_{limit}"
+    cache_key = f"v4_{date_str}_{normalized}_{limit}"
     cached = cache_load("a_share_financial_snapshot", cache_key, "eastmoney_datacenter", ttl=24 * 3600)
     if cached:
         return cached
@@ -2894,6 +2894,7 @@ def fetch_a_share_financial_snapshot(symbol: str, date_str: str, limit: int = 8)
     )
     result = _build_a_share_financial_snapshot(
         normalized,
+        as_of_date=date_str,
         summary_rows=summary_rows,
         balance_rows=balance_rows,
         cashflow_rows=cashflow_rows,
@@ -2907,12 +2908,14 @@ def fetch_a_share_financial_snapshot(symbol: str, date_str: str, limit: int = 8)
 def _build_a_share_financial_snapshot(
     symbol: str,
     *,
+    as_of_date: str = "",
     summary_rows: list[dict[str, Any]],
     balance_rows: list[dict[str, Any]],
     cashflow_rows: list[dict[str, Any]],
     forecast_rows: list[dict[str, Any]],
     flash_rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    as_of_iso = _date_only(as_of_date)
     balance_by_period = {_financial_period_key(row): row for row in balance_rows if _financial_period_key(row)}
     cashflow_by_period = {_financial_period_key(row): row for row in cashflow_rows if _financial_period_key(row)}
     periods: list[dict[str, Any]] = []
@@ -2920,6 +2923,9 @@ def _build_a_share_financial_snapshot(
     for row in summary_rows:
         period = _financial_period_key(row)
         if not period:
+            continue
+        notice_date = _date_only(row.get("NOTICE_DATE") or row.get("DISCLOSE_DATE"))
+        if as_of_iso and ((notice_date and notice_date > as_of_iso) or (not notice_date and period > as_of_iso)):
             continue
         name = str(row.get("SECURITY_NAME_ABBR") or row.get("SECURITY_NAME") or name)
         balance = balance_by_period.get(period) or {}
@@ -2935,7 +2941,7 @@ def _build_a_share_financial_snapshot(
             {
                 "report_date": period,
                 "period_label": _financial_period_label(period),
-                "notice_date": _date_only(row.get("NOTICE_DATE") or row.get("REPORTDATE")),
+                "notice_date": notice_date or _date_only(row.get("REPORTDATE")),
                 "roe_weighted": _safe_float(row.get("WEIGHTAVG_ROE")),
                 "gross_margin": _safe_float(row.get("XSMLL")),
                 "basic_eps": _safe_float(row.get("BASIC_EPS")),
@@ -2954,8 +2960,12 @@ def _build_a_share_financial_snapshot(
         )
     periods.sort(key=lambda item: str(item.get("report_date") or ""), reverse=True)
     latest_period = str(periods[0].get("report_date") or "") if periods else ""
-    forecasts = _financial_disclosure_rows(forecast_rows, min_report_date=latest_period)
-    flashes = _financial_disclosure_rows(flash_rows, min_report_date=latest_period)
+    forecasts = _financial_disclosure_rows(
+        forecast_rows, min_report_date=latest_period, max_notice_date=as_of_iso
+    )
+    flashes = _financial_disclosure_rows(
+        flash_rows, min_report_date=latest_period, max_notice_date=as_of_iso
+    )
     availability = {
         "roe": any(row.get("roe_weighted") is not None for row in periods),
         "gross_margin": any(row.get("gross_margin") is not None for row in periods),
@@ -3024,15 +3034,20 @@ def _date_only(value: Any) -> str:
     return ""
 
 
-def _financial_disclosure_rows(rows: list[dict[str, Any]], *, min_report_date: str = "") -> list[dict[str, Any]]:
+def _financial_disclosure_rows(
+    rows: list[dict[str, Any]], *, min_report_date: str = "", max_notice_date: str = ""
+) -> list[dict[str, Any]]:
     result = []
     for row in rows:
         report_date = _date_only(row.get("REPORT_DATE") or row.get("REPORTDATE") or row.get("QDATE"))
+        notice_date = _date_only(row.get("NOTICE_DATE") or row.get("DISCLOSE_DATE"))
         if min_report_date and (not report_date or report_date < min_report_date):
+            continue
+        if max_notice_date and ((notice_date and notice_date > max_notice_date) or (not notice_date and report_date > max_notice_date)):
             continue
         result.append(
             {
-                "notice_date": _date_only(row.get("NOTICE_DATE") or row.get("DISCLOSE_DATE")),
+                "notice_date": notice_date,
                 "report_date": report_date,
                 "title": row.get("TITLE") or row.get("NOTICE_TITLE") or row.get("PREDICT_CONTENT") or "",
                 "type": row.get("PREDICT_TYPE") or row.get("REPORT_TYPE") or row.get("FORECAST_TYPE") or "",
@@ -3268,6 +3283,81 @@ def fetch_important_announcements(
         "rows": rows,
         "_source": "Futu 免登录公告搜索",
         "_source_note": "按盘面领涨/持仓候选查询公告，标题命中重大事项关键词后展示。",
+    }
+
+
+COMPANY_GOVERNANCE_TERMS = (
+    "董事", "监事", "高管", "股东大会", "实际控制人", "实控人", "控制权", "审计",
+    "问询", "监管", "处罚", "违规", "诉讼",
+)
+COMPANY_CAPITAL_ALLOCATION_TERMS = (
+    "回购", "分红", "派息", "增持", "减持", "股权激励", "定增", "配股", "可转债",
+    "并购", "重组", "收购", "出售资产", "募集资金",
+)
+COMPANY_FINANCIAL_DISCLOSURE_TERMS = (
+    "年度报告", "半年度报告", "季度报告", "业绩预告", "业绩快报", "财务报告",
+)
+
+
+def _company_disclosure_category(title: str) -> str:
+    if any(term in title for term in COMPANY_GOVERNANCE_TERMS):
+        return "governance"
+    if any(term in title for term in COMPANY_CAPITAL_ALLOCATION_TERMS):
+        return "capital_allocation"
+    if any(term in title for term in COMPANY_FINANCIAL_DISCLOSURE_TERMS):
+        return "financial_disclosure"
+    return ""
+
+
+@retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
+def fetch_company_disclosures(symbol: str, name: str, date_str: str, limit: int = 20) -> dict[str, Any]:
+    """Search the connected public-announcement index for company-specific disclosures.
+
+    Futu is an announcement index rather than the issuer or exchange itself, so rows
+    stay secondary until the linked original disclosure is independently verified.
+    """
+
+    limit = max(1, min(int(limit or 20), 50))
+    keyword = str(name or symbol).strip()
+    if not keyword:
+        return {"available": False, "rows": [], "_source": "Futu 免登录公告搜索"}
+    payload = futu_news_search(keyword, size=min(100, limit * 3), lang="zh-CN", news_type=2)
+    rows = []
+    seen: set[str] = set()
+    relevance_terms = {str(value).strip().lower() for value in (symbol, name) if str(value).strip()}
+    for item in payload.get("data") or []:
+        title = _clean_news_title(str(item.get("title") or ""))
+        category = _company_disclosure_category(title)
+        publish_date = _news_date(item.get("publish_time"))
+        if not title or not category or title in seen:
+            continue
+        if relevance_terms and not any(term in title.lower() for term in relevance_terms):
+            continue
+        if publish_date and publish_date > date_str:
+            continue
+        seen.add(title)
+        rows.append(
+            {
+                "symbol": symbol,
+                "name": name or symbol,
+                "title": title,
+                "publish_date": publish_date,
+                "url": _normalize_news_url(item),
+                "category": category,
+                "source": "futu_announcement_search",
+                "source_type": "public_announcement_index",
+                "confidence": "secondary",
+            }
+        )
+        if len(rows) >= limit:
+            break
+    return {
+        "available": bool(rows),
+        "symbol": symbol,
+        "requested_date": date_str,
+        "rows": rows,
+        "_source": "Futu 免登录公告搜索",
+        "_source_note": "公告索引提供标题和原文链接；未核验链接所属交易所/公司前按 secondary 使用。",
     }
 
 

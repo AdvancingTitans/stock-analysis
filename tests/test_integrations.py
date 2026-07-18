@@ -299,7 +299,10 @@ def test_price_volume_metrics_require_a_full_multiperiod_kline_sample():
     metrics = integrations._price_volume_metrics(rows, "20260630")
 
     assert metrics["sample_size"] == 61
-    assert set(metrics["metrics"]) == {"returns_5d", "returns_20d", "returns_60d", "volume_zscore", "atr_14_pct"}
+    assert set(metrics["metrics"]) == {
+        "returns_5d", "returns_20d", "returns_60d", "volume_zscore", "atr_14_pct",
+        "max_drawdown_60d_pct", "annualized_volatility_60d_pct",
+    }
 
 
 def test_a_share_price_volume_reuses_strict_multiperiod_contract(monkeypatch):
@@ -320,7 +323,10 @@ def test_a_share_price_volume_reuses_strict_multiperiod_contract(monkeypatch):
 
     assert pack["available"] is True
     assert pack["symbol"] == "600519"
-    assert set(pack["metrics"]) == {"returns_5d", "returns_20d", "returns_60d", "volume_zscore", "atr_14_pct"}
+    assert set(pack["metrics"]) == {
+        "returns_5d", "returns_20d", "returns_60d", "volume_zscore", "atr_14_pct",
+        "max_drawdown_60d_pct", "annualized_volatility_60d_pct",
+    }
 
 
 def test_fund_nav_history_paginates_official_rows(monkeypatch):

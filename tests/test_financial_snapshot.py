@@ -81,3 +81,24 @@ def test_a_share_financial_snapshot_keeps_disclosure_gaps(monkeypatch):
     assert snapshot["periods"] == []
     assert snapshot["availability"]["roe"] is False
     assert "业绩预告/快报仅在公司披露时存在" in snapshot["gaps"]
+
+
+def test_financial_snapshot_excludes_disclosures_published_after_requested_date(monkeypatch):
+    def fake_datacenter(report_name, **kwargs):
+        if report_name == "RPT_LICO_FN_CPD":
+            return [
+                {"SECURITY_CODE": "600519", "REPORTDATE": "2026-03-31", "NOTICE_DATE": "2026-04-29", "TOTAL_OPERATE_INCOME": 10},
+                {"SECURITY_CODE": "600519", "REPORTDATE": "2025-12-31", "NOTICE_DATE": "2026-03-30", "TOTAL_OPERATE_INCOME": 9},
+            ]
+        if report_name == "RPT_PUBLIC_OP_NEWPREDICT":
+            return [{"REPORT_DATE": "2026-03-31", "NOTICE_DATE": "2026-04-20", "TITLE": "未来才披露"}]
+        return []
+
+    monkeypatch.setattr(market_core, "cache_load", lambda *args, **kwargs: None)
+    monkeypatch.setattr(market_core, "cache_save", lambda *args, **kwargs: None)
+    monkeypatch.setattr(market_core, "eastmoney_datacenter", fake_datacenter)
+
+    snapshot = market_core.fetch_a_share_financial_snapshot("600519", "20260401")
+
+    assert [row["report_date"] for row in snapshot["periods"]] == ["2025-12-31"]
+    assert snapshot["forecasts"]["rows"] == []

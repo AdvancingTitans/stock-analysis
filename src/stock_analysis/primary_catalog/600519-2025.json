@@ -1,0 +1,36 @@
+{
+  "symbol": "600519",
+  "period": "2025FY",
+  "published_at": "2026-04-17",
+  "source": "贵州茅台2025年年度报告",
+  "documents": {
+    "annual": {
+      "url": "https://www.moutaichina.com/mtgf/articleFileDir/2026-04/17/07cf01cc11a14ea18cfadf9ebe2a4eb3.pdf"
+    }
+  },
+  "facts": [
+    {"module":"C1","metric":"core_product_revenue","document":"annual","page":10,"pattern":"茅台酒 ([\\d,]+\\.\\d+) [\\d,]+\\.\\d+ [\\d.]+ [\\d.-]+","extra":{"currency":"CNY"}},
+    {"module":"C1","metric":"series_product_revenue","document":"annual","page":10,"pattern":"其他系列酒 ([\\d,]+\\.\\d+) [\\d,]+\\.\\d+ [\\d.]+ [\\d.-]+","extra":{"currency":"CNY"}},
+    {"module":"C1","metric":"wholesale_revenue","document":"annual","page":10,"pattern":"批发代理 ([\\d,]+\\.\\d+) [\\d,]+\\.\\d+ [\\d.]+ ([\\d.-]+)","extra":{"currency":"CNY"}},
+    {"module":"C1","metric":"wholesale_revenue_yoy_pct","document":"annual","page":10,"pattern":"批发代理 [\\d,]+\\.\\d+ [\\d,]+\\.\\d+ [\\d.]+ ([\\d.-]+)"},
+    {"module":"C1","metric":"direct_sales_revenue","document":"annual","page":10,"pattern":"直销 ([\\d,]+\\.\\d+) [\\d,]+\\.\\d+ [\\d.]+ ([\\d.-]+)","extra":{"currency":"CNY"}},
+    {"module":"C1","metric":"direct_sales_revenue_yoy_pct","document":"annual","page":10,"pattern":"直销 [\\d,]+\\.\\d+ [\\d,]+\\.\\d+ [\\d.]+ ([\\d.-]+)"},
+    {"module":"C2","metric":"parent_net_profit_annual","document":"annual","page":6,"pattern":"归属于上市公司股东的净利润 ([\\d,]+\\.\\d+)","extra":{"currency":"CNY"}},
+    {"module":"C4","metric":"core_product_gross_margin_pct","document":"annual","page":10,"pattern":"茅台酒 [\\d,]+\\.\\d+ [\\d,]+\\.\\d+ ([\\d.]+)"},
+    {"module":"C4","metric":"series_product_gross_margin_pct","document":"annual","page":10,"pattern":"其他系列酒 [\\d,]+\\.\\d+ [\\d,]+\\.\\d+ ([\\d.]+)"},
+    {"module":"C4","metric":"finished_and_base_inventory_yoy_pct","document":"annual","page":10,"pattern":"酒类 吨 [\\d,]+\\.\\d+ [\\d,]+\\.\\d+ [\\d,]+\\.\\d+ [\\d.]+ [\\d.]+ ([\\d.]+)"},
+    {"module":"C4","metric":"minimum_production_to_sale_years","document":"annual","page":16,"pattern":"生产到出厂 至少需要([一二三四五六七八九十]+)年","constant_on_match":5,"extra":{"unit":"years"}},
+    {"module":"C5","metric":"annual_dividend_per_share","document":"annual","page":2,"pattern":"每股派发现金红利([\\d.]+)元","extra":{"currency":"CNY"}},
+    {"module":"C5","metric":"annual_dividend_total","document":"annual","page":2,"pattern":"合计拟派发现金红利 ([\\d,]+\\.\\d+)元","extra":{"currency":"CNY"}},
+    {"module":"C5","metric":"repurchase_cash_flow_driver","document":"annual","page":10,"pattern":"筹资活动产生的现金流量净额变动原因说明：主要是本期公司回购股票","constant_on_match":"2025年筹资现金流变动主要来自公司回购股票"},
+    {"module":"C5","metric":"audit_opinion","document":"annual","page":2,"pattern":"标准无保留意见的审计报告","constant_on_match":"标准无保留意见"},
+    {"module":"C7","metric":"series_revenue_yoy_pct","document":"annual","page":10,"pattern":"其他系列酒 [\\d,]+\\.\\d+ [\\d,]+\\.\\d+ [\\d.]+ ([\\d.-]+)"},
+    {"module":"C7","metric":"sales_expense_yoy_pct","document":"annual","page":9,"pattern":"销售费用 [\\d,]+\\.\\d+ [\\d,]+\\.\\d+ ([\\d.-]+)"},
+    {"module":"C7","metric":"finished_and_base_inventory_yoy_pct","document":"annual","page":10,"pattern":"酒类 吨 [\\d,]+\\.\\d+ [\\d,]+\\.\\d+ [\\d,]+\\.\\d+ [\\d.]+ [\\d.]+ ([\\d.]+)"},
+    {"module":"C8","metric":"moutai_base_capacity_added_tons","document":"annual","page":15,"pattern":"同比新增基酒产能 ([\\d,]+\\.\\d+) 吨","extra":{"release_year":2026}},
+    {"module":"C8","metric":"series_base_capacity_added_tons","document":"annual","page":15,"pattern":"系列酒 基酒设计产能为 [\\d,]+\\.\\d+ 吨，同比新增基酒产能 ([\\d,]+\\.\\d+) 吨","extra":{"release_year":2026}}
+  ],
+  "derived_facts": [
+    {"module":"C5","metric":"shareholder_payout_ratio_pct","operation":"divide_percent","numerator_metric":"annual_dividend_total","denominator_metric":"parent_net_profit_annual"}
+  ]
+}

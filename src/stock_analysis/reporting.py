@@ -127,6 +127,7 @@ def generate_report(
     lens: str | None = None,
     lenses: tuple[str, ...] | list[str] | None = None,
     mode: str | None = None,
+    research_question: str | None = None,
 ) -> ReportResult:
     return render_report_with_metadata(
         trade_date=trade_date or evidence.trade_date,
@@ -138,6 +139,7 @@ def generate_report(
         lens=lens,
         lenses=lenses,
         mode=mode,
+        research_question=research_question,
     )
 
 
@@ -446,6 +448,7 @@ def render_report_with_metadata(
     lens: str | None = None,
     lenses: tuple[str, ...] | list[str] | None = None,
     mode: str | None = None,
+    research_question: str | None = None,
     lens_context: LensContext | None = None,
 ) -> ReportResult:
     fallback: dict[str, Any] | None = None
@@ -457,6 +460,7 @@ def render_report_with_metadata(
             lens=lens,
             lenses=lenses,
             mode=mode,
+            research_question=research_question,
             portfolio_snapshot=portfolio_snapshot,
         )
     markdown = _render_lens_report(
@@ -490,11 +494,12 @@ def _build_lens_context_with_fallback(
     lens: str | None,
     lenses: tuple[str, ...] | list[str] | None,
     mode: str | None,
+    research_question: str | None = None,
     portfolio_snapshot: dict[str, Any] | None = None,
 ) -> tuple[LensContext, dict[str, Any] | None]:
     public_pulses = _public_pulses(evidence, portfolio_snapshot)
     try:
-        return LensEngine(lens=lens, lenses=lenses, mode=mode).build_context(
+        return LensEngine(lens=lens, lenses=lenses, mode=mode, research_question=research_question).build_context(
             evidence,
             public_pulses=public_pulses or None,
         ), None

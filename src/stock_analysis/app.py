@@ -8,8 +8,11 @@ from typing import Any
 
 from .company_evidence import build_company_evidence
 from .config import SourceConfig
+from .csi_index import FUND_INDEX_CODES, build_csi_index_snapshot
 from .diagnostics import run_diagnostics
 from .evidence import EvidenceBundle
+from .execution_costs import build_execution_cost_model
+from .fund_research import build_fund_evidence, build_fund_research_workspace
 from .integrations import (
     fetch_a_index_price_volume,
     fetch_a_indices,
@@ -39,8 +42,10 @@ from .market_sentiment import fetch_market_sentiment
 from .market_time import detect_market_session, resolve_trade_date
 from .models import Holding
 from .portfolio import build_portfolio_snapshot
+from .primary_disclosures import load_issuer_primary_facts
 from .profile import load_holdings_from_profile
 from .reporting import render_diagnostics, render_report_with_metadata
+from .research_workspace import build_research_workspace
 from .screening import load_security_master, parse_filter, parse_sort, screen
 from .screening import render_markdown as render_screen_markdown
 from .screening import write_evidence as write_screen_evidence
@@ -58,7 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="daily",
         choices=[
             "daily", "a", "hk", "us", "global", "stock", "fund", "screen", "diagnose",
-            "stock-review", "earnings", "price-move", "portfolio", "thesis-create", "thesis-review",
+            "stock-review", "earnings", "price-move", "portfolio", "thesis-create", "thesis-review", "research",
         ],
     )
     parser.add_argument(
@@ -86,7 +91,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--symbol",
-        help="Symbol for --market stock, fund, stock-review, earnings, price-move, thesis-create or thesis-review",
+        help="Symbol for --market stock, fund, stock-review, earnings, price-move, thesis-create, thesis-review or research",
+    )
+    parser.add_argument(
+        "--workspace-dir",
+        help="Research workspace root; defaults to STOCK_ANALYSIS_RESEARCH_DIR or ~/.stock_analysis/research",
+    )
+    parser.add_argument(
+        "--asset-type",
+        choices=("auto", "company", "fund"),
+        default="auto",
+        help="Asset type for --market research; auto recognizes common A-share fund prefixes",
+    )
+    parser.add_argument(
+        "--research-question",
+        help="Research question used to select the six most relevant committee lenses",
     )
     parser.add_argument("--stock", dest="symbol", help="Alias for --symbol with --market stock")
     parser.add_argument("--fund", dest="symbol", help="Alias for --symbol with --market fund")
@@ -187,7 +206,9 @@ def build_evidence(
     stock_financials = _stock_financial_snapshots(portfolio_snapshot, trade_date)
     fund_profiles = _fund_profiles(portfolio_snapshot, trade_date)
     stock_microstructure = _stock_microstructure_snapshots(portfolio_snapshot, trade_date)
-    stock_trading_costs = _stock_trading_cost_packs(portfolio_snapshot, stock_microstructure)
+    stock_trading_costs = _stock_trading_cost_packs(portfolio_snapshot, stock_microstructure, trade_date)
+    company_primary_disclosures = _company_primary_disclosure_packs(portfolio_snapshot, trade_date)
+    fund_index_snapshots = _fund_index_snapshot_packs(portfolio_snapshot, trade_date)
 
     m1 = {
         "available": bool(a_indices or hk_indices or us_indices),
@@ -277,6 +298,27 @@ def build_evidence(
             },
         ]
     )
+    for symbol, facts in company_primary_disclosures.items():
+        source_events.append({
+            "module": "company_primary_disclosures",
+            "source": "issuer_primary_disclosure",
+            "symbol": symbol,
+            "status": "ok" if any(facts.values()) else "unavailable",
+        })
+    for symbol, snapshot in fund_index_snapshots.items():
+        source_events.append({
+            "module": "fund_index_snapshots",
+            "source": snapshot.get("source") or "csi_index_snapshot",
+            "symbol": symbol,
+            "status": "ok" if snapshot.get("available") else "partial_or_unavailable",
+        })
+    for symbol, model in stock_trading_costs.items():
+        source_events.append({
+            "module": "stock_trading_costs",
+            "source": "scenario_execution_cost_model",
+            "symbol": symbol,
+            "status": "ok" if model.get("available") else "partial_or_unavailable",
+        })
     if public_pulses:
         source_events.append(
             {
@@ -296,6 +338,8 @@ def build_evidence(
             "portfolio_exposure": _portfolio_exposure_pack(portfolio_snapshot),
             "stock_microstructure": stock_microstructure,
             "stock_trading_costs": stock_trading_costs,
+            "company_primary_disclosures": company_primary_disclosures,
+            "fund_index_snapshots": fund_index_snapshots,
             "market_price_volume": price_volume,
             "portfolio_advice_sections": _portfolio_advice_sections(portfolio_snapshot, m1, m2, m3, m4),
             "facts": facts,
@@ -414,34 +458,61 @@ def _safe_a_share_order_book_snapshot(symbol: str, trade_date: str) -> dict[str,
 def _stock_trading_cost_packs(
     portfolio_snapshot: dict[str, Any],
     microstructure: dict[str, Any],
+    trade_date: str,
 ) -> dict[str, Any]:
     packs: dict[str, Any] = {}
     for detail in portfolio_snapshot.get("details") or []:
         symbol = str(detail.get("symbol") or "")
         if not symbol:
             continue
-        quote = detail.get("quote") or {}
         micro = microstructure.get(symbol) or {}
-        turnover = _safe_float(quote.get("turnover")) or _safe_float(micro.get("turnover_cny"))
-        turnover_rate = _safe_float(quote.get("turnover_rate"))
-        spread_bps = _safe_float(micro.get("spread_bps"))
-        if turnover is None and spread_bps is None:
+        try:
+            price_volume = fetch_a_share_price_volume(symbol, trade_date)
+        except Exception:
+            price_volume = {}
+        model = build_execution_cost_model(
+            symbol=symbol,
+            price_volume=price_volume,
+            microstructure=micro,
+        )
+        turnover = (
+            _safe_float(model.get("average_turnover_20d_cny"))
+            or _safe_float(micro.get("turnover_cny"))
+        )
+        model["liquidity_bucket"] = _liquidity_bucket(turnover, _safe_float(model.get("spread_bps")))
+        packs[symbol] = model
+    return packs
+
+
+def _company_primary_disclosure_packs(
+    portfolio_snapshot: dict[str, Any], trade_date: str,
+) -> dict[str, Any]:
+    packs: dict[str, Any] = {}
+    for detail in portfolio_snapshot.get("details") or []:
+        symbol = str(detail.get("symbol") or "")
+        if not symbol or str(detail.get("market") or "").lower() != "a":
             continue
-        # ponytail: bucketed daily proxy is enough for readiness; tick impact curve can replace it later.
-        packs[symbol] = {
-            "available": spread_bps is not None or turnover is not None,
-            "symbol": symbol,
-            "slippage_model": "daily_rebalance_proxy",
-            "spread_bps": spread_bps,
-            "daily_turnover_cny": turnover,
-            "turnover_rate": turnover_rate,
-            "liquidity_bucket": _liquidity_bucket(turnover, spread_bps),
-            "limitations": [
-                "仅估算中低频再平衡成本，不覆盖超短线冲击成本。",
-                "缺少逐笔成交、日内 ADV 曲线和订单簿历史。",
-                "ETF/指数期货对冲成本未建模",
-            ],
-        }
+        try:
+            facts = load_issuer_primary_facts(symbol, trade_date)
+        except Exception:
+            continue
+        if any(facts.values()):
+            packs[symbol] = facts
+    return packs
+
+
+def _fund_index_snapshot_packs(
+    portfolio_snapshot: dict[str, Any], trade_date: str,
+) -> dict[str, Any]:
+    packs: dict[str, Any] = {}
+    for detail in portfolio_snapshot.get("details") or []:
+        symbol = str(detail.get("symbol") or "")
+        index_code = FUND_INDEX_CODES.get(symbol)
+        if index_code:
+            try:
+                packs[symbol] = build_csi_index_snapshot(index_code, trade_date)
+            except Exception as exc:
+                packs[symbol] = {"available": False, "index_code": index_code, "reason": str(exc)}
     return packs
 
 
@@ -484,10 +555,14 @@ def run(argv: list[str] | None = None) -> int:
             parser.error("--symbol or --fund is required when --market fund")
         print(_render_fund_snapshot(args.symbol, trade_date))
         return 0
-    if args.market in {"stock-review", "earnings", "price-move", "thesis-create", "thesis-review"}:
+    if args.market in {"stock-review", "earnings", "price-move", "thesis-create", "thesis-review", "research"}:
         if not args.symbol:
             parser.error(f"--symbol is required when --market {args.market}")
-        pack = build_company_evidence(args.symbol, trade_date)
+        research_is_fund = args.market == "research" and (
+            args.asset_type == "fund"
+            or (args.asset_type == "auto" and str(args.symbol).startswith(("5", "15", "16")))
+        )
+        pack = build_fund_evidence(args.symbol, trade_date) if research_is_fund else build_company_evidence(args.symbol, trade_date)
         if args.market == "stock-review":
             print(render_stock_review(pack))
         elif args.market == "earnings":
@@ -497,6 +572,30 @@ def run(argv: list[str] | None = None) -> int:
         elif args.market == "thesis-create":
             thesis, path = create_thesis(pack)
             print(_render_thesis_create(thesis, path))
+        elif args.market == "research":
+            try:
+                requested_lenses = tuple(item.strip() for item in (args.lenses or "").split(",") if item.strip())
+                if args.lens and not requested_lenses:
+                    requested_lenses = (args.lens,)
+                if research_is_fund:
+                    manifest, workspace = build_fund_research_workspace(
+                        pack,
+                        root=args.workspace_dir,
+                        research_question=args.research_question,
+                        lenses=requested_lenses or None,
+                    )
+                else:
+                    manifest, workspace = build_research_workspace(
+                        pack,
+                        root=args.workspace_dir,
+                        lenses=requested_lenses or None,
+                        research_question=args.research_question,
+                    )
+            except (KeyError, ValueError) as exc:
+                parser.error(str(exc))
+            report_path = workspace / manifest["artifacts"]["institutional_report"]["path"]
+            print(report_path.read_text(encoding="utf-8"))
+            print(f"Research Workspace: {workspace}")
         else:
             thesis, path, changes = review_thesis(pack)
             print(_render_thesis_review(thesis, path, changes))
@@ -569,6 +668,7 @@ def run(argv: list[str] | None = None) -> int:
         lens=args.lens,
         lenses=lenses,
         mode=plan.mode,
+        research_question=args.research_question,
     )
     print(result.markdown)
     if args.emit_evidence:
