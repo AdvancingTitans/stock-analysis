@@ -2,14 +2,35 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "stock-analysis Company Evidence Pack",
   "type": "object",
-  "required": ["schema_version", "symbol", "trade_date", "financial_facts", "financial_history", "modules", "_meta"],
+  "required": ["schema_version", "symbol", "trade_date", "financial_facts", "financial_history", "expectation_model", "modules", "_meta"],
   "properties": {
-    "schema_version": {"const": "1.1"},
+    "schema_version": {"const": "1.2"},
     "symbol": {"type": "string"},
     "trade_date": {"type": "string", "pattern": "^[0-9]{8}$"},
     "financial_facts": {"type": "array"},
     "financial_history": {"type": "array"},
-    "modules": {"type": "object", "required": ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8"]},
+    "expectation_model": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": {"enum": ["unavailable", "market_implied_only", "complete"]},
+        "premise_audit": {"type": "array"},
+        "evidence_arbitration": {"type": "array"},
+        "market_implied": {"type": "array"},
+        "forward_model": {"type": "object"},
+        "sotp_bridge": {"type": "object"},
+        "expectation_gap": {"type": "array"},
+        "monitoring": {"type": "array"}
+      }
+    },
+    "modules": {
+      "type": "object",
+      "required": ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8"],
+      "properties": {
+        "C6": {"type": "object", "required": ["available", "evidence", "gaps", "expectation_model"]},
+        "C8": {"type": "object", "required": ["available", "evidence", "gaps", "monitoring"]}
+      }
+    },
     "_meta": {"type": "object", "required": ["coverage", "available_modules", "missing_modules", "source_events", "evidence_snapshot_id"]}
   }
 }

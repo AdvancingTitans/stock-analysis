@@ -107,6 +107,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--research-question",
         help="Research question used to select the six most relevant committee lenses",
     )
+    parser.add_argument(
+        "--expectations-file",
+        help="JSON assumptions for premise audit, product-line model, SOTP, market-implied expectations, and monitoring",
+    )
     parser.add_argument("--stock", dest="symbol", help="Alias for --symbol with --market stock")
     parser.add_argument("--fund", dest="symbol", help="Alias for --symbol with --market fund")
     parser.add_argument("--fiscal-year", type=int, help="Fiscal year for --market screen")
@@ -562,7 +566,25 @@ def run(argv: list[str] | None = None) -> int:
             args.asset_type == "fund"
             or (args.asset_type == "auto" and str(args.symbol).startswith(("5", "15", "16")))
         )
-        pack = build_fund_evidence(args.symbol, trade_date) if research_is_fund else build_company_evidence(args.symbol, trade_date)
+        expectations = None
+        if args.expectations_file:
+            if research_is_fund:
+                parser.error("--expectations-file currently supports company research only")
+            try:
+                expectations = json.loads(Path(args.expectations_file).read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                parser.error(f"cannot read --expectations-file: {exc}")
+            if not isinstance(expectations, dict):
+                parser.error("--expectations-file must contain a JSON object")
+        try:
+            if research_is_fund:
+                pack = build_fund_evidence(args.symbol, trade_date)
+            elif expectations is not None:
+                pack = build_company_evidence(args.symbol, trade_date, expectations=expectations)
+            else:
+                pack = build_company_evidence(args.symbol, trade_date)
+        except ValueError as exc:
+            parser.error(f"invalid research assumptions: {exc}")
         if args.market == "stock-review":
             print(render_stock_review(pack))
         elif args.market == "earnings":

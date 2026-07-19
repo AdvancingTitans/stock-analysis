@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .execution_costs import build_execution_cost_model
+from .expectations import build_expectation_model
 from .futu_public import fetch_futu_public_pulse
 from .integrations import (
     fetch_a_share_financial_snapshot,
@@ -278,7 +279,11 @@ def _section(available: bool, evidence: list[dict[str, Any]], gaps: list[str], *
     return {"available": available, "evidence": evidence, "gaps": gaps, **extra}
 
 
-def build_company_evidence(symbol: str, trade_date: str) -> dict[str, Any]:
+def build_company_evidence(
+    symbol: str,
+    trade_date: str,
+    expectations: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Create a C1-C8 pack without making investment assertions.
 
     A-share financial facts are currently the only fully structured company
@@ -357,6 +362,99 @@ def build_company_evidence(symbol: str, trade_date: str) -> dict[str, Any]:
             }
         )
     valuation_evidence.extend(_valuation_facts(financials, quote_fact))
+    expectation_model = build_expectation_model(
+        quote.total_market_cap if quote else None,
+        expectations,
+    )
+    for row in expectation_model.get("market_implied") or []:
+        multiple = row["multiple"]
+        suffix = str(int(multiple)) if float(multiple).is_integer() else str(multiple).replace(".", "_")
+        valuation_evidence.append({
+            "metric": f"implied_net_profit_{suffix}x",
+            "period": expectation_model.get("valuation_year") or "valuation_horizon_not_supplied",
+            "value": row["implied_net_profit"],
+            "currency": expectation_model.get("currency") or (quote.currency if quote else None),
+            "source": "market_cap_expectations_bridge",
+            "source_type": "derived_market_implied_expectation",
+            "confidence": "conditional",
+            "formula": "total_market_cap / assumed_valuation_multiple",
+        })
+    forward_model = expectation_model.get("forward_model") or {}
+    for index, item in enumerate(forward_model.get("product_lines") or [], start=1):
+        slug = "".join(char.lower() if char.isalnum() else "_" for char in str(item["name"])).strip("_") or str(index)
+        for field in ("revenue", "net_profit"):
+            valuation_evidence.append({
+                "metric": f"forward_product_{slug}_{field}",
+                "period": expectation_model.get("valuation_year") or "valuation_horizon_not_supplied",
+                "value": item[field],
+                "currency": expectation_model.get("currency"),
+                "source": "user_supplied_research_assumption",
+                "source_type": "derived_forward_product_model",
+                "confidence": "conditional",
+                "formula": item["formula"],
+            })
+    for index, item in enumerate(forward_model.get("segments") or [], start=1):
+        slug = "".join(char.lower() if char.isalnum() else "_" for char in str(item["name"])).strip("_") or str(index)
+        valuation_evidence.append({
+            "metric": f"forward_segment_{slug}_value",
+            "period": expectation_model.get("valuation_year") or "valuation_horizon_not_supplied",
+            "value": item["value"],
+            "currency": expectation_model.get("currency"),
+            "source": "user_supplied_research_assumption",
+            "source_type": "derived_forward_sotp",
+            "confidence": "conditional",
+            "formula": item["formula"],
+        })
+    bridge = expectation_model.get("sotp_bridge") or {}
+    if forward_model.get("forward_net_profit") is not None:
+        valuation_evidence.append({
+            "metric": "forward_net_profit",
+            "period": expectation_model.get("valuation_year") or "valuation_horizon_not_supplied",
+            "value": forward_model["forward_net_profit"],
+            "currency": expectation_model.get("currency"),
+            "source": "user_supplied_research_assumption",
+            "source_type": "forward_valuation_assumption",
+            "confidence": "conditional",
+        })
+    if forward_model.get("segments"):
+        valuation_evidence.append({
+            "metric": "sotp_residual_value",
+            "period": expectation_model.get("valuation_year") or "valuation_horizon_not_supplied",
+            "value": bridge.get("residual_value"),
+            "currency": expectation_model.get("currency"),
+            "source": "market_cap_expectations_bridge",
+            "source_type": "derived_forward_reverse_reconciliation",
+            "confidence": "conditional",
+            "formula": bridge.get("formula"),
+            "reconciliation_status": bridge.get("status"),
+        })
+    for row in expectation_model.get("expectation_gap") or []:
+        multiple = row["multiple"]
+        suffix = str(int(multiple)) if float(multiple).is_integer() else str(multiple).replace(".", "_")
+        valuation_evidence.append({
+            "metric": f"expectation_gap_{suffix}x",
+            "period": expectation_model.get("valuation_year") or "valuation_horizon_not_supplied",
+            "value": row["gap"],
+            "currency": expectation_model.get("currency"),
+            "source": "forward_reverse_expectations_bridge",
+            "source_type": "derived_forward_reverse_reconciliation",
+            "confidence": "conditional",
+            "formula": "forward_net_profit - market_implied_net_profit",
+        })
+    option_value = expectation_model.get("option_value") or {}
+    for field in ("required_net_profit", "required_revenue"):
+        if option_value.get(field) is None:
+            continue
+        valuation_evidence.append({
+            "metric": f"option_{field}",
+            "period": expectation_model.get("valuation_year") or "valuation_horizon_not_supplied",
+            "value": option_value[field],
+            "currency": expectation_model.get("currency"),
+            "source": "market_cap_expectations_bridge",
+            "source_type": "derived_option_value_requirement",
+            "confidence": "conditional",
+            "formula": option_value.get("formula"),
+        })
     price_metrics = (price_volume.get("metrics") or {}) if price_volume else {}
     execution_evidence = [
         {
@@ -401,6 +499,18 @@ def build_company_evidence(symbol: str, trade_date: str) -> dict[str, Any]:
         if annual_period.get(metric) is not None
     ]
     management_evidence = governance + capital_allocation + financing_facts + issuer_primary["C5"]
+    monitoring_evidence = [
+        {
+            "metric": item["metric"],
+            "value": item.get("baseline"),
+            "period": item.get("next_check_date") or trade_date,
+            "view_change_condition": item["view_change_condition"],
+            "source": item.get("source") or "user_supplied_research_assumption",
+            "source_type": "thesis_monitoring_trigger",
+            "confidence": "conditional",
+        }
+        for item in expectation_model.get("monitoring") or []
+    ]
     financial_gap = "当前市场缺少可验证的结构化财务事实" if market != "a" else "财务披露字段不足"
     no_management_gap = "尚未接入经核验的管理层、回购、分红、增减持和治理事件源"
     sections = {
@@ -409,7 +519,16 @@ def build_company_evidence(symbol: str, trade_date: str) -> dict[str, Any]:
         "C3": _section(bool(growth_evidence or primary_disclosures), growth_evidence + primary_disclosures, [] if growth_evidence or primary_disclosures else [financial_gap]),
         "C4": _section(bool(moat_evidence), moat_evidence, ["毛利率仅为护城河代理，品牌、份额、批价和渠道库存仍需一手经营证据"]),
         "C5": _section(bool(management_evidence), management_evidence, [] if management_evidence else [no_management_gap]),
-        "C6": _section(len(valuation_evidence) > 1, valuation_evidence, ["历史估值分位、同行比较和情景估值尚未齐备"]),
+        "C6": _section(
+            len(valuation_evidence) > 1,
+            valuation_evidence,
+            [
+                "市场隐含利润已按估值倍数反推；未提供 expectations 文件时，正向分部模型、SOTP 对账与预期差仍为空"
+                if expectation_model.get("status") == "market_implied_only"
+                else "历史估值分位和同行比较尚未齐备"
+            ],
+            expectation_model=expectation_model,
+        ),
         "C7": _section(
             bool(price_metrics or event_evidence or governance or issuer_primary["C7"]),
             [{"metric": key, "value": value, "source": price_volume.get("source")} for key, value in price_metrics.items()]
@@ -420,16 +539,17 @@ def build_company_evidence(symbol: str, trade_date: str) -> dict[str, Any]:
             ["尚未取得可核验的公司级监管、诉讼或治理风险披露"] if not governance else [],
         ),
         "C8": _section(
-            bool(event_evidence or disclosure_rows or primary_disclosures or issuer_primary["C8"]),
-            event_evidence + disclosure_rows + primary_disclosures + issuer_primary["C8"],
-            ["尚未建立该标的的持久化论文或催化剂日历"] if not event_evidence and not disclosure_rows and not primary_disclosures and not issuer_primary["C8"] else [],
+            bool(event_evidence or disclosure_rows or primary_disclosures or issuer_primary["C8"] or monitoring_evidence),
+            event_evidence + disclosure_rows + primary_disclosures + issuer_primary["C8"] + monitoring_evidence,
+            ["尚未建立该标的的持久化论文或催化剂日历"] if not event_evidence and not disclosure_rows and not primary_disclosures and not issuer_primary["C8"] and not monitoring_evidence else [],
+            monitoring=expectation_model.get("monitoring") or [],
         ),
     }
     _identify_evidence(sections)
     available = [key for key, value in sections.items() if value["available"]]
     missing = [key for key, value in sections.items() if not value["available"]]
     result = {
-        "schema_version": "1.1",
+        "schema_version": "1.2",
         "symbol": normalized,
         "name": quote.name if quote else normalized,
         "market": market,
@@ -441,6 +561,7 @@ def build_company_evidence(symbol: str, trade_date: str) -> dict[str, Any]:
         "price_volume": price_volume,
         "microstructure": microstructure,
         "execution_cost_model": execution_cost_model,
+        "expectation_model": expectation_model,
         "modules": sections,
         "_meta": {
             "available_modules": available,
@@ -453,6 +574,7 @@ def build_company_evidence(symbol: str, trade_date: str) -> dict[str, Any]:
                 {"source": disclosures.get("_source") or "Futu 免登录公告搜索", "status": "ok" if disclosure_rows else "unavailable"},
                 {"source": "issuer_primary_disclosure", "status": "ok" if any(issuer_primary.values()) else "unavailable"},
                 {"source": "execution_cost_model", "status": "ok" if execution_cost_model.get("available") else "unavailable"},
+                {"source": "expectations_model", "status": expectation_model.get("status")},
             ],
         },
     }

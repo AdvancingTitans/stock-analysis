@@ -15,7 +15,7 @@ FUND_INDEX_CODES = {"512480": "H30184"}
 
 
 def _download_xls(url: str) -> list[list[Any]]:
-    response = requests.get(url, timeout=20, headers={"User-Agent": "stock-analysis/4.12.0"})
+    response = requests.get(url, timeout=20, headers={"User-Agent": "stock-analysis/4.13.0"})
     response.raise_for_status()
     workbook = xlrd.open_workbook(file_contents=response.content)
     sheet = workbook.sheet_by_index(0)
@@ -27,7 +27,7 @@ def _download_performance(index_code: str, start_date: str, end_date: str) -> li
         "https://www.csindex.com.cn/csindex-home/perf/index-perf"
         f"?indexCode={index_code}&startDate={start_date}&endDate={end_date}"
     )
-    response = requests.get(url, timeout=20, headers={"User-Agent": "stock-analysis/4.12.0"})
+    response = requests.get(url, timeout=20, headers={"User-Agent": "stock-analysis/4.13.0"})
     response.raise_for_status()
     payload = response.json()
     return payload.get("data") or []

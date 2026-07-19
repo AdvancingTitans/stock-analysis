@@ -21,7 +21,7 @@ def _number(value: str) -> float:
 
 
 def _extract_document_pages(url: str, pages: set[int]) -> dict[int, str]:
-    response = requests.get(url, timeout=30, headers={"User-Agent": "stock-analysis/4.12.0"})
+    response = requests.get(url, timeout=30, headers={"User-Agent": "stock-analysis/4.13.0"})
     response.raise_for_status()
     reader = PdfReader(io.BytesIO(response.content))
     return {

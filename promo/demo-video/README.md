@@ -17,3 +17,5 @@ npm run render
 - Preview stills: `out/preview-en.png`, `out/preview-zh-CN.png`
 
 The demo intentionally uses no voiceover or music, so it works in muted social feeds and can be localized by editing the scene copy in `src/video.jsx`.
+
+The current cut follows the company-research reasoning chain: premise audit → comparable evidence → forward product-line/SOTP model → market-implied earnings → expectation-gap reconciliation → monitoring triggers and committee review.

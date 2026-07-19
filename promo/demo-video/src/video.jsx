@@ -114,15 +114,15 @@ const Hook = ({zh}) => {
     <Scene duration={210} label={zh ? '从投资问题开始' : 'start with the investor question'} zh={zh}>
       <div style={{position: 'absolute', left: 150, top: 205, width: 1460}}>
         <div style={rise(frame, fps)}>
-          <Badge tone={C.amber}>{zh ? '给投资者的行情复盘' : 'MARKET RECAPS FOR INVESTORS'}</Badge>
+          <Badge tone={C.amber}>{zh ? '正向建模 + 逆向验价' : 'FORWARD MODEL + REVERSE PRICE'}</Badge>
         </div>
         <div style={{...rise(frame, fps, 10), marginTop: 38, fontSize: 80, lineHeight: 1.08, fontWeight: 600}}>
-          {zh ? '先把行情看全' : 'See the market clearly'}
+          {zh ? '不只预测利润' : 'Do more than forecast earnings'}
           <br />
-          <span style={{color: C.amber}}>{zh ? '再把判断说清' : 'before forming a view'}</span>
+          <span style={{color: C.amber}}>{zh ? '还要解释股价' : 'explain what the price assumes'}</span>
         </div>
         <div style={{...rise(frame, fps, 45), marginTop: 40, fontSize: 30, color: C.muted}}>
-          {zh ? '每个关键结论都应该经得起回查' : 'Every strong conclusion should be traceable'}
+          {zh ? '把真正的投资分歧翻译成可验证指标' : 'Translate the real disagreement into testable operating metrics'}
         </div>
       </div>
     </Scene>
@@ -133,12 +133,12 @@ const Gap = ({zh}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   const items = zh
-    ? [['全球行情', '跨市场与下一交易日'], ['个股异动', '量价 新闻与未知部分'], ['基金', '净值 持仓 暴露与风险'], ['财报与筛选', '披露变化与明确条件']]
-    : [['Global markets', 'cross-market moves and next session'], ['Stock moves', 'price-volume news and unknowns'], ['Funds', 'NAV holdings exposure and risk'], ['Earnings and screens', 'disclosed changes and explicit rules']];
+    ? [['前提可能有误', '先核口径 再解释'], ['证据相互冲突', '同口径后再仲裁'], ['正向模型很好看', '市值可能早已计价'], ['下一季看什么', '指标 日期与观点变化']]
+    : [['The premise may be wrong', 'verify scope before explaining'], ['Evidence can conflict', 'compare like with like'], ['The model can look great', 'the price may already discount it'], ['What changes next quarter?', 'metric date and view trigger']];
   return (
     <Scene duration={180} label={zh ? '不止今天大盘' : 'more than a daily index recap'} zh={zh}>
       <div style={{position: 'absolute', left: 150, right: 150, top: 170}}>
-        <div style={{fontSize: 54, fontWeight: 600, ...rise(frame, fps)}}>{zh ? '你想看的 不止今天大盘' : 'Your market questions go beyond the headline index'}</div>
+        <div style={{fontSize: 54, fontWeight: 600, ...rise(frame, fps)}}>{zh ? '成熟研究先处理四个难题' : 'Disciplined research solves four hard problems first'}</div>
         <div style={{marginTop: 45, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18}}>
           {items.map(([a, b], i) => (
             <div
@@ -176,7 +176,7 @@ const Brand = ({zh}) => {
           <div style={{fontSize: 104, fontWeight: 700, letterSpacing: -4}}>
             stock<span style={{color: C.green}}>-analysis</span>
           </div>
-          <div style={{fontSize: 39, marginTop: 25}}>{zh ? '让 Agent 先核验行情 再组织深度复盘' : 'Let the Agent verify market evidence and build the recap'}</div>
+          <div style={{fontSize: 39, marginTop: 25}}>{zh ? '核验事实 建模经营 再解释市场定价' : 'Verify facts. Model the business. Explain the price.'}</div>
           <div style={{marginTop: 46, display: 'flex', justifyContent: 'center', gap: 14}}>
             <Badge>{zh ? '全球行情' : 'Global markets'}</Badge>
             <Badge>{zh ? '个股' : 'Stocks'}</Badge>
@@ -197,12 +197,12 @@ const Terminal = ({zh}) => {
   const prompts = zh
     ? [
         '复盘今天全球行情 用投委会框架给出下一交易日观察清单',
-        '深度分析贵州茅台 核对年报 现金流 分红与估值',
+        '分析东山精密 正向拆产品线 再逆向验证市值隐含利润',
         '研究512480 重算指数跟踪误差 回撤和交易成本',
       ]
     : [
         'Recap global markets through the committee framework and build a next-session watchlist',
-        'Research Kweichow Moutai using filings cash flow payout and valuation',
+        'Research a company with product-line SOTP and market-implied earnings',
         'Review 512480 with index tracking drawdown and execution costs',
       ];
   return (
@@ -253,13 +253,13 @@ const Evidence = ({zh}) => {
   const {fps} = useVideoConfig();
   const coverage = zh ? ['A股', '港股', '美股', '基金', '持仓组合'] : ['A-shares', 'Hong Kong', 'US stocks', 'Funds', 'Portfolios'];
   const evidenceTypes = zh
-    ? ['行情与量价', '资金与板块', '官方年报PDF', '治理与资本配置', '指数成分与日线', '跟踪误差', '订单成本', '持仓组合']
-    : ['Quotes and volume', 'Flows and sectors', 'Official annual reports', 'Governance and allocation', 'Index constituents and history', 'Tracking error', 'Order costs', 'Portfolios'];
+    ? ['前提审计', '同口径证据仲裁', '官方年报PDF', '产品线与SOTP', '市值隐含利润', '预期差对账', '观点变化触发器', '动态投委会']
+    : ['Premise audit', 'Comparable evidence', 'Official annual reports', 'Product lines and SOTP', 'Market-implied earnings', 'Expectation-gap bridge', 'View-change triggers', 'Dynamic committee'];
   return (
     <Scene duration={330} label={zh ? '数据广度与证据深度' : 'market breadth and evidence depth'} zh={zh}>
       <div style={{position: 'absolute', left: 130, right: 130, top: 115}}>
         <Badge>{zh ? '多市场 多类型 多来源' : 'MULTI-MARKET · MULTI-SOURCE'}</Badge>
-        <div style={{fontSize: 54, fontWeight: 600, marginTop: 22}}>{zh ? '看见行情的广度 也看见证据的深度' : 'Market breadth. Evidence depth.'}</div>
+        <div style={{fontSize: 54, fontWeight: 600, marginTop: 22}}>{zh ? '不把假设写成事实 不把市值留在模型之外' : 'Keep assumptions separate—and price inside the model'}</div>
         <div style={{marginTop: 30, padding: 24, borderRadius: 18, border: `1px solid ${C.line}`, background: C.panel}}>
           <div style={{fontSize: 16, color: C.green, letterSpacing: 2}}>{zh ? '覆盖范围' : 'COVERAGE'}</div>
           <div style={{display: 'flex', gap: 13, marginTop: 17}}>
@@ -330,27 +330,29 @@ const AgentFlow = ({zh}) => {
   const {fps} = useVideoConfig();
   const flows = zh
     ? [
-        ['复盘今天全球行情', 'M1–M6 行情证据', '投委会或指定框架复盘'],
-        ['分析个股 财报或异动', 'C1–C8 财务 年报 治理与估值', '动态投委会个股报告'],
-        ['分析基金', 'F1–F8 指数 日线 跟踪与成本', 'ETF深度研究报告'],
+        ['核验前提', '报告期 口径 来源', '错误或歧义不进入模型'],
+        ['正向建模', '出货×ASP×利润率', '产品线利润与SOTP'],
+        ['逆向验价', '市值÷估值倍数', '隐含利润与期权剩余值'],
+        ['形成判断', '正反模型预期差', '跟踪指标与观点变化'],
       ]
     : [
-        ['Recap global markets', 'M1–M6 market evidence', 'Committee or chosen-framework recap'],
-        ['Review a stock earnings or move', 'C1–C8 financials filings governance and value', 'Dynamic committee stock report'],
-        ['Review a fund', 'F1–F8 index history tracking and costs', 'Deep ETF research report'],
+        ['Audit premise', 'period scope and source', 'block incorrect or ambiguous inputs'],
+        ['Build forward', 'units × ASP × margin', 'product profit and SOTP'],
+        ['Reverse price', 'market cap ÷ multiple', 'implied profit and option residual'],
+        ['Form the view', 'forward vs implied gap', 'monitoring and view triggers'],
       ];
   return (
     <Scene duration={300} label={zh ? '从问题到对应报告' : 'from question to the matching report'} zh={zh}>
       <div style={{position: 'absolute', left: 120, right: 120, top: 125}}>
-        <div style={{fontSize: 52, fontWeight: 600}}>{zh ? '你的问题不同 证据路径和投资框架也不同' : 'Different questions call for different evidence paths and frameworks'}</div>
+        <div style={{fontSize: 52, fontWeight: 600}}>{zh ? '从能建模 到能解释市场定价' : 'From building a model to explaining market pricing'}</div>
         <div style={{display: 'grid', gap: 14, marginTop: 38}}>
           {flows.map(([question, evidence, report], i) => {
             const p = spring({frame: frame - i * 18, fps, config: {damping: 18}});
             return (
-              <div key={question} style={{opacity: p, transform: `translateY(${16 * (1 - p)}px)`, display: 'grid', gridTemplateColumns: '1.05fr 1.15fr 1.1fr', alignItems: 'center', gap: 18}}>
+              <div key={question} style={{opacity: p, transform: `translateY(${16 * (1 - p)}px)`, display: 'grid', gridTemplateColumns: '1fr 1.1fr 1.25fr', alignItems: 'center', gap: 18}}>
                 {[question, evidence, report].map((textValue, j) => (
                   <div key={textValue} style={{minHeight: 128, padding: '24px 26px', boxSizing: 'border-box', borderRadius: 16, border: `1px solid ${j === 1 ? C.green : C.line}`, background: C.panel}}>
-                    <div style={{fontSize: 14, color: j === 1 ? C.lime : C.green, letterSpacing: 1.5}}>{j === 0 ? (zh ? '你的问题' : 'YOUR QUESTION') : j === 1 ? (zh ? '证据路径' : 'EVIDENCE PATH') : (zh ? '对应报告' : 'MATCHING REPORT')}</div>
+                    <div style={{fontSize: 14, color: j === 1 ? C.lime : C.green, letterSpacing: 1.5}}>{j === 0 ? (zh ? '研究阶段' : 'STAGE') : j === 1 ? (zh ? '确定性计算' : 'DETERMINISTIC STEP') : (zh ? '研究输出' : 'RESEARCH OUTPUT')}</div>
                     <div style={{fontSize: 21, lineHeight: 1.4, marginTop: 14}}>{textValue}</div>
                   </div>
                 ))}
@@ -371,16 +373,16 @@ const Close = ({zh}) => {
       <div style={{position: 'absolute', inset: 0, display: 'grid', placeItems: 'center'}}>
         <div style={{textAlign: 'center', width: 1500}}>
           <div style={{...rise(frame, fps), fontSize: zh ? 64 : 56, lineHeight: 1.15, fontWeight: 650}}>
-            {zh ? '从全球行情 到一只股票 一只基金' : 'From global markets to a stock, fund, or portfolio'}<br />
-            {zh ? '从投委会 到你指定的投资视角' : 'From committee review to the framework you choose'}<br />
-            <span style={{color: C.green}}>{zh ? '先核验行情 再形成判断' : 'Verify the evidence. Then form a view.'}</span>
+            {zh ? '正向回答 公司能赚多少' : 'Forward: what can the business earn?'}<br />
+            {zh ? '逆向回答 股价已经相信多少' : 'Reverse: what does the price already believe?'}<br />
+            <span style={{color: C.green}}>{zh ? '真正的机会 藏在两者之间' : 'The investable question lives in the gap.'}</span>
           </div>
           <div style={{...rise(frame, fps, 14), display: 'inline-flex', marginTop: 42, padding: '21px 30px', border: `1px solid ${C.line}`, borderRadius: 14, background: C.panel, fontFamily: 'SFMono-Regular, Menlo, monospace', fontSize: 25}}>
             <span style={{color: C.green, marginRight: 17}}>$</span> scripts/install-agent-entrypoints.sh codex
           </div>
           <div style={{...rise(frame, fps, 24), marginTop: 30, fontSize: 26, color: C.muted}}>github.com/AdvancingTitans/stock-analysis</div>
           <div style={{...rise(frame, fps, 34), marginTop: 24, display: 'flex', justifyContent: 'center', gap: 12}}>
-            <Badge>{zh ? '动态6人投委会' : 'Dynamic six-member committee'}</Badge><Badge>{zh ? '年报 指数 成本' : 'Filings Index Costs'}</Badge><Badge tone={C.lime}>{zh ? '下次研究可对比' : 'Compare the next review'}</Badge>
+            <Badge>{zh ? '前提审计' : 'Premise audit'}</Badge><Badge>{zh ? '正向+逆向估值' : 'Forward + reverse valuation'}</Badge><Badge tone={C.lime}>{zh ? '观点变化触发器' : 'View-change triggers'}</Badge>
           </div>
         </div>
       </div>

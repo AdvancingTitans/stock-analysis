@@ -1,0 +1,41 @@
+{
+  "valuation_year": 2027,
+  "currency": "CNY",
+  "multiples": [20, 25, 30, 35],
+  "forward_net_profit": 18000000000,
+  "premises": [
+    {
+      "claim": "illustrative mature-business net profit",
+      "asserted_value": 3800000000,
+      "verified_value": null,
+      "asserted_scope": "attributable net profit"
+    }
+  ],
+  "product_lines": [
+    {"name": "product_A", "units": 1000000, "asp": 8000, "net_margin_pct": 20},
+    {"name": "product_B", "units": 500000, "asp": 12000, "net_margin_pct": 25},
+    {"name": "internal_component", "units": 1000000, "asp": 1000, "net_margin_pct": 40}
+  ],
+  "segments": [
+    {"name": "mature_business", "net_profit": 3800000000, "multiple": 22},
+    {
+      "name": "growth_business_core",
+      "net_profit": 10000000000,
+      "multiple": 30,
+      "includes_product_lines": ["product_A", "product_B", "internal_component"]
+    }
+  ],
+  "option_value": {
+    "name": "external_component_sales",
+    "multiple": 40,
+    "net_margin_pct": 40
+  },
+  "monitoring": [
+    {
+      "metric": "product_B quarterly shipments",
+      "baseline": 500000,
+      "next_check_date": "2027Q1",
+      "view_change_condition": "two consecutive quarters below the forward model"
+    }
+  ]
+}

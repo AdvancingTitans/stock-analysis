@@ -10,11 +10,11 @@
 </p>
 
 <p align="center">
-  <strong>Turn one investment question into an institutional-style report with evidence, debate, and decision conditions.</strong>
+  <strong>Build the operating model. Reverse-engineer the price. Find the expectation gap.</strong>
 </p>
 
 <p align="center">
-  A/HK/US stocks · ETFs / funds · Portfolios · Dynamic committee · Primary disclosures · Multi-source validation
+  A/HK/US stocks · Forward + reverse valuation · SOTP · ETFs / funds · Dynamic committee · Primary disclosures
 </p>
 
 <p align="center">
@@ -52,7 +52,7 @@ Investors rarely struggle because they cannot generate another paragraph of comm
 - Did the latest filing improve earnings quality, cash conversion, and shareholder returns?
 - Does a ten-position portfolio actually contain ten independent risks?
 
-`stock-analysis` handles the time-consuming first step: gather public data and primary disclosures, align dates and definitions, then assemble the six investment frameworks most relevant to the question. The output is not a one-line Buy/Sell label. It is a report covering facts, valuation, risks, disagreements, and conditional actions.
+`stock-analysis` handles the hard middle of investment research: verify the premise, reconcile conflicting evidence, build the operating case, and reverse the current market cap into the earnings it already discounts. The output shows the gap between your model and the market's model—not a one-line Buy/Sell label.
 
 After installing the Skill, ask your Agent in plain language:
 
@@ -71,6 +71,7 @@ stock-analysis --market daily
 stock-analysis --market stock --symbol 600519
 stock-analysis --market screen --fiscal-year 2025 --universe-file official_universe.json --filter roe_weighted:gt:8% --sort roe_weighted:desc
 stock-analysis --market research --symbol 512480 --asset-type fund
+stock-analysis --market research --symbol 600519 --expectations-file examples/company-expectations.example.json
 ```
 
 > The output is for research only and does not constitute investment advice.
@@ -80,13 +81,13 @@ stock-analysis --market research --symbol 512480 --asset-type fund
 - [English video](promo/demo-video/out/stock-analysis-demo-en.mp4)
 - [简体中文视频](promo/demo-video/out/stock-analysis-demo-zh-CN.mp4)
 
-Both demos are 1080p, 72 seconds, caption-led, and work without audio. The current cut shows dynamic committee selection, official filings, index history, tracking error, and execution costs. Editable Remotion source lives in [`promo/demo-video`](promo/demo-video/).
+Both demos are 1080p, 72 seconds, caption-led, and work without audio. The current cut shows premise checks, evidence boundaries, forward product-line/SOTP modelling, market-implied earnings, expectation-gap reconciliation, and the dynamic committee. Editable Remotion source lives in [`promo/demo-video`](promo/demo-video/).
 
 ## Why It Exists
 
 Many AI investing tools start by asking several agents to debate and end with polished prose. The hard middle is often missing: Which reporting period does a number belong to? What index does an ETF actually own? Can disclosed tracking error be recomputed? How much return might spread and market impact consume on a CNY 1m order?
 
-`stock-analysis` follows a different order: **build the evidence, select the frameworks, then form the view.**
+`stock-analysis` follows a different order: **audit the premise, build the evidence, model the business, reverse the price, then form the view.**
 
 | Common approach | What it does well | The choice made here |
 |---|---|---|
@@ -98,6 +99,8 @@ Many AI investing tools start by asking several agents to debate and end with po
 The project pays particular attention to details that generic reports often skip:
 
 - Company research reads structured financials and official annual-report PDFs, including governance and capital allocation. Net margin and operating-cash conversion reach every committee member.
+- Company valuation runs in both directions. Product-line revenue and SOTP build the forward case; the current market cap is then translated into implied earnings at explicit multiples and reconciled against that case.
+- Residual option value stays separate from core earnings. Internal components cannot be counted in both a product line and a segment, and a negative SOTP residual is reported rather than silently clamped to zero.
 - ETF research goes beyond NAV and top holdings. It reads official constituents, weights, valuation, and index history, then recomputes correlation, beta, tracking error, drawdown, and volatility.
 - Stocks and ETFs share one order-cost scenario model covering spread, commission, venue fees, transfer fees, applicable stamp duty, and market impact.
 - A later review can preserve the earlier workspace and identify what changed.
@@ -127,17 +130,20 @@ Claude Code supports native `/command` entrypoints. In Codex, Custom Prompts app
 ```mermaid
 flowchart TB
     U["Your investment question\nasset · date · decision tension"] --> I["Intent routing\nmarket · company · ETF/fund · portfolio · earnings · price move"]
-    I --> P["Research Planner\nquestions and hypotheses to test"]
+    I --> P["Premise audit + evidence arbitration\nperiod · scope · source tier · conflicts"]
     P --> C1["Market evidence\nquotes · flows · sectors · risk"]
-    P --> C2["Company disclosures\nannual reports · financials · governance · capital allocation"]
-    P --> C3["Fund and index\nholdings · weights · valuation · index history"]
-    C1 --> V["Validation and as-of control\ndates · units · deduplication · source fallback"]
+    P --> C2["Company disclosures\nannual reports · financials · governance"]
+    P --> C3["Fund and index\nholdings · weights · valuation · history"]
+    C1 --> V["Validated research base\nM1–M6 · C1–C8 · F1–F8 · Portfolio"]
     C2 --> V
     C3 --> V
-    V --> E["Structured research base\nM1–M6 · C1–C8 · F1–F8 · Portfolio"]
-    E --> K["Dynamic committee\nsix relevant frameworks selected from fifteen"]
+    V --> F["Forward model\nunits × ASP · margins · segment profit · SOTP"]
+    V --> B["Reverse model\nmarket cap ÷ multiple · implied profit · residual option value"]
+    F --> G["Expectation-gap bridge\nmodel vs price · feasibility · no double counting"]
+    B --> G
+    G --> K["Dynamic committee\nsix relevant frameworks selected from fifteen"]
     K --> S["Committee synthesis\nconsensus · disagreement · vetoes · conditional actions"]
-    S --> R["Investor report\nsummary · deep analysis · valuation · risk · watchlist"]
+    S --> R["Investor report\nwhat is priced in · variant view · triggers · watchlist"]
     S --> W["Recoverable workspace\nstage outputs · compare the next review"]
 ```
 
@@ -146,7 +152,7 @@ For an investor, this reduces to four steps:
 1. State the asset and the decision question in normal language.
 2. The system chooses the appropriate evidence path and blocks information published after the research date.
 3. Six relevant frameworks are selected from fifteen; the committee is not a fixed cast repeating generic views.
-4. The report leads with the decision, then shows supporting numbers, disagreements, invalidation conditions, and what to monitor next.
+4. For companies, the report reconciles the forward model with market-implied earnings before showing disagreements, invalidation conditions, and what to monitor next.
 
 The essential boundary is deliberate: **the question selects the research path, code obtains and validates evidence, and an investment framework only interprets existing data.** M1–M6 describes markets and portfolios, C1–C8 describes companies, and F1–F8 describes fund contracts, index exposure, valuation, tracking, and implementation.
 
@@ -335,13 +341,26 @@ Think of this as a “facts to check before doing more research” list. It is n
 | C3 Growth quality | Is the claimed growth visible in disclosed numbers? | Structured revenue/profit history; it does not guess the source of growth. |
 | C4 Moat evidence | Is there evidence for pricing power, stickiness, or cost advantage? | Observable evidence only; absent data is explicit. |
 | C5 Management and capital allocation | Can buybacks, dividends, deals, dilution, or governance events be checked? | Available public events; no management verdict where coverage is absent. |
-| C6 Valuation and margin of safety | What do price and valuation-related facts say today? | Quote, disclosed financial facts, and calculable metrics; never a “buy score.” |
+| C6 Valuation and margin of safety | What does the operating model imply, and what is the market already pricing? | Static valuation plus product-line/SOTP assumptions, market-implied earnings, expectation-gap reconciliation, and residual option value. |
 | C7 Risk and counter-evidence | What facts would weaken the original case? | Price/volume anomalies, disclosed risks, and evidence gaps. |
-| C8 Catalysts and thesis tracking | What public events should be revisited next? | News/event samples and the local-thesis review entrypoint. |
+| C8 Catalysts and thesis tracking | What evidence would change the view, and when can it be checked? | News/events plus structured metric, baseline, next-check date, and view-change condition. |
 
 **Simplest choice:** run `stock-review` once, then read its available and missing modules. If you only want today’s price and recent movement, use `stock-snapshot`. If results have just been released, use `earnings-review`. If the price has moved sharply, use `price-move`. These are four different questions and should not substitute for one another.
 
 Company research has a different data boundary from daily market recap. `company_evidence_<symbol>_<date>.json` stores C1–C8 verified facts and gaps. The current structured financial adapter is A-share focused; HK/US primary-filing fields intentionally remain gaps until a verified adapter exists, so those results are not a complete fundamental-research conclusion.
+
+### Forward model + reverse price validation
+
+Pass an explicit JSON assumption set when the research question requires product-line economics, SOTP, or option value:
+
+```bash
+stock-analysis --market research --symbol 600519 \
+  --expectations-file examples/company-expectations.example.json
+```
+
+The deterministic engine calculates `units × ASP → revenue → net profit → segment value`, then independently calculates `market cap ÷ multiple → implied net profit`. It reports the expectation gap at each multiple, the SOTP residual, and the revenue/profit an optional business would need to justify that residual. Assumptions remain labelled as assumptions; an unverified premise does not become a company fact. See the fully annotated [example input](examples/company-expectations.example.json).
+
+The double-count guard is deliberate: a product line listed under `includes_product_lines` can belong to only one segment. This prevents an internally consumed component from lifting module margins and then being valued again as standalone revenue. If assigned segment values exceed market cap, the residual remains negative and is marked `overallocated`.
 
 ### Recoverable Research Workspace
 
@@ -430,7 +449,7 @@ Lenses change evidence priority and narrative structure. They do not override da
 
 ### Built-in Lens and Committee Boundaries
 
-Current CLI version: `4.12.0`.
+Current CLI version: `4.13.0`.
 
 `research` reports retain the denser Chinese committee narrative from the 4.5 series while keeping recoverable, traceable research state inside the Workspace. Company and fund reports preserve their institutional committee spines, but user-facing Markdown no longer exposes coverage flags, missing-module diagnostics, internal actions, snapshot IDs, or audit terminology.
 

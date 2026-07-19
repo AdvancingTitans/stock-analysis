@@ -251,6 +251,82 @@ def _fmt(value: Any, digits: int = 2, suffix: str = "") -> str:
         return f"{value}{suffix}"
 
 
+def _expectation_valuation_lines(pack: dict[str, Any]) -> list[str]:
+    model = pack.get("expectation_model") or {}
+    implied = model.get("market_implied") or []
+    if not implied:
+        return ["", "当前总市值不可得，无法反推市场隐含利润。"]
+    year = model.get("valuation_year") or "未指定估值年份"
+    lines = [
+        "",
+        f"### 逆向验证：当前市值在交易什么（{year}）",
+        "",
+        "| 假设估值倍数 | 市值隐含净利润 |",
+        "|---:|---:|",
+    ]
+    for row in implied:
+        if row["multiple"] in {20.0, 22.0, 25.0, 30.0, 35.0}:
+            lines.append(f"| {_fmt(row['multiple'], 1, 'x')} | {_fmt(row['implied_net_profit'] / 1e8, 1, '亿元')} |")
+    lines.extend([
+        "",
+        "这张表不是盈利预测，而是把当前股价翻译成可检验的盈利门槛；估值年份和倍数变化会改变隐含结果。",
+    ])
+
+    forward = model.get("forward_model") or {}
+    products = forward.get("product_lines") or []
+    if products:
+        lines.extend(["", "### 正向产品线模型", "", "| 产品线 | 出货量 | ASP | 收入 | 净利润 |", "|---|---:|---:|---:|---:|"])
+        for item in products:
+            lines.append(
+                f"| {item['name']} | {_fmt(item.get('units'), 0)} | {_fmt(item.get('asp'), 2)} | "
+                f"{_fmt(item['revenue'] / 1e8, 1, '亿元')} | {_fmt(item['net_profit'] / 1e8, 1, '亿元')} |"
+            )
+    segments = forward.get("segments") or []
+    if segments:
+        lines.extend(["", "### SOTP 与市值剩余价值", "", "| 分部 | 正向净利润 | 估值倍数 | 分部价值 |", "|---|---:|---:|---:|"])
+        for item in segments:
+            lines.append(
+                f"| {item['name']} | {_fmt(item['net_profit'] / 1e8, 1, '亿元')} | "
+                f"{_fmt(item['multiple'], 1, 'x')} | {_fmt(item['value'] / 1e8, 1, '亿元')} |"
+            )
+        bridge = model["sotp_bridge"]
+        lines.append(
+            f"| **市值剩余价值** |  |  | **{_fmt(bridge['residual_value'] / 1e8, 1, '亿元')}**（{bridge['status']}） |"
+        )
+    option = model.get("option_value")
+    if option:
+        revenue = option.get("required_revenue")
+        if option.get("status") == "overallocated":
+            lines.extend([
+                "",
+                f"已分配分部价值超过当前市值 {_fmt(abs(option['residual_value']) / 1e8, 1, '亿元')}，"
+                f"因此 **{option.get('name') or '期权业务'}** 当前没有可分配的正剩余价值；该差额保持为负，不归零。",
+            ])
+        else:
+            lines.extend([
+                "",
+                f"若把剩余价值全部归于 **{option.get('name') or '期权业务'}**，按 {_fmt(option.get('multiple'), 1, 'x')}，"
+                f"需要净利润约 {_fmt(option['required_net_profit'] / 1e8, 1, '亿元')}"
+                + (f"、收入约 {_fmt(revenue / 1e8, 1, '亿元')}。" if revenue is not None else "。"),
+            ])
+        lines.append("内部配套产品若已进入分部利润，不得再次作为独立期权计价。")
+    gaps = model.get("expectation_gap") or []
+    if gaps:
+        lines.extend(["", "### 正向模型与市场隐含预期对账", "", "| 倍数 | 正向净利润 | 隐含净利润 | 预期差 | 覆盖率 |", "|---:|---:|---:|---:|---:|"])
+        for row in gaps:
+            if row["multiple"] in {20.0, 25.0, 30.0, 35.0}:
+                lines.append(
+                    f"| {_fmt(row['multiple'], 1, 'x')} | {_fmt(row['forward_net_profit'] / 1e8, 1, '亿元')} | "
+                    f"{_fmt(row['implied_net_profit'] / 1e8, 1, '亿元')} | {_fmt(row['gap'] / 1e8, 1, '亿元')} | "
+                    f"{_fmt(row['coverage_pct'], 1, '%')} |"
+                )
+    audits = model.get("premise_audit") or []
+    if audits:
+        lines.extend(["", "### 前提审计", "", "| 前提 | 状态 | 原因 |", "|---|---|---|"])
+        lines.extend(f"| {item['claim']} | {item['status']} | {item['reason']} |" for item in audits)
+    return lines
+
+
 def _institutional_report_v48(
     pack: dict[str, Any],
     changes: list[str],
@@ -514,10 +590,11 @@ def _institutional_report(
         scenario = _metric(pack, "C6", f"scenario_price_{multiple}x_pe")
         relation = ((scenario / price - 1) * 100) if scenario is not None and price else None
         lines.append(f"| {labels[multiple]} | {multiple}x FY EPS | {_fmt(scenario, 2, '元')} | {_fmt(relation, 2, '%')} | 敏感性测试，不是目标价 |")
+    lines.extend(_expectation_valuation_lines(pack))
     lines.extend([
         "",
-        f"==估值判断== 现价约 {_fmt(pe, 2, 'x')} 静态 PE，位于 18x 与 22x 情景之间。"
-        "它不像极端高估，也未呈现深度折价；回报更依赖未来盈利兑现与持续分红，而不是估值继续扩张。",
+        f"==估值判断== 现价约 {_fmt(pe, 2, 'x')} 静态 PE；静态倍数只描述历史盈利。"
+        "投资分歧应落到当前市值隐含的未来利润、正向经营模型能否覆盖该门槛，以及剩余价值是否有独立证据支持。",
         f"交易实现采用 100 万元订单情景，估算往返成本 {_fmt(execution_cost_100w, 2, 'bps')}；已计价差、佣金、经手/过户费、卖出印花税和波动率冲击，仍需用用户真实费率与成交回报校准。",
         "",
         "## 六、投委会审议",
@@ -574,6 +651,14 @@ def _institutional_report(
     ])
     if events:
         lines.extend(["", "**当前事件线索**：" + "；".join(events[:3]) + "。事件只作为跟踪线索，不单独构成投资结论。"])
+    monitoring = (pack.get("expectation_model") or {}).get("monitoring") or []
+    if monitoring:
+        lines.extend(["", "**观点变化触发器**：", "", "| 指标 | 基准 | 下次检查 | 改变观点的条件 |", "|---|---:|---|---|"])
+        for item in monitoring:
+            lines.append(
+                f"| {item['metric']} | {_fmt(item.get('baseline'))} | {item.get('next_check_date') or '待定'} | "
+                f"{item['view_change_condition']} |"
+            )
     lines.extend([
         "",
         "## 八、投委会结论与条件化动作",

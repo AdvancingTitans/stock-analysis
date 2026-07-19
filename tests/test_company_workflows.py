@@ -97,6 +97,7 @@ def _company_pack(monkeypatch):
 def test_company_evidence_has_c1_to_c8_and_explicit_gaps(monkeypatch):
     pack = _company_pack(monkeypatch)
 
+    assert pack["schema_version"] == "1.2"
     assert list(pack["modules"]) == ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8"]
     assert pack["modules"]["C2"]["available"] is True
     assert pack["modules"]["C1"]["available"] is True
@@ -123,6 +124,10 @@ def test_company_evidence_has_c1_to_c8_and_explicit_gaps(monkeypatch):
     assert {item["metric"] for item in pack["modules"]["C6"]["evidence"]} >= {
         "pe_static_proxy", "pb_reported_proxy", "scenario_price_15x_pe", "scenario_price_18x_pe", "scenario_price_22x_pe",
     }
+    assert {item["metric"] for item in pack["modules"]["C6"]["evidence"]} >= {
+        "implied_net_profit_20x", "implied_net_profit_25x", "implied_net_profit_30x", "implied_net_profit_35x",
+    }
+    assert pack["expectation_model"]["status"] == "market_implied_only"
     assert pack["financial_history"][0]["period_label"] == "2026Q1"
     assert all(item["evidence_id"].startswith("C") for section in pack["modules"].values() for item in section["evidence"])
     assert pack["_meta"]["evidence_snapshot_id"].startswith("sha256:")
@@ -174,6 +179,35 @@ def test_cli_stock_review_emits_company_evidence(monkeypatch, tmp_path, capsys):
 
     assert "公司研究" in capsys.readouterr().out
     assert (tmp_path / "company_evidence_600519_20260710.json").exists()
+
+
+def test_cli_passes_expectations_file_to_company_research(monkeypatch, tmp_path, capsys):
+    assumptions = {"valuation_year": 2027, "multiples": [25]}
+    assumptions_path = tmp_path / "expectations.json"
+    assumptions_path.write_text(json.dumps(assumptions), encoding="utf-8")
+    captured = {}
+
+    def build(symbol, trade_date, expectations=None):
+        captured["expectations"] = expectations
+        return {
+            "symbol": symbol,
+            "name": symbol,
+            "trade_date": trade_date,
+            "_meta": {"coverage": 0, "available_modules": [], "missing_modules": list(company_evidence.COMPANY_MODULES), "source_events": []},
+            "financial_facts": [],
+            "quote": {},
+            "modules": {key: {"available": False, "evidence": [], "gaps": ["缺口"]} for key in company_evidence.COMPANY_MODULES},
+        }
+
+    monkeypatch.setattr(app, "build_company_evidence", build)
+
+    assert app.run([
+        "--market", "stock-review", "--symbol", "600519", "--date", "20260710",
+        "--expectations-file", str(assumptions_path),
+    ]) == 0
+
+    assert captured["expectations"] == assumptions
+    assert "公司研究" in capsys.readouterr().out
 
 
 def test_agent_entrypoints_are_generated_from_canonical_catalog():

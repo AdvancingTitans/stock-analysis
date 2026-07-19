@@ -2,7 +2,7 @@
 name: stock-analysis
 description: 全球股市深度复盘技能。用于 A股、港股、美股、基金的当前行情、盘前/盘中/盘后复盘、6 模块证据驱动分析、trading 入口持仓分析、默认 committee 投委会、内置投资专家 lens、单股速览、基金画像、精选资讯雷达、缺失指标补充和数据源诊断；执行腾讯/新浪优先、东财独有数据限流、证据质量评分和浏览器接管策略。
 metadata:
-  version: "4.12.0"
+  version: "4.13.0"
   author: "Hermes Agent + yjw"
   platforms: "linux, macos, windows"
 ---
@@ -27,6 +27,7 @@ uv run python -m stock_analysis --market price-move --symbol 600519 --emit-evide
 uv run python -m stock_analysis --market thesis-create --symbol 600519
 uv run python -m stock_analysis --market thesis-review --symbol 600519
 uv run python -m stock_analysis --market research --symbol 600519
+uv run python -m stock_analysis --market research --symbol 600519 --expectations-file examples/company-expectations.example.json
 uv run python -m stock_analysis --market research --symbol 512480 --asset-type fund
 ```
 
@@ -44,6 +45,8 @@ uv run python -m stock_analysis --market research --symbol 512480 --asset-type f
 - Research 机构报告沿用中文投委会骨架：执行摘要 → 核心矛盾/产品契约 → 财务或持仓 → 资本配置或业绩风险 → 估值与交易实现 → 投委会审议 → 风险催化 → 条件化动作。`Coverage`、`Missing`、`manual_review`、快照 ID 与内部审计结果只进入 JSON/Workspace，不得出现在用户报告或替代投资分析。
 - 机构报告不得把模块覆盖率直接写成“证据不足，维持观察”。执行摘要必须综合已验证的质量、增长、估值和风险事实；尚未覆盖的内容只在确实影响结论时改写为用户可理解的研究边界或后续跟踪重点。Company 估值可以用已披露年度 EPS/BPS 生成静态 PE/PB proxy 与敏感性情景，但必须明确不是目标价。
 - Company Evidence 可从财务历史派生净利率、经营现金转化和年度毛利稳定性，作为商业经济性与护城河代理；一手年报事实通过 PDF 文本抽取与 JSON 规则目录进入 C1–C8，新增发行人不得在 Python 报告逻辑中硬编码数值。所有派生项必须保留公式和状态。
+- Company C6 必须先用总市值除以明确估值倍数反推市场隐含净利润；提供 `--expectations-file` 时，再按“出货量×ASP→收入→净利润→分部价值”生成正向产品线/SOTP 模型，并输出预期差、市值剩余价值和期权业务所需收入利润。用户假设不得升级为公司事实；内部配套产品只能归入一个分部，负剩余价值不得归零。
+- Company 研究先审计用户前提，再处理证据冲突：只有报告期、会计口径和范围可比时才按来源层级与新鲜度仲裁。C8 的关键假设应绑定指标、基准、下次检查日期和观点变化条件，而不是只列宽泛风险。
 - Fund Research 应优先读取指数公司官方样本、月末权重、每日指数估值和标的指数日线；日线与 ETF 严格按交易日对齐后重算相关系数、beta、tracking error 与主动收益。任一官方文件不可用时只降级对应指标，不得让估值文件失败吞掉仍可取得的指数日线。
 - 股票、基金与持仓场景统一调用交易成本情景模型：至少包含实时买卖价差、20 日平均成交额、波动率冲击、订单参与率、券商佣金假设、交易所经手费、适用的过户费/卖出印花税，以及基金管理费/托管费和折溢价观察。默认给出 10 万、100 万、500 万元三档；这是可校准情景，不得冒充用户真实成本。
 - 问题驱动的 6 人投委会适用于 Research 与市场/持仓报告的所有 committee 入口。市场持仓中的发行人一手披露、结构化财务、基金标的指数和交易成本也要进入公共证据契约；每位入选委员必须消费所有公共指标，再按框架区分核心证据与背景证据。
