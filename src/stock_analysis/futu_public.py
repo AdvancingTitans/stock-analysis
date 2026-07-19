@@ -8,7 +8,7 @@ from typing import Any
 import requests
 
 FUTU_BASE_URL = "https://ai-news-search.futunn.com"
-USER_AGENT = "stock-analysis/4.13.0 (Skill)"
+USER_AGENT = "stock-analysis/4.14.0 (Skill)"
 
 POSITIVE_CUES = (
     "增长",

@@ -68,6 +68,14 @@ def test_committee_selection_changes_with_the_research_question():
     assert quality != momentum
 
 
+def test_committee_selection_understands_plain_english_investor_questions():
+    quality = select_company_committee("long-term moat, cash flow, governance and capital allocation")
+    trading = select_company_committee("momentum, price volume, volatility, drawdown and trading costs")
+
+    assert {"buffett", "munger"} <= set(quality)
+    assert {"simons", "minervini"} <= set(trading)
+
+
 def test_every_selected_lens_consumes_new_business_quality_metrics():
     pack = _pack()
     pack["modules"]["C1"] = {

@@ -2,7 +2,7 @@
 name: stock-analysis
 description: 全球股市深度复盘技能。用于 A股、港股、美股、基金的当前行情、盘前/盘中/盘后复盘、6 模块证据驱动分析、trading 入口持仓分析、默认 committee 投委会、内置投资专家 lens、单股速览、基金画像、精选资讯雷达、缺失指标补充和数据源诊断；执行腾讯/新浪优先、东财独有数据限流、证据质量评分和浏览器接管策略。
 metadata:
-  version: "4.13.0"
+  version: "4.14.0"
   author: "Hermes Agent + yjw"
   platforms: "linux, macos, windows"
 ---

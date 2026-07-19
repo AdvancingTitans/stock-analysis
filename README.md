@@ -127,6 +127,10 @@ Claude Code supports native `/command` entrypoints. In Codex, Custom Prompts app
 
 ## How the system works
 
+![Investor-friendly stock-analysis architecture animation](assets/investor-research-architecture-en.gif)
+
+The animated overview follows the investor journey: ask a question, gather checkable evidence, compare multiple investment perspectives, and receive a decision memo with risks and monitoring triggers. The diagram below exposes the same process in more detail for readers who want to audit it.
+
 ```mermaid
 flowchart TB
     U["Your investment question\nasset · date · decision tension"] --> I["Intent routing\nmarket · company · ETF/fund · portfolio · earnings · price move"]
@@ -449,7 +453,7 @@ Lenses change evidence priority and narrative structure. They do not override da
 
 ### Built-in Lens and Committee Boundaries
 
-Current CLI version: `4.13.0`.
+Current CLI version: `4.14.0`.
 
 `research` reports retain the denser Chinese committee narrative from the 4.5 series while keeping recoverable, traceable research state inside the Workspace. Company and fund reports preserve their institutional committee spines, but user-facing Markdown no longer exposes coverage flags, missing-module diagnostics, internal actions, snapshot IDs, or audit terminology.
 

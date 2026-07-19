@@ -26,9 +26,42 @@ LENS_TOPICS = {
     "feng_liu": ("预期差", "赔率", "催化", "困境反转", "边际变化", "估值", "趋势"),
 }
 
+QUESTION_ALIASES = {
+    "margin of safety": "安全边际",
+    "capital allocation": "资本配置",
+    "trading costs": "交易成本",
+    "trading cost": "交易成本",
+    "cash conversion": "现金流",
+    "cash flow": "现金流",
+    "price volume": "量价",
+    "downside protection": "下行",
+    "corporate governance": "治理",
+    "competitive advantage": "护城河",
+    "moat": "护城河",
+    "valuation": "估值",
+    "growth": "增长",
+    "innovation": "创新",
+    "momentum": "趋势",
+    "drawdown": "回撤",
+    "volatility": "波动",
+    "liquidity": "流动性",
+    "macro": "宏观",
+    "risk": "风险",
+    "现金创造": "现金流",
+    "估值保护": "安全边际",
+    "公司治理": "治理",
+    "成交确认": "量价",
+}
+
+
+def _normalize_question(question: str) -> str:
+    normalized = question.lower()
+    matched_topics = [topic for alias, topic in QUESTION_ALIASES.items() if alias in normalized]
+    return " ".join((normalized, *matched_topics))
+
 
 def select_committee(research_question: str | None, *, asset_type: str = "company") -> tuple[str, ...]:
-    question = (research_question or DEFAULT_RESEARCH_QUESTION).lower()
+    question = _normalize_question(research_question or DEFAULT_RESEARCH_QUESTION)
     if asset_type == "fund" and not research_question:
         question = "指数 行业 景气 估值 波动 回撤 组合 风险 交易成本 趋势"
     scores = {

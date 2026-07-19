@@ -24,16 +24,27 @@ from .integrations import (
     fetch_single_quote,
 )
 from .lens_engine import LensEngine
-from .research_workspace import (
-    DISCLAIMER,
-    _atomic_write,
-    _load_json,
-    _previous_workspace,
-    _safe_symbol,
-    _write_artifact,
+from .research_workspace import DISCLAIMER
+from .source_outcome import capture_source
+from .time_series import compare_price_series
+from .workspace_store import (
+    atomic_write as _atomic_write,
+)
+from .workspace_store import (
+    load_json as _load_json,
+)
+from .workspace_store import (
+    previous_workspace as _previous_workspace,
+)
+from .workspace_store import (
     research_root,
 )
-from .time_series import compare_price_series
+from .workspace_store import (
+    safe_symbol as _safe_symbol,
+)
+from .workspace_store import (
+    write_artifact as _write_artifact,
+)
 
 FUND_MODULES = {
     "F1": "产品定位与指数契约",
@@ -125,16 +136,30 @@ def _official_fund_evidence(code: str, trade_date: str) -> dict[str, list[dict[s
 
 
 def build_fund_evidence(code: str, trade_date: str) -> dict[str, Any]:
-    estimate = fetch_fund_estimate(code, trade_date)
-    profile = fetch_fund_profile(code, trade_date)
-    holdings = fetch_fund_holdings(code, trade_date, limit=10)
-    price_volume = fetch_a_share_price_volume(code, trade_date)
-    premium = fetch_listed_fund_premium_discount(code, trade_date)
-    index_snapshot = build_csi_index_snapshot(FUND_INDEX_CODES[code], trade_date) if code in FUND_INDEX_CODES else {}
-    try:
-        microstructure = fetch_a_share_order_book_snapshot(code, trade_date)
-    except Exception as exc:
-        microstructure = {"available": False, "symbol": code, "reason": str(exc)}
+    estimate_outcome = capture_source("fund_estimate", lambda: fetch_fund_estimate(code, trade_date), {})
+    profile_outcome = capture_source("fund_profile", lambda: fetch_fund_profile(code, trade_date), {})
+    holdings_outcome = capture_source("fund_holdings", lambda: fetch_fund_holdings(code, trade_date, limit=10), {})
+    price_volume_outcome = capture_source("price_volume", lambda: fetch_a_share_price_volume(code, trade_date), {})
+    premium_outcome = capture_source(
+        "premium_discount", lambda: fetch_listed_fund_premium_discount(code, trade_date), {}
+    )
+    index_outcome = capture_source(
+        "csi_index_snapshot",
+        lambda: build_csi_index_snapshot(FUND_INDEX_CODES[code], trade_date) if code in FUND_INDEX_CODES else {},
+        {},
+    )
+    microstructure_outcome = capture_source(
+        "order_book",
+        lambda: fetch_a_share_order_book_snapshot(code, trade_date),
+        lambda exc: {"available": False, "symbol": code, "reason": str(exc)},
+    )
+    estimate = estimate_outcome.value
+    profile = profile_outcome.value
+    holdings = holdings_outcome.value
+    price_volume = price_volume_outcome.value
+    premium = premium_outcome.value
+    index_snapshot = index_outcome.value
+    microstructure = microstructure_outcome.value
     official = _official_fund_evidence(code, trade_date)
     official_fee_values = {
         item["metric"]: item.get("value")
@@ -150,10 +175,10 @@ def build_fund_evidence(code: str, trade_date: str) -> dict[str, Any]:
     index_history = index_snapshot.get("history") or {}
     index_comparison = compare_price_series(price_volume.get("rows") or [], index_history.get("rows") or [])
     holding_rows = holdings.get("holdings") or []
-    try:
-        holding_quotes = fetch_fund_holding_quotes(holding_rows, trade_date)
-    except Exception:
-        holding_quotes = {}
+    holding_quotes_outcome = capture_source(
+        "holding_quotes", lambda: fetch_fund_holding_quotes(holding_rows, trade_date), {}
+    )
+    holding_quotes = holding_quotes_outcome.value
 
     for holding in holding_rows:
         holding_code = str(holding.get("code") or "")
@@ -356,14 +381,29 @@ def build_fund_evidence(code: str, trade_date: str) -> dict[str, Any]:
             "available_modules": available,
             "missing_modules": missing,
             "source_events": [
-                {"source": estimate.get("_source") or "fund_estimate", "status": "ok" if estimate else "unavailable"},
-                {"source": profile.get("_source") or "fund_profile", "status": "ok" if profile else "unavailable"},
-                {"source": holdings.get("_source") or "fund_holdings", "status": "ok" if holding_rows else "unavailable"},
-                {"source": premium.get("source") or "premium_discount", "status": "ok" if premium.get("available") else "unavailable"},
-                {"source": index_snapshot.get("source") or "csi_index_snapshot", "status": "ok" if index_snapshot.get("available") else "unavailable"},
+                estimate_outcome.event(available=bool(estimate), source=estimate.get("_source") or "fund_estimate"),
+                profile_outcome.event(available=bool(profile), source=profile.get("_source") or "fund_profile"),
+                holdings_outcome.event(available=bool(holding_rows), source=holdings.get("_source") or "fund_holdings"),
+                premium_outcome.event(
+                    available=bool(premium.get("available")),
+                    source=premium.get("source") or "premium_discount",
+                ),
+                index_outcome.event(
+                    available=bool(index_snapshot.get("available")),
+                    source=index_snapshot.get("source") or "csi_index_snapshot",
+                ),
+                price_volume_outcome.event(available=bool(price_volume)),
+                microstructure_outcome.event(available=bool(microstructure.get("available"))),
                 {"source": "csi_index_history", "status": "ok" if index_history.get("available") else "unavailable"},
                 {"source": "execution_cost_model", "status": "ok" if execution_cost_model.get("available") else "unavailable"},
-                {"source": "holding_quotes", "status": "ok" if len(holding_quotes) == len(holding_rows) and holding_rows else "partial_or_unavailable"},
+                (
+                    holding_quotes_outcome.event(available=False)
+                    if holding_quotes_outcome.error_type
+                    else {
+                        "source": "holding_quotes",
+                        "status": "ok" if len(holding_quotes) == len(holding_rows) and holding_rows else "partial_or_unavailable",
+                    }
+                ),
             ],
         },
     }

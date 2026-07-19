@@ -24,6 +24,7 @@ from .integrations import (
 )
 from .normalize import normalize_code
 from .primary_disclosures import load_issuer_primary_facts
+from .source_outcome import capture_source
 
 COMPANY_MODULES = {
     "C1": "商业质量",
@@ -291,39 +292,53 @@ def build_company_evidence(
     primary-filing adapters are available.
     """
 
-    try:
-        quote = fetch_single_quote(symbol, trade_date)
-    except Exception:
-        quote = None
+    quote_outcome = capture_source("market_quote", lambda: fetch_single_quote(symbol, trade_date), None)
+    quote = quote_outcome.value
     normalized = normalize_code(quote.symbol if quote else symbol)
     market = _market_for(normalized, quote.market if quote else "")
-    try:
-        financials = fetch_a_share_financial_snapshot(normalized, trade_date) if market == "a" else {}
-    except Exception:
-        financials = {}
-    try:
-        price_volume = fetch_a_share_price_volume(normalized, trade_date) if market == "a" else {}
-    except Exception:
-        price_volume = {}
-    try:
-        microstructure = fetch_a_share_order_book_snapshot(normalized, trade_date) if market == "a" else {}
-    except Exception as exc:
-        microstructure = {"available": False, "symbol": normalized, "reason": str(exc)}
+    financials_outcome = capture_source(
+        "eastmoney_datacenter",
+        lambda: fetch_a_share_financial_snapshot(normalized, trade_date) if market == "a" else {},
+        {},
+    )
+    financials = financials_outcome.value
+    price_volume_outcome = capture_source(
+        "price_volume",
+        lambda: fetch_a_share_price_volume(normalized, trade_date) if market == "a" else {},
+        {},
+    )
+    price_volume = price_volume_outcome.value
+    microstructure_outcome = capture_source(
+        "order_book",
+        lambda: fetch_a_share_order_book_snapshot(normalized, trade_date) if market == "a" else {},
+        lambda exc: {"available": False, "symbol": normalized, "reason": str(exc)},
+    )
+    microstructure = microstructure_outcome.value
     execution_cost_model = build_execution_cost_model(
         symbol=normalized,
         price_volume=price_volume,
         microstructure=microstructure,
     )
     pulse: dict[str, Any] = {}
+    pulse_outcome = None
     if quote and quote.name:
-        try:
-            pulse = fetch_futu_public_pulse(normalized, quote.name, market)
-        except Exception as exc:  # public news is an enhancement, not a hard dependency
-            pulse = {"available": False, "reason": str(exc)}
-    try:
-        disclosures = fetch_company_disclosures(normalized, quote.name if quote else normalized, trade_date)
-    except Exception as exc:
-        disclosures = {"available": False, "rows": [], "reason": str(exc), "_source": "Futu 免登录公告搜索"}
+        pulse_outcome = capture_source(
+            "futu_public",
+            lambda: fetch_futu_public_pulse(normalized, quote.name, market),
+            lambda exc: {"available": False, "reason": str(exc)},
+        )
+        pulse = pulse_outcome.value
+    disclosures_outcome = capture_source(
+        "Futu 免登录公告搜索",
+        lambda: fetch_company_disclosures(normalized, quote.name if quote else normalized, trade_date),
+        lambda exc: {
+            "available": False,
+            "rows": [],
+            "reason": str(exc),
+            "_source": "Futu 免登录公告搜索",
+        },
+    )
+    disclosures = disclosures_outcome.value
 
     facts = _financial_facts(financials)
     issuer_primary = _issuer_primary_facts(normalized, trade_date)
@@ -568,10 +583,15 @@ def build_company_evidence(
             "missing_modules": missing,
             "coverage": round(len(available) / len(COMPANY_MODULES) * 100, 1),
             "source_events": [
-                {"source": quote.source if quote else "quote", "status": "ok" if quote_fact["value"] is not None else "unavailable"},
-                {"source": "eastmoney_datacenter", "status": "ok" if facts else "unavailable"},
-                {"source": "futu_public", "status": "ok" if event_evidence else "unavailable"},
-                {"source": disclosures.get("_source") or "Futu 免登录公告搜索", "status": "ok" if disclosure_rows else "unavailable"},
+                quote_outcome.event(available=quote_fact["value"] is not None, source=quote.source if quote else "quote"),
+                financials_outcome.event(available=bool(facts)),
+                (pulse_outcome.event(available=bool(event_evidence)) if pulse_outcome else {"source": "futu_public", "status": "unavailable"}),
+                disclosures_outcome.event(
+                    available=bool(disclosure_rows),
+                    source=disclosures.get("_source") or "Futu 免登录公告搜索",
+                ),
+                price_volume_outcome.event(available=bool(price_volume)),
+                microstructure_outcome.event(available=bool(microstructure.get("available"))),
                 {"source": "issuer_primary_disclosure", "status": "ok" if any(issuer_primary.values()) else "unavailable"},
                 {"source": "execution_cost_model", "status": "ok" if execution_cost_model.get("available") else "unavailable"},
                 {"source": "expectations_model", "status": expectation_model.get("status")},

@@ -45,6 +45,7 @@ from .portfolio import build_portfolio_snapshot
 from .primary_disclosures import load_issuer_primary_facts
 from .profile import load_holdings_from_profile
 from .reporting import render_diagnostics, render_report_with_metadata
+from .research_cli import ResearchCommandServices, run_research_command
 from .research_workspace import build_research_workspace
 from .screening import load_security_master, parse_filter, parse_sort, screen
 from .screening import render_markdown as render_screen_markdown
@@ -560,72 +561,20 @@ def run(argv: list[str] | None = None) -> int:
         print(_render_fund_snapshot(args.symbol, trade_date))
         return 0
     if args.market in {"stock-review", "earnings", "price-move", "thesis-create", "thesis-review", "research"}:
-        if not args.symbol:
-            parser.error(f"--symbol is required when --market {args.market}")
-        research_is_fund = args.market == "research" and (
-            args.asset_type == "fund"
-            or (args.asset_type == "auto" and str(args.symbol).startswith(("5", "15", "16")))
+        services = ResearchCommandServices(
+            build_company_evidence=build_company_evidence,
+            build_fund_evidence=build_fund_evidence,
+            build_company_workspace=build_research_workspace,
+            build_fund_workspace=build_fund_research_workspace,
+            render_stock_review=render_stock_review,
+            render_earnings_review=render_earnings_review,
+            render_price_move=render_price_move,
+            create_thesis=create_thesis,
+            review_thesis=review_thesis,
+            render_thesis_create=_render_thesis_create,
+            render_thesis_review=_render_thesis_review,
         )
-        expectations = None
-        if args.expectations_file:
-            if research_is_fund:
-                parser.error("--expectations-file currently supports company research only")
-            try:
-                expectations = json.loads(Path(args.expectations_file).read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as exc:
-                parser.error(f"cannot read --expectations-file: {exc}")
-            if not isinstance(expectations, dict):
-                parser.error("--expectations-file must contain a JSON object")
-        try:
-            if research_is_fund:
-                pack = build_fund_evidence(args.symbol, trade_date)
-            elif expectations is not None:
-                pack = build_company_evidence(args.symbol, trade_date, expectations=expectations)
-            else:
-                pack = build_company_evidence(args.symbol, trade_date)
-        except ValueError as exc:
-            parser.error(f"invalid research assumptions: {exc}")
-        if args.market == "stock-review":
-            print(render_stock_review(pack))
-        elif args.market == "earnings":
-            print(render_earnings_review(pack))
-        elif args.market == "price-move":
-            print(render_price_move(pack))
-        elif args.market == "thesis-create":
-            thesis, path = create_thesis(pack)
-            print(_render_thesis_create(thesis, path))
-        elif args.market == "research":
-            try:
-                requested_lenses = tuple(item.strip() for item in (args.lenses or "").split(",") if item.strip())
-                if args.lens and not requested_lenses:
-                    requested_lenses = (args.lens,)
-                if research_is_fund:
-                    manifest, workspace = build_fund_research_workspace(
-                        pack,
-                        root=args.workspace_dir,
-                        research_question=args.research_question,
-                        lenses=requested_lenses or None,
-                    )
-                else:
-                    manifest, workspace = build_research_workspace(
-                        pack,
-                        root=args.workspace_dir,
-                        lenses=requested_lenses or None,
-                        research_question=args.research_question,
-                    )
-            except (KeyError, ValueError) as exc:
-                parser.error(str(exc))
-            report_path = workspace / manifest["artifacts"]["institutional_report"]["path"]
-            print(report_path.read_text(encoding="utf-8"))
-            print(f"Research Workspace: {workspace}")
-        else:
-            thesis, path, changes = review_thesis(pack)
-            print(_render_thesis_review(thesis, path, changes))
-        if args.emit_evidence:
-            (Path.cwd() / f"company_evidence_{pack['symbol']}_{trade_date}.json").write_text(
-                json.dumps(pack, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-            )
-        return 0
+        return run_research_command(args, parser, trade_date, services)
     if args.market == "screen":
         if args.fiscal_year is None:
             parser.error("--fiscal-year is required when --market screen")
