@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  A 股 / 港股 / 美股 · 正向+逆向估值 · SOTP · ETF / 基金 · 动态投委会 · 一手披露
+  A 股 / 港股 / 美股 / 日股 / 韩股 · 正向+逆向估值 · SOTP · ETF / 基金 · 动态投委会 · 一手披露
 </p>
 
 <p align="center">
@@ -69,6 +69,8 @@ uv tool install stock-analysis
 
 stock-analysis --market daily
 stock-analysis --market stock --symbol 600519
+stock-analysis --market stock --symbol 7203.T
+stock-analysis --market stock --symbol 005930.KS
 stock-analysis --market screen --fiscal-year 2025 --universe-file official_universe.json --filter roe_weighted:gt:8% --sort roe_weighted:desc
 stock-analysis --market research --symbol 512480 --asset-type fund
 stock-analysis --market research --symbol 600519 --expectations-file examples/company-expectations.example.json
@@ -81,7 +83,7 @@ stock-analysis --market research --symbol 600519 --expectations-file examples/co
 - [简体中文视频](promo/demo-video/out/stock-analysis-demo-zh-CN.mp4)
 - [English video](promo/demo-video/out/stock-analysis-demo-en.mp4)
 
-两个演示均为 1080p、72 秒，以字幕传递完整信息，静音也能观看。当前版本展示前提审计、证据边界、产品线与 SOTP 正向模型、市值隐含利润、预期差对账和动态投委会；可编辑的 Remotion 工程位于 [`promo/demo-video`](promo/demo-video/)。
+两个演示均为 1080p、72 秒，以字幕传递完整信息，静音也能观看。v4.15 版新增 A/HK/US/JP/KR、交易时段语义、SEC filing-date 一手财务、发行人原文补齐、本币流动性、组合相关性和汇率归因，同时保留正逆向估值与动态投委会；可编辑的 Remotion 工程位于 [`promo/demo-video`](promo/demo-video/)。
 
 ## 为什么需要它
 
@@ -135,12 +137,14 @@ Claude Code 原生支持 `/command` 入口。Codex 的 Custom Prompt 显示为 `
 flowchart TB
     U["你提出投资问题\n标的 · 时间 · 最关心的矛盾"] --> I["场景与意图识别\n市场 · 公司 · ETF/基金 · 持仓 · 财报 · 异动"]
     I --> P["前提审计与证据仲裁\n报告期 · 口径 · 来源层级 · 冲突"]
-    P --> C1["市场与量价\n行情 · 资金 · 板块 · 风险"]
-    P --> C2["公司一手披露\n年报 · 财务 · 治理 · 资本配置"]
-    P --> C3["基金与指数\n持仓 · 权重 · 估值 · 指数日线"]
+    P --> C1["市场证据\nA/HK/US/JP/KR 行情 · 时段 · 日历 · 广度"]
+    P --> C2["结构化公司证据\nA股披露 · SEC filing XBRL · 条件性全球财务"]
+    P --> C3["基金 指数与组合\n持仓 · 权重 · 估值 · 流动性 · 相关性 · 汇率"]
+    P --> C4["一手证据补齐\n公司IR · 交易所 · 监管机构 · 发布日截止"]
     C1 --> V["经校验的研究底稿\nM1–M6 · C1–C8 · F1–F8 · Portfolio"]
     C2 --> V
     C3 --> V
+    C4 --> V
     V --> F["正向经营模型\n出货×ASP · 利润率 · 分部利润 · SOTP"]
     V --> B["逆向隐含预期\n市值÷倍数 · 隐含利润 · 期权剩余价值"]
     F --> G["预期差对账\n模型 vs 股价 · 可实现性 · 防重复计价"]
@@ -279,8 +283,11 @@ scripts/install-agent-entrypoints.sh claude
 | 读得懂的中文投委会报告 | 先给执行摘要，再讲商业/指数逻辑、财务或持仓、估值、专家分歧、风险与条件化动作。 |
 | 动态6人投委会 | 根据研究问题从15个框架中选择最匹配的6位，不再固定让同一组专家回答所有问题。 |
 | 公司一手披露 | 通过可扩展规则读取官方年报 PDF，把经营、治理、分红和资本配置事实送入所有专家框架。 |
+| 免费全球证据路由 | A/HK/US/JP/KR 免登录行情与日线；美股使用 SEC Company Facts；XTKS/XKRX 日历保留明确验证范围。 |
+| 交易时段感知 | 盘前、集合竞价、盘中和盘后分别标记“尚未产生”“指示性”和“已完成”，不再把所有空字段都误判成数据源故障。 |
+| 内置一手证据补齐 | 分部、渠道、治理、资本配置、风险和催化剂缺失时，生成面向公司、交易所和监管机构的定向请求；Agent Reach 是可选增强，不是用户前置依赖。 |
 | 深度 ETF 研究 | 同时研究基金和标的指数，包含完整成分、权重、估值、指数日线、tracking error、折溢价和成本情景。 |
-| A 股 / 港股 / 美股 / 基金 / 持仓 | 一套入口覆盖市场复盘、单股、基金、财报、异动、筛选、持仓与投资论文。 |
+| A 股 / 港股 / 美股 / 日股 / 韩股 / 基金 / 持仓 | 一套入口覆盖市场复盘、单股、基金、财报、异动、筛选、持仓与投资论文。 |
 | 多源校验与时间边界 | 优先使用稳定公开源；来源失败时自动降级；历史研究不会偷看未来披露。 |
 | 可恢复研究工作区 | 分阶段保存研究计划、底稿、专家意见、委员会结论和最终报告，支持下次复查变化。 |
 | 人机两用结果 | Markdown 给投资者阅读，JSON Evidence Pack 给 Agent 校验、自动化和复用。 |
@@ -313,6 +320,10 @@ stock-analysis --market global --format full --emit-evidence
 
 # 确定性的单股快照，不依赖 LLM
 stock-analysis --market stock --symbol 600519
+
+# 日本、韩国市场走同一套标准化行情链路
+stock-analysis --market stock --symbol 7203.T
+stock-analysis --market stock --symbol 005930.KS
 
 # 想系统核对一家公司时使用：输出公司事实和明确缺口，不给综合买入分
 stock-analysis --market stock-review --symbol 600519 --emit-evidence
@@ -366,7 +377,9 @@ stock-analysis --market diagnose
 
 **最简单的用法：** 先运行一次 `stock-review`，阅读“可用模块”和“缺失模块”；若你只是想确认今天价格和近期表现，用 `stock-snapshot` 即可；若财报刚发布，优先用 `earnings-review`；若价格突变，优先用 `price-move`。这是四个不同的问题，不能互相替代。
 
-公司研究和每日市场复盘使用不同的数据边界。`company_evidence_<symbol>_<date>.json` 保存 C1–C8 的可验证事实和缺口；当前结构化财务适配器以 A 股为主。港美股的原始披露字段在接入可验证适配器前会明确保留为缺口，因此它们不应被当作完整的基本面研究结论。
+公司研究和每日市场复盘使用不同的数据边界。`company_evidence_<symbol>_<date>.json` 保存 C1–C8 的可验证事实和缺口。美股优先使用免费免登录 SEC Company Facts，并严格按 filing date 截止；港股 Yahoo 三表只作为 conditional 二手证据。日股必须使用 `.T`，韩股使用 `.KS` / `.KQ`；内置 XTKS/XKRX 日历快照覆盖 2024–2027，范围外不会退化为工作日猜测。任一市场缺少经营、分部、治理、资本配置、风险或催化剂一手证据时，`_meta.primary_evidence_requests` 会驱动随安装包提供的 `primary-evidence-reach` Skill 查找公司、交易所和监管机构原文，再通过 `--primary-evidence-file` 回填；已有 Agent Reach 就使用其路由，否则使用宿主网页/PDF 能力，不要求用户另装 Agent Reach。
+
+A/HK/US/JP/KR 日线现在统一输出本币 20 日平均成交额和 60 日波动率；完整持仓且样本对齐时，组合证据会生成两两相关性以及“本地价格收益/汇率收益/人民币收益”的逐日归因。实时组合估值不再用硬编码汇率兜底。历史订单簿、券商个性化佣金、基金真实净申赎仍保持显式缺口。
 
 ### 正向搭模型 + 逆向验市值
 
@@ -468,7 +481,7 @@ Lens 会改变证据优先级和叙事结构，但不会绕过数据质量规则
 
 ### 内置 lens 与 committee 边界
 
-当前 CLI 版本为 `4.14.0`。
+当前 CLI 版本为 `4.15.0`。
 
 `research` 报告保留 4.5 系列的中文投委会分析密度，并把可恢复、可追溯的研究状态留在 Workspace 内部。个股沿用“执行摘要 → 行情与商业质量 → 财务增长 → 治理与资本配置 → 估值情景 → 投委会审议 → 风险催化 → 条件化动作”；基金沿用“执行摘要 → 产品与指数契约 → 持仓暴露 → 业绩风险 → 估值与交易实现 → 投委会审议 → 风险催化 → 条件化动作”。用户报告不显示 Coverage、Missing module、内部 action、快照 ID 或审计术语。
 
@@ -508,7 +521,7 @@ Company 一手披露采用可扩展的“官方 PDF → 指定页文本 → JSON
 
 提交到精选列表时，可以使用这句简介：
 
-> [stock-analysis](https://github.com/AdvancingTitans/stock-analysis) - Evidence-driven market recap CLI for AI agents and quant researchers, supporting A/HK/US stocks, funds, portfolios, auditable JSON Evidence Packs, data-quality scoring, investor lenses, and multi-source fallback routing.
+> [stock-analysis](https://github.com/AdvancingTitans/stock-analysis) - Evidence-driven market recap CLI for AI agents and quant researchers, supporting A/HK/US/JP/KR stocks, funds, portfolios, auditable JSON Evidence Packs, data-quality scoring, investor lenses, and multi-source fallback routing.
 
 适合目标包括 `awesome-quant-ai`、`awesome-ai-in-finance`、`awesome-quant` 和 `awesome-systematic-trading`。
 

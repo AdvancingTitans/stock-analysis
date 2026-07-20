@@ -16,3 +16,6 @@ stock-analysis --market research --symbol <symbol> [--asset-type company|fund]
 股票冻结 C1–C8 Company Evidence，基金冻结 F1–F8 Fund Evidence；lens 与 committee 消费同一 snapshot_id，并输出证据驱动的机构报告。
 
 Always preserve Evidence Pack source events and state missing evidence explicitly.
+If Company Evidence marks agent_primary_evidence_reach as recommended, invoke the bundled
+stock-analysis-primary-evidence-reach Skill, follow primary_evidence_requests, and rerun with
+--primary-evidence-file. Agent Reach is optional because the bundled fallback can use host web/PDF tools.

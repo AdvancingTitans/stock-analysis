@@ -15,15 +15,20 @@ from typing import Any
 from .execution_costs import build_execution_cost_model
 from .expectations import build_expectation_model
 from .futu_public import fetch_futu_public_pulse
+from .global_markets import fetch_yahoo_financials
 from .integrations import (
     fetch_a_share_financial_snapshot,
     fetch_a_share_order_book_snapshot,
     fetch_a_share_price_volume,
     fetch_company_disclosures,
+    fetch_global_price_volume,
+    fetch_jp_kr_disclosures,
+    fetch_jp_kr_financial_snapshot,
     fetch_single_quote,
 )
 from .normalize import normalize_code
 from .primary_disclosures import load_issuer_primary_facts
+from .sec_filings import fetch_sec_financials
 from .source_outcome import capture_source
 
 COMPANY_MODULES = {
@@ -48,6 +53,10 @@ def _market_for(symbol: str, quote_market: str) -> str:
     normalized = normalize_code(symbol)
     if normalized.endswith(".HK"):
         return "hk"
+    if normalized.endswith(".T"):
+        return "jp"
+    if normalized.endswith((".KS", ".KQ")):
+        return "kr"
     return "a" if normalized.isdigit() else "us"
 
 
@@ -55,11 +64,17 @@ def _financial_facts(financials: dict[str, Any]) -> list[dict[str, Any]]:
     periods = financials.get("periods") or []
     if not periods:
         return []
-    latest = periods[0]
+    latest = _latest_material_period(periods)
     fact_keys = (
         "revenue",
+        "gross_profit",
+        "operating_profit",
         "parent_netprofit",
         "parent_net_profit",
+        "total_assets",
+        "total_liabilities",
+        "stockholders_equity",
+        "total_debt",
         "roe_weighted",
         "gross_margin",
         "basic_eps",
@@ -67,6 +82,9 @@ def _financial_facts(financials: dict[str, Any]) -> list[dict[str, Any]]:
         "debt_asset_ratio",
         "operating_cash_flow",
         "free_cash_flow_lite",
+        "capital_expenditure",
+        "cash_dividends_paid",
+        "share_repurchases",
         "net_cash_invest",
         "net_cash_finance",
     )
@@ -80,12 +98,17 @@ def _financial_facts(financials: dict[str, Any]) -> list[dict[str, Any]]:
                 "metric": key,
                 "period": latest.get("report_date") or latest.get("period") or "unknown",
                 "value": value,
-                "currency": "CNY",
+                "currency": latest.get("_currency") or "CNY",
                 "accounting_basis": "reported",
                 "scope": "consolidated",
-                "source_type": "structured_public_disclosure",
-                "source": "eastmoney_datacenter",
-                "confidence": "secondary",
+                "source_type": latest.get("_source_type") or "structured_public_disclosure",
+                "source": latest.get("_source") or "eastmoney_datacenter",
+                "url": latest.get("_source_url"),
+                "confidence": (
+                    "conditional" if latest.get("publication_date_status") == "missing"
+                    else "primary" if latest.get("_source_type") == "regulator_primary_xbrl"
+                    else "secondary"
+                ),
                 "notice_date": latest.get("notice_date"),
             }
         )
@@ -97,12 +120,17 @@ def _period_fact(metric: str, value: Any, period: dict[str, Any], **extra: Any) 
         "metric": metric,
         "period": period.get("report_date") or period.get("period_label") or "unknown",
         "value": value,
-        "currency": "CNY",
+        "currency": period.get("_currency") or "CNY",
         "accounting_basis": "reported",
         "scope": "consolidated",
-        "source_type": "structured_public_disclosure",
-        "source": "eastmoney_datacenter",
-        "confidence": "secondary",
+        "source_type": period.get("_source_type") or "structured_public_disclosure",
+        "source": period.get("_source") or "eastmoney_datacenter",
+        "url": period.get("_source_url"),
+        "confidence": (
+            "conditional" if period.get("publication_date_status") == "missing"
+            else "primary" if period.get("_source_type") == "regulator_primary_xbrl"
+            else "secondary"
+        ),
         "notice_date": period.get("notice_date"),
         **extra,
     }
@@ -112,7 +140,7 @@ def _growth_facts(financials: dict[str, Any]) -> list[dict[str, Any]]:
     periods = financials.get("periods") or []
     if not periods:
         return []
-    latest = periods[0]
+    latest = _latest_material_period(periods)
     latest_label = str(latest.get("period_label") or "")
     prior_label = latest_label.replace(str(latest.get("report_date") or "")[:4], str(int(str(latest.get("report_date"))[:4]) - 1), 1)
     prior = next((row for row in periods[1:] if row.get("period_label") == prior_label), None)
@@ -189,7 +217,7 @@ def _business_quality_facts(financials: dict[str, Any]) -> list[dict[str, Any]]:
     periods = financials.get("periods") or []
     if not periods:
         return []
-    latest = periods[0]
+    latest = _latest_material_period(periods)
     revenue = latest.get("revenue")
     profit = latest.get("parent_net_profit")
     cash_flow = latest.get("operating_cash_flow")
@@ -280,37 +308,93 @@ def _section(available: bool, evidence: list[dict[str, Any]], gaps: list[str], *
     return {"available": available, "evidence": evidence, "gaps": gaps, **extra}
 
 
+def _latest_material_period(periods: list[dict[str, Any]]) -> dict[str, Any]:
+    material = {
+        "revenue", "parent_net_profit", "operating_cash_flow", "total_assets", "gross_profit",
+    }
+    return next((row for row in periods if len(material & set(row)) >= 2), periods[0])
+
+
+def _financial_quality_gaps(financials: dict[str, Any]) -> list[str]:
+    periods = financials.get("periods") or []
+    if not periods:
+        return ["财务披露字段不足"]
+    latest = _latest_material_period(periods)
+    required = {
+        "revenue": "利润表收入",
+        "parent_net_profit": "净利润",
+        "total_assets": "总资产",
+        "total_liabilities": "总负债",
+        "operating_cash_flow": "经营现金流",
+        "capital_expenditure": "资本开支",
+        "free_cash_flow_lite": "自由现金流-lite",
+    }
+    missing = [label for metric, label in required.items() if latest.get(metric) is None]
+    annual_cash_years = sum(
+        str(row.get("period_label") or "").endswith("FY") and row.get("operating_cash_flow") is not None
+        for row in periods
+    )
+    gaps = [f"最新期仍缺：{', '.join(missing)}"] if missing else []
+    if annual_cash_years < 3:
+        gaps.append(f"长期现金流仅覆盖 {annual_cash_years} 个年度，至少 3 年后才可评估稳定性")
+    if financials.get("_source_type") == "secondary_aggregated_financial":
+        gaps.append("聚合财务缺少可验证公告日期，需发行人/交易所原文复核")
+    return gaps
+
+
 def build_company_evidence(
     symbol: str,
     trade_date: str,
     expectations: dict[str, Any] | None = None,
+    reached_primary: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     """Create a C1-C8 pack without making investment assertions.
 
-    A-share financial facts are currently the only fully structured company
-    accounting route.  HK/US sections deliberately remain gaps until their
-    primary-filing adapters are available.
+    A-share financial facts retain their structured disclosure route. US facts
+    prefer SEC XBRL. Other global aggregator rows remain conditional until an
+    issuer-primary filing supplies a publication date.
     """
 
     quote_outcome = capture_source("market_quote", lambda: fetch_single_quote(symbol, trade_date), None)
     quote = quote_outcome.value
     normalized = normalize_code(quote.symbol if quote else symbol)
     market = _market_for(normalized, quote.market if quote else "")
+    financial_source = "eastmoney_datacenter" if market == "a" else f"{market}_public_financials"
     financials_outcome = capture_source(
-        "eastmoney_datacenter",
-        lambda: fetch_a_share_financial_snapshot(normalized, trade_date) if market == "a" else {},
+        financial_source,
+        lambda: (
+            fetch_a_share_financial_snapshot(normalized, trade_date)
+            if market == "a"
+            else fetch_sec_financials(normalized, trade_date)
+            if market == "us"
+            else fetch_jp_kr_financial_snapshot(normalized, trade_date)
+            if market in {"jp", "kr"}
+            else fetch_yahoo_financials(normalized, trade_date)
+            if market == "hk"
+            else {}
+        ),
         {},
     )
     financials = financials_outcome.value
     price_volume_outcome = capture_source(
         "price_volume",
-        lambda: fetch_a_share_price_volume(normalized, trade_date) if market == "a" else {},
+        lambda: (
+            fetch_a_share_price_volume(normalized, trade_date)
+            if market == "a"
+            else fetch_global_price_volume(normalized, trade_date)
+            if market in {"hk", "us", "jp", "kr"}
+            else {}
+        ),
         {},
     )
     price_volume = price_volume_outcome.value
     microstructure_outcome = capture_source(
         "order_book",
-        lambda: fetch_a_share_order_book_snapshot(normalized, trade_date) if market == "a" else {},
+        lambda: (
+            fetch_a_share_order_book_snapshot(normalized, trade_date)
+            if market == "a"
+            else {"available": False, "symbol": normalized, "reason": "market-specific order book not connected"}
+        ),
         lambda exc: {"available": False, "symbol": normalized, "reason": str(exc)},
     )
     microstructure = microstructure_outcome.value
@@ -318,6 +402,8 @@ def build_company_evidence(
         symbol=normalized,
         price_volume=price_volume,
         microstructure=microstructure,
+        market=market,
+        currency=(quote.currency if quote else price_volume.get("currency")),
     )
     pulse: dict[str, Any] = {}
     pulse_outcome = None
@@ -330,7 +416,11 @@ def build_company_evidence(
         pulse = pulse_outcome.value
     disclosures_outcome = capture_source(
         "Futu 免登录公告搜索",
-        lambda: fetch_company_disclosures(normalized, quote.name if quote else normalized, trade_date),
+        lambda: (
+            fetch_jp_kr_disclosures(normalized, trade_date)
+            if market in {"jp", "kr"}
+            else fetch_company_disclosures(normalized, quote.name if quote else normalized, trade_date)
+        ),
         lambda exc: {
             "available": False,
             "rows": [],
@@ -342,6 +432,9 @@ def build_company_evidence(
 
     facts = _financial_facts(financials)
     issuer_primary = _issuer_primary_facts(normalized, trade_date)
+    for module, items in (reached_primary or {}).items():
+        if module in issuer_primary:
+            issuer_primary[module].extend(dict(item) for item in items)
     primary_disclosures = _disclosure_facts(financials)
     quote_fact = {
         "metric": "market_quote",
@@ -352,7 +445,18 @@ def build_company_evidence(
         "source": quote.source if quote else None,
         "confidence": "primary" if quote and quote.price is not None else "unavailable",
     }
-    quality_evidence = [item for item in facts if item["metric"] in {"roe_weighted", "gross_margin", "operating_cash_flow", "free_cash_flow_lite", "debt_asset_ratio"}]
+    quality_metrics = {
+        "roe_weighted", "gross_margin", "operating_cash_flow", "free_cash_flow_lite",
+        "debt_asset_ratio", "total_assets", "total_liabilities", "stockholders_equity",
+        "total_debt", "capital_expenditure",
+    }
+    quality_evidence = [item for item in facts if item["metric"] in quality_metrics]
+    for period in financials.get("periods") or []:
+        if not str(period.get("period_label") or "").endswith("FY"):
+            continue
+        for metric in ("operating_cash_flow", "capital_expenditure", "free_cash_flow_lite"):
+            if period.get(metric) is not None:
+                quality_evidence.append(_period_fact(metric, period[metric], period, history_role="long_term_cash_flow"))
     business_evidence = _business_quality_facts(financials) + issuer_primary["C1"]
     moat_evidence = _moat_proxy_facts(financials) + issuer_primary["C4"]
     growth_evidence = _growth_facts(financials)
@@ -510,7 +614,10 @@ def build_company_evidence(
     )
     financing_facts = [
         _period_fact(metric, annual_period[metric], annual_period)
-        for metric in ("net_cash_invest", "net_cash_finance")
+        for metric in (
+            "net_cash_invest", "net_cash_finance", "capital_expenditure",
+            "cash_dividends_paid", "share_repurchases",
+        )
         if annual_period.get(metric) is not None
     ]
     management_evidence = governance + capital_allocation + financing_facts + issuer_primary["C5"]
@@ -526,11 +633,23 @@ def build_company_evidence(
         }
         for item in expectation_model.get("monitoring") or []
     ]
-    financial_gap = "当前市场缺少可验证的结构化财务事实" if market != "a" else "财务披露字段不足"
+    financial_gap = (
+        "免费免登录聚合财务缺少可验证的公告日期；需公司 IR、TDnet、DART 或其他一手原文补齐"
+        if market in {"jp", "kr"}
+        else "港股免费聚合三表缺少公告日期；需 HKEXnews 或公司 IR 原文确认"
+        if market == "hk"
+        else "SEC Company Facts 未返回研究截止日前的可用标准化事实"
+        if market == "us"
+        else "财务披露字段不足"
+    )
     no_management_gap = "尚未接入经核验的管理层、回购、分红、增减持和治理事件源"
     sections = {
         "C1": _section(bool(business_evidence), business_evidence, ["收入分部、客户集中度和渠道经营数据仍需原始披露复核"]),
-        "C2": _section(bool(quality_evidence), quality_evidence, [] if quality_evidence else [financial_gap]),
+        "C2": _section(
+            bool(quality_evidence),
+            quality_evidence,
+            _financial_quality_gaps(financials) if quality_evidence else [financial_gap],
+        ),
         "C3": _section(bool(growth_evidence or primary_disclosures), growth_evidence + primary_disclosures, [] if growth_evidence or primary_disclosures else [financial_gap]),
         "C4": _section(bool(moat_evidence), moat_evidence, ["毛利率仅为护城河代理，品牌、份额、批价和渠道库存仍需一手经营证据"]),
         "C5": _section(bool(management_evidence), management_evidence, [] if management_evidence else [no_management_gap]),
@@ -563,6 +682,7 @@ def build_company_evidence(
     _identify_evidence(sections)
     available = [key for key, value in sections.items() if value["available"]]
     missing = [key for key, value in sections.items() if not value["available"]]
+    primary_requests = _primary_evidence_requests(sections, market, normalized, quote.name if quote else normalized)
     result = {
         "schema_version": "1.2",
         "symbol": normalized,
@@ -595,10 +715,52 @@ def build_company_evidence(
                 {"source": "issuer_primary_disclosure", "status": "ok" if any(issuer_primary.values()) else "unavailable"},
                 {"source": "execution_cost_model", "status": "ok" if execution_cost_model.get("available") else "unavailable"},
                 {"source": "expectations_model", "status": expectation_model.get("status")},
+                {
+                    "source": "agent_primary_evidence_reach",
+                    "status": "recommended" if primary_requests else "not_needed",
+                    "reason": "use host web/search or agent-reach when installed; only original filings may become primary evidence",
+                },
             ],
+            "primary_evidence_requests": primary_requests,
         },
     }
     from .company_lens import freeze_company_evidence
 
     result["_meta"]["evidence_snapshot_id"] = freeze_company_evidence(result)["snapshot_id"]
     return result
+
+
+def _primary_evidence_requests(
+    sections: dict[str, dict[str, Any]], market: str, symbol: str, name: str,
+) -> list[dict[str, Any]]:
+    domains = {
+        "a": ["cninfo.com.cn", "sse.com.cn", "szse.cn", "issuer IR"],
+        "hk": ["hkexnews.hk", "issuer IR"],
+        "us": ["sec.gov", "issuer IR"],
+        "jp": ["release.tdnet.info", "disclosure2.edinet-fsa.go.jp", "issuer IR"],
+        "kr": ["dart.fss.or.kr", "kind.krx.co.kr", "issuer IR"],
+    }.get(market, ["issuer IR", "exchange or regulator"])
+    topics = {
+        "C1": ["segment revenue", "segment profit", "channel inventory", "demand indicators"],
+        "C2": ["three statements", "operating cash flow", "capital expenditure", "free cash flow"],
+        "C4": ["market share", "pricing", "wholesale price", "customer retention", "competitive risks"],
+        "C5": ["governance", "buyback", "dividend", "capital allocation", "management incentives"],
+        "C7": ["risk factors", "regulatory actions", "litigation", "bear case evidence"],
+        "C8": ["guidance", "catalysts", "earnings calendar", "thesis disconfirming events"],
+    }
+    requests_out = []
+    for module, wanted in topics.items():
+        section = sections[module]
+        if module == "C2" and section.get("available") and market in {"a", "us"}:
+            continue
+        requests_out.append(
+            {
+                "module": module,
+                "topics": wanted,
+                "preferred_domains": domains,
+                "query": f"{name} {symbol} {' '.join(wanted[:2])} annual report results announcement",
+                "cutoff_rule": "published_at must be on or before trade_date",
+                "accepted_sources": ["issuer", "exchange", "regulator"],
+            }
+        )
+    return requests_out

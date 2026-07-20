@@ -449,6 +449,7 @@ def test_parse_fund_profile_js_extracts_public_performance_fee_and_manager_field
     assert profile["fees"]["front_end_source_rate_pct"] == 1.5
     assert profile["fees"]["front_end_rate_pct"] == 0.15
     assert profile["scale"]["latest_size_yi"] == 95.44
+    assert profile["scale"]["history"] == [{"asof": "2026-03-31", "size_yi": 95.44, "mom": "-16.17%"}]
     assert profile["performance_evaluation"]["average_score"] == 77.75
     assert profile["performance_evaluation"]["metrics"]["收益率"] == 80.0
     assert profile["managers"][0]["name"] == "张坤"

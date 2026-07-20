@@ -196,14 +196,14 @@ const Terminal = ({zh}) => {
   const chars = Math.floor(interpolate(frame, [22, 82], [0, command.length], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'}));
   const prompts = zh
     ? [
-        '复盘今天全球行情 用投委会框架给出下一交易日观察清单',
-        '分析东山精密 正向拆产品线 再逆向验证市值隐含利润',
-        '研究512480 重算指数跟踪误差 回撤和交易成本',
+        '复盘A股盘前 区分尚未开始 集合竞价与盘中证据',
+        '分析腾讯和苹果 优先核验HKEX SEC与公司IR原文',
+        '比较日韩持仓量价 组合相关性与逐日汇率归因',
       ]
     : [
-        'Recap global markets through the committee framework and build a next-session watchlist',
-        'Research a company with product-line SOTP and market-implied earnings',
-        'Review 512480 with index tracking drawdown and execution costs',
+        'Recap A-share premarket and separate not-yet-open auction and intraday evidence',
+        'Research Tencent and Apple with HKEX SEC and issuer originals first',
+        'Compare JP/KR holdings liquidity portfolio correlation and daily FX attribution',
       ];
   return (
     <Scene duration={360} label={zh ? '安装 Skill 后直接提问' : 'install the Skill then ask'} zh={zh}>
@@ -227,7 +227,7 @@ const Terminal = ({zh}) => {
           <div style={{padding: '25px 38px 26px', fontFamily: 'SFMono-Regular, Menlo, monospace', fontSize: 22, lineHeight: 1.65}}>
             <div><span style={{color: C.green}}>$</span> uv tool install stock-analysis</div>
             <div><span style={{color: C.green}}>$</span> {command.slice(0, chars)}<span style={{opacity: frame % 18 < 9 ? 1 : 0}}>▋</span></div>
-            <div style={{...rise(frame, fps, 92), color: C.lime, marginTop: 12}}>✓ {zh ? '已安装 行情复盘 · 个股分析 · 基金分析' : 'installed market recap · stock review · fund review'}</div>
+            <div style={{...rise(frame, fps, 92), color: C.lime, marginTop: 12}}>✓ {zh ? '已安装 全球市场 · 公司研究 · 一手证据补齐' : 'installed global markets · company research · primary-evidence reach'}</div>
           </div>
         </div>
         <div style={{...rise(frame, fps, 122), marginTop: 20, border: `1px solid ${C.line}`, borderRadius: 18, background: C.panel, padding: '20px 28px'}}>
@@ -251,10 +251,10 @@ const Terminal = ({zh}) => {
 const Evidence = ({zh}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
-  const coverage = zh ? ['A股', '港股', '美股', '基金', '持仓组合'] : ['A-shares', 'Hong Kong', 'US stocks', 'Funds', 'Portfolios'];
+  const coverage = zh ? ['A股', '港股', '美股', '日股', '韩股', '基金/组合'] : ['A-shares', 'Hong Kong', 'US stocks', 'Japan', 'Korea', 'Funds/portfolios'];
   const evidenceTypes = zh
-    ? ['前提审计', '同口径证据仲裁', '官方年报PDF', '产品线与SOTP', '市值隐含利润', '预期差对账', '观点变化触发器', '动态投委会']
-    : ['Premise audit', 'Comparable evidence', 'Official annual reports', 'Product lines and SOTP', 'Market-implied earnings', 'Expectation-gap bridge', 'View-change triggers', 'Dynamic committee'];
+    ? ['交易时段与日历', '多源量价', 'SEC与年报一手财务', 'Agent一手证据补齐', '本币成交额与60日波动', '组合相关性与汇率归因', '正逆向估值', '动态投委会']
+    : ['Sessions and calendars', 'Multi-source price/volume', 'SEC and annual reports', 'Agent primary-evidence reach', 'Local ADV and 60d volatility', 'Correlation and FX attribution', 'Forward/reverse valuation', 'Dynamic committee'];
   return (
     <Scene duration={330} label={zh ? '数据广度与证据深度' : 'market breadth and evidence depth'} zh={zh}>
       <div style={{position: 'absolute', left: 130, right: 130, top: 115}}>
@@ -262,7 +262,7 @@ const Evidence = ({zh}) => {
         <div style={{fontSize: 54, fontWeight: 600, marginTop: 22}}>{zh ? '不把假设写成事实 不把市值留在模型之外' : 'Keep assumptions separate—and price inside the model'}</div>
         <div style={{marginTop: 30, padding: 24, borderRadius: 18, border: `1px solid ${C.line}`, background: C.panel}}>
           <div style={{fontSize: 16, color: C.green, letterSpacing: 2}}>{zh ? '覆盖范围' : 'COVERAGE'}</div>
-          <div style={{display: 'flex', gap: 13, marginTop: 17}}>
+          <div style={{display: 'flex', flexWrap: 'wrap', gap: 11, marginTop: 17}}>
             {coverage.map((item, i) => <Badge key={item} tone={i === 4 ? C.lime : C.green}>{item}</Badge>)}
           </div>
         </div>
@@ -330,21 +330,21 @@ const AgentFlow = ({zh}) => {
   const {fps} = useVideoConfig();
   const flows = zh
     ? [
-        ['核验前提', '报告期 口径 来源', '错误或歧义不进入模型'],
-        ['正向建模', '出货×ASP×利润率', '产品线利润与SOTP'],
-        ['逆向验价', '市值÷估值倍数', '隐含利润与期权剩余值'],
-        ['形成判断', '正反模型预期差', '跟踪指标与观点变化'],
+        ['识别市场与时段', '交易日历和可用性状态', '尚未产生不等于数据源故障'],
+        ['取得结构化证据', '行情 财务 流动性 汇率', '日期口径与来源可审计'],
+        ['补发行人原文', '公司IR 交易所 监管机构', '缺失仍保留 不用摘要冒充'],
+        ['形成判断', '正逆向估值与投委会', '反证 条件与持续跟踪'],
       ]
     : [
-        ['Audit premise', 'period scope and source', 'block incorrect or ambiguous inputs'],
-        ['Build forward', 'units × ASP × margin', 'product profit and SOTP'],
-        ['Reverse price', 'market cap ÷ multiple', 'implied profit and option residual'],
-        ['Form the view', 'forward vs implied gap', 'monitoring and view triggers'],
+        ['Resolve market and session', 'calendar and availability state', 'not-yet-created is not source failure'],
+        ['Gather structured evidence', 'quotes financials liquidity and FX', 'auditable date scope and source'],
+        ['Reach issuer originals', 'IR exchange and regulator', 'keep gaps when originals are absent'],
+        ['Form the view', 'forward/reverse valuation and committee', 'counter-evidence conditions and tracking'],
       ];
   return (
     <Scene duration={300} label={zh ? '从问题到对应报告' : 'from question to the matching report'} zh={zh}>
       <div style={{position: 'absolute', left: 120, right: 120, top: 125}}>
-        <div style={{fontSize: 52, fontWeight: 600}}>{zh ? '从能建模 到能解释市场定价' : 'From building a model to explaining market pricing'}</div>
+        <div style={{fontSize: 52, fontWeight: 600}}>{zh ? '从全球证据 到可持续验证的判断' : 'From global evidence to a continuously testable view'}</div>
         <div style={{display: 'grid', gap: 14, marginTop: 38}}>
           {flows.map(([question, evidence, report], i) => {
             const p = spring({frame: frame - i * 18, fps, config: {damping: 18}});
@@ -382,7 +382,7 @@ const Close = ({zh}) => {
           </div>
           <div style={{...rise(frame, fps, 24), marginTop: 30, fontSize: 26, color: C.muted}}>github.com/AdvancingTitans/stock-analysis</div>
           <div style={{...rise(frame, fps, 34), marginTop: 24, display: 'flex', justifyContent: 'center', gap: 12}}>
-            <Badge>{zh ? '前提审计' : 'Premise audit'}</Badge><Badge>{zh ? '正向+逆向估值' : 'Forward + reverse valuation'}</Badge><Badge tone={C.lime}>{zh ? '观点变化触发器' : 'View-change triggers'}</Badge>
+            <Badge>{zh ? 'A/HK/US/JP/KR' : 'A/HK/US/JP/KR'}</Badge><Badge>{zh ? 'SEC+发行人原文' : 'SEC + issuer originals'}</Badge><Badge tone={C.lime}>{zh ? '正逆向估值与跟踪' : 'Valuation + monitoring'}</Badge>
           </div>
         </div>
       </div>

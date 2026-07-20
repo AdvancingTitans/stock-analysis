@@ -1,8 +1,8 @@
 ---
 name: stock-analysis
-description: 全球股市深度复盘技能。用于 A股、港股、美股、基金的当前行情、盘前/盘中/盘后复盘、6 模块证据驱动分析、trading 入口持仓分析、默认 committee 投委会、内置投资专家 lens、单股速览、基金画像、精选资讯雷达、缺失指标补充和数据源诊断；执行腾讯/新浪优先、东财独有数据限流、证据质量评分和浏览器接管策略。
+description: 全球股市深度复盘技能。用于 A股、港股、美股、日股、韩股和基金的当前行情、盘前/盘中/盘后复盘、证据驱动分析与公司研究；日韩使用免费免登录行情、独立交易日历，并在缺少一手财务时触发自包含的 primary-evidence-reach 能力。
 metadata:
-  version: "4.14.0"
+  version: "4.15.0"
   author: "Hermes Agent + yjw"
   platforms: "linux, macos, windows"
 ---
@@ -27,6 +27,8 @@ uv run python -m stock_analysis --market price-move --symbol 600519 --emit-evide
 uv run python -m stock_analysis --market thesis-create --symbol 600519
 uv run python -m stock_analysis --market thesis-review --symbol 600519
 uv run python -m stock_analysis --market research --symbol 600519
+uv run python -m stock_analysis --market research --symbol 7203.T
+uv run python -m stock_analysis --market research --symbol 005930.KS
 uv run python -m stock_analysis --market research --symbol 600519 --expectations-file examples/company-expectations.example.json
 uv run python -m stock_analysis --market research --symbol 512480 --asset-type fund
 ```
@@ -34,6 +36,8 @@ uv run python -m stock_analysis --market research --symbol 512480 --asset-type f
 - 默认 `--format auto`：根据当前北京时间自动选择 `summary`、`key-points` 或 `full`。
 - 默认输出投委会（committee）统一报告结构（执行摘要 + M1–M6 + 建议/风险提示）；正文不输出证据附录，审计数据只通过 `--emit-evidence` 文件保留。`--report-style classic` 仅为兼容别名。
 - 所有报告类型（盘前、盘中、午间、盘后、个股、基金）及其专家视角必须优先使用 Evidence Pack 中的补充证据、精选资讯和稳定公开数据源；仍不可得的指标必须保留缺口，不得补零或外推。
+- 日本代码必须使用 `.T`（如 `7203.T`），韩国使用 `.KS` / `.KQ`；不得把裸 4 位代码猜成日本、裸 6 位代码猜成韩国。
+- 港股与日韩免费免登录财务聚合缺少公告日期时保持 conditional；美股优先使用 SEC Company Facts 的有截止日一手 XBRL。任一市场若 `_meta.source_events` 标记 `agent_primary_evidence_reach=recommended`，必须调用随安装包提供的 `primary-evidence-reach` Skill，并严格按 `_meta.primary_evidence_requests` 补齐经营、治理、资本配置、风险和催化剂原文；环境已有 `agent-reach` 时优先使用其路由，没有时使用宿主网页/PDF 能力，不要求用户另装 Skill。
 - `--date YYYYMMDD` 仅在用户明确指定日期时使用；未指定时自动解析最近 A股交易日。
 - `--emit-evidence` 保留 `evidence_YYYYMMDD.json` 与 6 个模块 JSON。
 - trading 入口按“用户完整持仓输入 → 本技能投资记忆 → 无持仓”的优先级决定是否输出持仓分析；用户完整输入会覆盖写入 `~/.stock_analysis/profile.json` 或 `STOCK_ANALYSIS_PROFILE`。

@@ -232,8 +232,10 @@ def build_portfolio_snapshot(holdings: list[Holding], trade_date: str) -> dict[s
                 "quote": asdict(quote),
             }
 
-        fx_rate = rates.get(detail["currency"], 1.0)
-        if detail.get("current_price") is not None:
+        fx_rate = 1.0 if detail["currency"] == "CNY" else rates.get(detail["currency"])
+        detail["fx_rate_to_cny"] = fx_rate
+        detail["fx_status"] = "available" if fx_rate is not None else "unavailable"
+        if detail.get("current_price") is not None and fx_rate is not None:
             market_value_cny = float(detail["current_price"]) * holding.quantity * fx_rate
             total_value_cny += market_value_cny
             market_values.append(market_value_cny)

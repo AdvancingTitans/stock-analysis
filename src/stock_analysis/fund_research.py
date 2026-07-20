@@ -315,6 +315,23 @@ def build_fund_evidence(code: str, trade_date: str) -> dict[str, Any]:
     f7 = []
     if scale.get("latest_size_yi") is not None:
         f7.append(_item("F7", "latest_size_yi", scale["latest_size_yi"], profile.get("_source") or "public_fund_profile", period=scale.get("asof")))
+    scale_history = scale.get("history") or []
+    if len(scale_history) >= 2:
+        latest_scale = float(scale_history[-1]["size_yi"])
+        previous_scale = float(scale_history[-2]["size_yi"])
+        f7.append(_item(
+            "F7", "disclosed_aum_change_yi", latest_scale - previous_scale,
+            profile.get("_source") or "public_fund_profile",
+            period=f"{scale_history[-2]['asof']}..{scale_history[-1]['asof']}",
+            validation_status="conditional",
+        ))
+    purchase_status = profile.get("purchase_status") or {}
+    for action in ("subscribe", "redeem"):
+        if purchase_status.get(action):
+            f7.append(_item(
+                "F7", f"{action}_status", purchase_status[action],
+                profile.get("_source") or "public_fund_profile",
+            ))
     if managers:
         f7.append(_item("F7", "manager_count", len(managers), profile.get("_source") or "public_fund_profile"))
     fees = profile.get("fees") or {}
@@ -344,7 +361,11 @@ def build_fund_evidence(code: str, trade_date: str) -> dict[str, Any]:
 
     modules = {
         "F1": _section(f1, [] if len(f1) >= 2 else ["基金合同、指数编制细则或完整产品契约尚未结构化"]),
-        "F2": _section(f2, [] if index_snapshot.get("available") else ["官方完整指数样本与权重不可用"]),
+        "F2": _section(
+            f2,
+            ([] if index_snapshot.get("available") else ["官方完整指数样本与权重不可用"])
+            + ["基金季报通常只披露前十大持仓；指数成分不等同于基金当日真实持仓，行业暴露需完整 PCF/组合披露"],
+        ),
         "F3": _section(f3, [] if f3 else ["阶段收益与场内价格序列不可用"]),
         "F4": _section(f4, [] if f4 else ["官方净值与前复权场内价格无法逐日匹配"]),
         "F5": _section(
@@ -352,7 +373,11 @@ def build_fund_evidence(code: str, trade_date: str) -> dict[str, Any]:
             [] if index_snapshot.get("available") else ["官方完整指数估值不可用；重仓股估值仅作为降级代理"],
         ),
         "F6": _section(f6, ["完整净值最大回撤、波动率与情景压力测试尚未结构化"]),
-        "F7": _section(f7, ["管理费、托管费、份额变动与跟踪治理尚未完整结构化"] if not fees else []),
+        "F7": _section(
+            f7,
+            ["公开规模变化同时包含净申赎和净值涨跌，不能当作真实净申赎；真实份额申赎流仍缺失"]
+            + (["管理费、托管费、份额变动与跟踪治理尚未完整结构化"] if not fees else []),
+        ),
         "F8": _section(f8, ["宏观、产业周期和指数调仓日历尚未结构化"]),
     }
     available = [code for code, section in modules.items() if section["available"]]

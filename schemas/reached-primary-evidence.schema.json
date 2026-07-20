@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/AdvancingTitans/stock-analysis/schemas/reached-primary-evidence.schema.json",
+  "title": "Agent-reached issuer-primary evidence",
+  "type": "object",
+  "required": ["schema_version", "symbol", "items"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "symbol": {"type": "string", "minLength": 1},
+    "retrieval_method": {"type": "string"},
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["module", "metric", "period", "value", "source", "url", "published_at"],
+        "properties": {
+          "module": {"enum": ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8"]},
+          "metric": {"type": "string", "minLength": 1},
+          "period": {"type": "string", "minLength": 1},
+          "value": {},
+          "currency": {"type": ["string", "null"]},
+          "source": {"type": "string", "minLength": 1},
+          "url": {"type": "string", "pattern": "^https://"},
+          "published_at": {"type": "string", "pattern": "^\\d{4}-?\\d{2}-?\\d{2}$"},
+          "page": {"type": ["integer", "string", "null"]},
+          "extraction_note": {"type": ["string", "null"]}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

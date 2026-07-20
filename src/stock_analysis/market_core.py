@@ -2315,6 +2315,11 @@ def fetch_stock_fund_flow_daily(symbol: str, date_str: str, limit: int = 20) -> 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
 def fetch_northbound_flow_snapshot(date_str: str) -> dict[str, Any]:
     """Fetch a validated full-day northbound-flow snapshot, unit: 亿元."""
+    if _compact_date(date_str) >= "20240819":
+        return _northbound_unavailable(
+            date_str,
+            "2024-08-19 起互联互通披露机制调整；免费公开端点不能稳定提供可核验的北向净买入全日序列，成交额不得冒充净流入",
+        )
     current_trade_date = nearest_trade_date()
     if date_str != current_trade_date:
         return _northbound_unavailable(
@@ -5030,11 +5035,21 @@ def _latest_fund_scale(raw: dict[str, Any]) -> dict[str, Any]:
     series = raw.get("series") or []
     if not categories or not series:
         return {}
+    history = [
+        {
+            "asof": str(asof),
+            "size_yi": _safe_number((row or {}).get("y")),
+            "mom": (row or {}).get("mom") or "",
+        }
+        for asof, row in zip(categories, series)
+        if isinstance(row, dict) and _safe_number(row.get("y")) is not None
+    ]
     latest = series[-1] or {}
     return {
         "asof": categories[-1],
         "latest_size_yi": _safe_number(latest.get("y")),
         "mom": latest.get("mom") or "",
+        "history": history,
     }
 
 

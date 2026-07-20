@@ -22,6 +22,7 @@ class ResearchCommandServices:
     review_thesis: Callable[..., tuple[dict[str, Any] | None, Path, list[str]]]
     render_thesis_create: Callable[[dict[str, Any], Path], str]
     render_thesis_review: Callable[[dict[str, Any] | None, Path, list[str]], str]
+    load_reached_primary_evidence: Callable[..., dict[str, list[dict[str, Any]]]]
 
 
 def _load_expectations(args: argparse.Namespace, parser: argparse.ArgumentParser, *, fund: bool) -> dict[str, Any] | None:
@@ -51,11 +52,32 @@ def run_research_command(
         or (args.asset_type == "auto" and str(args.symbol).startswith(("5", "15", "16")))
     )
     expectations = _load_expectations(args, parser, fund=research_is_fund)
+    reached_primary = None
+    if args.primary_evidence_file:
+        if research_is_fund:
+            parser.error("--primary-evidence-file supports company research only")
+        try:
+            reached_primary = services.load_reached_primary_evidence(
+                args.primary_evidence_file,
+                symbol=args.symbol,
+                trade_date=trade_date,
+            )
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            parser.error(f"cannot read --primary-evidence-file: {exc}")
     try:
         if research_is_fund:
             pack = services.build_fund_evidence(args.symbol, trade_date)
-        elif expectations is not None:
-            pack = services.build_company_evidence(args.symbol, trade_date, expectations=expectations)
+        elif expectations is not None or reached_primary is not None:
+            company_options: dict[str, Any] = {}
+            if expectations is not None:
+                company_options["expectations"] = expectations
+            if reached_primary is not None:
+                company_options["reached_primary"] = reached_primary
+            pack = services.build_company_evidence(
+                args.symbol,
+                trade_date,
+                **company_options,
+            )
         else:
             pack = services.build_company_evidence(args.symbol, trade_date)
     except ValueError as exc:

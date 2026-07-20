@@ -2,7 +2,7 @@ from stock_analysis import market_core
 
 
 def test_northbound_rejects_incomplete_or_abnormal_series(monkeypatch):
-    monkeypatch.setattr(market_core, "nearest_trade_date", lambda: "20260710")
+    monkeypatch.setattr(market_core, "nearest_trade_date", lambda: "20240816")
     monkeypatch.setattr(market_core, "cache_load", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         market_core,
@@ -10,7 +10,7 @@ def test_northbound_rejects_incomplete_or_abnormal_series(monkeypatch):
         lambda *args, **kwargs: '{"time":["09:10","09:11"],"hgt":[0.0,0.1],"sgt":[364.0,365.0]}',
     )
 
-    result = market_core.fetch_northbound_flow_snapshot("20260710")
+    result = market_core.fetch_northbound_flow_snapshot("20240816")
 
     assert result["available"] is False
     assert result["_quality_status"] == "unavailable"
@@ -19,7 +19,7 @@ def test_northbound_rejects_incomplete_or_abnormal_series(monkeypatch):
 
 
 def test_northbound_requires_current_day_and_validated_cache(monkeypatch):
-    monkeypatch.setattr(market_core, "nearest_trade_date", lambda: "20260710")
+    monkeypatch.setattr(market_core, "nearest_trade_date", lambda: "20240816")
     stale_cache = {"total_yi": 999.0, "_validation_version": 1}
     monkeypatch.setattr(market_core, "cache_load", lambda *args, **kwargs: stale_cache)
     monkeypatch.setattr(
@@ -28,13 +28,20 @@ def test_northbound_requires_current_day_and_validated_cache(monkeypatch):
         lambda *args, **kwargs: '{"time":[],"hgt":[],"sgt":[]}',
     )
 
-    historical = market_core.fetch_northbound_flow_snapshot("20260709")
-    current = market_core.fetch_northbound_flow_snapshot("20260710")
+    historical = market_core.fetch_northbound_flow_snapshot("20240815")
+    current = market_core.fetch_northbound_flow_snapshot("20240816")
 
     assert historical["available"] is False
     assert "历史日期" in historical["_error"]
     assert current["available"] is False
     assert "total_yi" not in current
+
+
+def test_northbound_is_explicitly_unavailable_after_disclosure_change():
+    result = market_core.fetch_northbound_flow_snapshot("20260720")
+
+    assert result["available"] is False
+    assert "2024-08-19" in result["_error"]
 
 
 def test_stock_fund_flow_retries_error_payload_before_marking_gap(monkeypatch):

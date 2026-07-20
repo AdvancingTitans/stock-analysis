@@ -43,6 +43,18 @@ def test_package_does_not_require_young_stock_cli_dependency():
     assert "young-stock-cli" not in pyproject
 
 
+def test_jp_kr_primary_evidence_reach_is_installed_without_external_skill_assumption():
+    skill = (ROOT / "skills" / "stock-analysis" / "SKILL.md").read_text(encoding="utf-8")
+    reach = (ROOT / "codex-skills" / "primary-evidence-reach" / "SKILL.md").read_text(encoding="utf-8")
+    installer = (ROOT / "scripts" / "install-agent-entrypoints.sh").read_text(encoding="utf-8")
+
+    assert ".T" in skill and ".KS" in skill and ".KQ" in skill
+    assert "primary-evidence-reach" in skill
+    assert "若不存在 `agent-reach`" in reach
+    assert "--primary-evidence-file" in reach
+    assert 'for source in "$ROOT"/codex-skills/*' in installer
+
+
 def test_skill_documents_stock_analysis_entry_contracts():
     skill = (ROOT / "skills" / "stock-analysis" / "SKILL.md").read_text(encoding="utf-8")
     zh_readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")

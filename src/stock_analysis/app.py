@@ -5,14 +5,17 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from .company_evidence import build_company_evidence
 from .config import SourceConfig
 from .csi_index import FUND_INDEX_CODES, build_csi_index_snapshot
 from .diagnostics import run_diagnostics
 from .evidence import EvidenceBundle
+from .exchange import attribute_price_and_fx, fetch_cny_rate_history
 from .execution_costs import build_execution_cost_model
 from .fund_research import build_fund_evidence, build_fund_research_workspace
+from .global_markets import fetch_yahoo_financials
 from .integrations import (
     fetch_a_index_price_volume,
     fetch_a_indices,
@@ -28,8 +31,10 @@ from .integrations import (
     fetch_fund_holdings,
     fetch_fund_nav_quote,
     fetch_fund_profile,
+    fetch_global_price_volume,
     fetch_hk_indices,
     fetch_important_announcements,
+    fetch_jp_kr_financial_snapshot,
     fetch_lhb_aftermarket,
     fetch_limit_pools,
     fetch_listed_fund_premium_discount,
@@ -41,16 +46,20 @@ from .integrations import (
 from .market_sentiment import fetch_market_sentiment
 from .market_time import detect_market_session, resolve_trade_date
 from .models import Holding
+from .normalize import normalize_code
 from .portfolio import build_portfolio_snapshot
 from .primary_disclosures import load_issuer_primary_facts
 from .profile import load_holdings_from_profile
+from .reached_evidence import load_reached_primary_evidence
 from .reporting import render_diagnostics, render_report_with_metadata
 from .research_cli import ResearchCommandServices, run_research_command
 from .research_workspace import build_research_workspace
 from .screening import load_security_master, parse_filter, parse_sort, screen
 from .screening import render_markdown as render_screen_markdown
 from .screening import write_evidence as write_screen_evidence
+from .sec_filings import fetch_sec_financials
 from .thesis import create_thesis, review_thesis
+from .time_series import compare_price_series
 from .trading import IncompleteHoldingsError, parse_user_holdings_json, plan_trading_task, resolve_holdings
 from .workflows import render_earnings_review, render_price_move, render_stock_review
 
@@ -111,6 +120,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--expectations-file",
         help="JSON assumptions for premise audit, product-line model, SOTP, market-implied expectations, and monitoring",
+    )
+    parser.add_argument(
+        "--primary-evidence-file",
+        help="Agent-reached issuer-primary JSON evidence with source URL and publication cutoff",
     )
     parser.add_argument("--stock", dest="symbol", help="Alias for --symbol with --market stock")
     parser.add_argument("--fund", dest="symbol", help="Alias for --symbol with --market fund")
@@ -180,7 +193,16 @@ def build_evidence(
     a_indices = _a_indices_payload(trade_date)
     hk_indices = [_quote_payload(q) for q in fetch_hk_indices(trade_date)]
     us_indices = [_quote_payload(q) for q in fetch_us_indices(trade_date)]
-    northbound = fetch_northbound_flow(trade_date)
+    northbound = (
+        fetch_northbound_flow(trade_date)
+        if session_label not in {"盘前", "集合竞价"}
+        else {
+            "available": False,
+            "status": "not_yet_available",
+            "_source": "session_availability",
+            "_source_note": "盘前/集合竞价阶段不存在可验证的全日资金流；竞价成交额不能冒充净流入。",
+        }
+    )
     fund_flow = fetch_fund_flow(trade_date)
     industry = fetch_board_list("industry", trade_date, limit=200)
     concept = fetch_board_list("concept", trade_date, limit=20)
@@ -188,7 +210,19 @@ def build_evidence(
     pool_stats = _pool_statistics(pools)
     feature_groups = _feature_groups(pools)
     concentration = _concentration_snapshot(pools, industry, concept)
-    breadth = fetch_a_share_market_breadth(trade_date)
+    breadth = (
+        fetch_a_share_market_breadth(trade_date)
+        if session_label != "盘前"
+        else {
+            "available": False,
+            "status": "not_yet_available",
+            "source": "session_availability",
+            "reason": "9:15 集合竞价开始前没有当日可验证涨跌家数。",
+        }
+    )
+    if session_label == "集合竞价" and breadth.get("available"):
+        breadth["status"] = "indicative_auction_snapshot"
+        breadth["scope_note"] = "集合竞价指示性涨跌家数，不能视为开盘后市场宽度。"
     price_volume = fetch_a_index_price_volume(trade_date)
     sentiment = _safe_market_sentiment(trade_date, market) if session_label == "盘后" else {}
     announcement_candidates = _announcement_candidates(pool_stats, portfolio_snapshot)
@@ -339,8 +373,9 @@ def build_evidence(
         meta={
             "trade_date": trade_date,
             "session": session_label,
+            "intraday_availability": _intraday_availability(session_label),
             "source_events": source_events,
-            "portfolio_exposure": _portfolio_exposure_pack(portfolio_snapshot),
+            "portfolio_exposure": _portfolio_exposure_pack(portfolio_snapshot, trade_date),
             "stock_microstructure": stock_microstructure,
             "stock_trading_costs": stock_trading_costs,
             "company_primary_disclosures": company_primary_disclosures,
@@ -368,6 +403,32 @@ def build_evidence(
     if sentiment.get("source_events"):
         evidence.meta["source_events"].extend(sentiment["source_events"])
     return evidence, portfolio_snapshot
+
+
+def _intraday_availability(session_label: str) -> dict[str, dict[str, str]]:
+    if session_label == "盘前":
+        return {
+            "quotes": {"status": "previous_close_or_not_yet_available"},
+            "auction": {"status": "not_yet_available", "reason": "A股集合竞价从 09:15 开始"},
+            "volume": {"status": "not_yet_available"},
+            "breadth": {"status": "not_yet_available"},
+            "money_flow": {"status": "not_applicable_before_trading"},
+        }
+    if session_label == "集合竞价":
+        return {
+            "quotes": {"status": "indicative"},
+            "auction": {"status": "indicative_snapshot"},
+            "volume": {"status": "auction_only"},
+            "breadth": {"status": "indicative_snapshot"},
+            "money_flow": {"status": "not_yet_available", "reason": "竞价成交额不是资金净流入"},
+        }
+    return {
+        "quotes": {"status": "session_snapshot"},
+        "auction": {"status": "elapsed_or_not_applicable"},
+        "volume": {"status": "session_to_date"},
+        "breadth": {"status": "session_snapshot"},
+        "money_flow": {"status": "conditional_on_source_validation"},
+    }
 
 
 def _normalize_trade_date(value: Any) -> str:
@@ -405,7 +466,7 @@ def _fund_profiles(portfolio_snapshot: dict[str, Any], trade_date: str) -> dict[
     return profiles
 
 
-def _portfolio_exposure_pack(portfolio_snapshot: dict[str, Any]) -> dict[str, Any]:
+def _portfolio_exposure_pack(portfolio_snapshot: dict[str, Any], trade_date: str | None = None) -> dict[str, Any]:
     details = portfolio_snapshot.get("details") or []
     if not details:
         return {"available": False, "holding_count": 0}
@@ -421,8 +482,7 @@ def _portfolio_exposure_pack(portfolio_snapshot: dict[str, Any]) -> dict[str, An
         style = str(detail.get("style") or "unknown")
         market_exposure[market] = market_exposure.get(market, 0.0) + weight
         style_exposure[style] = style_exposure.get(style, 0.0) + weight
-    # ponytail: snapshot-level HHI is enough for evidence readiness; beta/correlation can use this pack later.
-    return {
+    result = {
         "available": total > 0,
         "holding_count": len(details),
         "total_value_cny": total,
@@ -432,8 +492,59 @@ def _portfolio_exposure_pack(portfolio_snapshot: dict[str, Any]) -> dict[str, An
         "hhi": sum(weight * weight for weight in weights),
         "market_exposure": market_exposure,
         "style_exposure": style_exposure,
-        "conditions": ["相关性/beta 需完整持仓与足够历史 K线"],
+        "conditions": [],
     }
+    if not trade_date:
+        result["conditions"].append("相关性与汇率归因需研究日期和足够历史 K线")
+        return result
+    histories: dict[str, dict[str, Any]] = {}
+    fx_attribution: dict[str, dict[str, Any]] = {}
+    for detail in details:
+        symbol = str(detail.get("symbol") or "")
+        market = str(detail.get("market") or "").lower()
+        if not symbol:
+            continue
+        try:
+            pack = (
+                fetch_a_share_price_volume(symbol, trade_date)
+                if market in {"a", "fund", "cn_market"}
+                else fetch_global_price_volume(symbol, trade_date)
+            )
+        except Exception as exc:
+            pack = {"available": False, "rows": [], "reason": str(exc)}
+        histories[symbol] = pack
+        currency = str(detail.get("currency") or pack.get("currency") or "CNY").upper()
+        if currency == "CNY" or not pack.get("rows"):
+            continue
+        try:
+            fx = fetch_cny_rate_history(currency, trade_date)
+            attribution = attribute_price_and_fx(pack.get("rows") or [], fx.get("rows") or [])
+            attribution.update({"currency": currency, "source": fx.get("source")})
+        except Exception as exc:
+            attribution = {"available": False, "currency": currency, "rows": [], "reason": str(exc)}
+        fx_attribution[symbol] = attribution
+    correlations = []
+    symbols = [symbol for symbol, pack in histories.items() if pack.get("rows")]
+    for left_index, left in enumerate(symbols):
+        for right in symbols[left_index + 1:]:
+            comparison = compare_price_series(histories[left]["rows"], histories[right]["rows"])
+            correlations.append({"left": left, "right": right, **comparison})
+    result["pairwise_correlations"] = correlations
+    result["correlation_status"] = (
+        "available" if correlations and all(row.get("available") for row in correlations)
+        else "partial_or_unavailable"
+    )
+    result["daily_fx_attribution"] = fx_attribution
+    result["fx_attribution_status"] = (
+        "available" if fx_attribution and all(row.get("available") for row in fx_attribution.values())
+        else "not_applicable" if not any(str(row.get("currency") or "CNY").upper() != "CNY" for row in details)
+        else "partial_or_unavailable"
+    )
+    if result["correlation_status"] != "available" and len(details) >= 2:
+        result["conditions"].append("组合相关性需每个持仓至少 20 个严格对齐的日收益样本")
+    if result["fx_attribution_status"] == "partial_or_unavailable":
+        result["conditions"].append("逐日汇率归因需持仓价格与 FRED 参考汇率日期对齐")
+    return result
 
 
 def _stock_microstructure_snapshots(portfolio_snapshot: dict[str, Any], trade_date: str) -> dict[str, Any]:
@@ -470,15 +581,22 @@ def _stock_trading_cost_packs(
         symbol = str(detail.get("symbol") or "")
         if not symbol:
             continue
+        market = str(detail.get("market") or "a").lower()
         micro = microstructure.get(symbol) or {}
         try:
-            price_volume = fetch_a_share_price_volume(symbol, trade_date)
+            price_volume = (
+                fetch_a_share_price_volume(symbol, trade_date)
+                if market in {"a", "fund", "cn_market"}
+                else fetch_global_price_volume(symbol, trade_date)
+            )
         except Exception:
             price_volume = {}
         model = build_execution_cost_model(
             symbol=symbol,
             price_volume=price_volume,
             microstructure=micro,
+            market="a" if market in {"a", "fund", "cn_market"} else market,
+            currency=str(detail.get("currency") or price_volume.get("currency") or ""),
         )
         turnover = (
             _safe_float(model.get("average_turnover_20d_cny"))
@@ -536,13 +654,24 @@ def run(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     now = datetime.now()
     market = "a" if args.market in {"daily", "a", "global", "screen", "portfolio"} else args.market
+    if args.symbol:
+        normalized_symbol = normalize_code(args.symbol)
+        if normalized_symbol.endswith(".T"):
+            market = "jp"
+        elif normalized_symbol.endswith((".KS", ".KQ")):
+            market = "kr"
+    market_now = now
+    if market in {"jp", "kr"}:
+        market_now = now.replace(tzinfo=ZoneInfo("Asia/Shanghai")).astimezone(
+            ZoneInfo("Asia/Tokyo" if market == "jp" else "Asia/Seoul")
+        ).replace(tzinfo=None)
     explicit_date = args.date or args.legacy_date
     if explicit_date and (len(explicit_date) != 8 or not explicit_date.isdigit()):
         parser.error("--date must use YYYYMMDD")
     if explicit_date and explicit_date > now.strftime("%Y%m%d"):
         parser.error("--date cannot be in the future")
-    trade_date = explicit_date or resolve_trade_date(now, market=market)
-    session = detect_market_session(now, market=market)
+    trade_date = explicit_date or resolve_trade_date(market_now, market=market)
+    session = detect_market_session(market_now, market=market)
     if explicit_date and trade_date < now.strftime("%Y%m%d"):
         session.label = "盘后"
         session.depth = "full"
@@ -573,6 +702,7 @@ def run(argv: list[str] | None = None) -> int:
             review_thesis=review_thesis,
             render_thesis_create=_render_thesis_create,
             render_thesis_review=_render_thesis_review,
+            load_reached_primary_evidence=load_reached_primary_evidence,
         )
         return run_research_command(args, parser, trade_date, services)
     if args.market == "screen":
@@ -694,7 +824,14 @@ def _render_thesis_review(thesis: dict[str, Any] | None, path: Path, changes: li
 
 def _render_stock_snapshot(symbol: str, trade_date: str) -> str:
     quote = fetch_single_quote(symbol, trade_date)
-    financials = _safe_a_share_financial_snapshot(symbol, trade_date)
+    normalized = normalize_code(symbol)
+    financials = (
+        _safe_jp_kr_financial_snapshot(normalized, trade_date)
+        if normalized.endswith((".T", ".KS", ".KQ"))
+        else _safe_global_financial_snapshot(normalized, trade_date)
+        if normalized.endswith(".HK") or not normalized.isdigit()
+        else _safe_a_share_financial_snapshot(symbol, trade_date)
+    )
     lines = [f"# 单股速览（{trade_date}）", ""]
     lines.extend(
         [
@@ -734,6 +871,8 @@ def _render_stock_snapshot(symbol: str, trade_date: str) -> str:
                 _safe_a_share_order_book_snapshot(quote.symbol, trade_date),
             )
             _append_price_volume_snapshot(lines, fetch_a_share_price_volume(quote.symbol, trade_date))
+        elif quote.market in {"jp", "kr", "hk", "us"}:
+            _append_price_volume_snapshot(lines, fetch_global_price_volume(quote.symbol, trade_date))
     _append_stock_financial_snapshot(lines, financials)
     lines.extend(["", "以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。"])
     return "\n".join(lines)
@@ -772,14 +911,44 @@ def _safe_a_share_financial_snapshot(symbol: str, trade_date: str) -> dict[str, 
         }
 
 
+def _safe_jp_kr_financial_snapshot(symbol: str, trade_date: str) -> dict[str, Any]:
+    try:
+        return fetch_jp_kr_financial_snapshot(symbol, trade_date)
+    except Exception as exc:
+        return {
+            "symbol": symbol,
+            "available": False,
+            "periods": [],
+            "gaps": [f"日韩聚合财务证据暂不可用：{exc}"],
+        }
+
+
+def _safe_global_financial_snapshot(symbol: str, trade_date: str) -> dict[str, Any]:
+    try:
+        return fetch_yahoo_financials(symbol, trade_date) if symbol.endswith(".HK") else fetch_sec_financials(symbol, trade_date)
+    except Exception as exc:
+        return {
+            "symbol": symbol,
+            "available": False,
+            "periods": [],
+            "gaps": [f"港美股财务证据暂不可用：{exc}"],
+        }
+
+
 def _stock_financial_snapshots(portfolio_snapshot: dict[str, Any], trade_date: str) -> dict[str, Any]:
     snapshots: dict[str, Any] = {}
     for detail in portfolio_snapshot.get("details") or []:
         symbol = str(detail.get("symbol") or "")
         market = str(detail.get("market") or "").lower()
-        if not symbol or market not in {"a", "cn_market"}:
+        if not symbol or market == "fund":
             continue
-        snapshot = _safe_a_share_financial_snapshot(symbol, trade_date)
+        snapshot = (
+            _safe_a_share_financial_snapshot(symbol, trade_date)
+            if market in {"a", "cn_market"}
+            else _safe_jp_kr_financial_snapshot(symbol, trade_date)
+            if market in {"jp", "kr"}
+            else _safe_global_financial_snapshot(normalize_code(symbol), trade_date)
+        )
         snapshots[symbol] = snapshot
     return snapshots
 
@@ -1009,7 +1178,7 @@ def _append_listed_fund_premium_discount(lines: list[str], pack: dict[str, Any])
 
 
 def _market_label(value: str) -> str:
-    return {"a": "A股", "hk": "港股", "us": "美股", "fund": "基金"}.get(value, value)
+    return {"a": "A股", "hk": "港股", "us": "美股", "jp": "日股", "kr": "韩股", "fund": "基金"}.get(value, value)
 
 
 def _format_pct(value: Any, *, signed: bool = True) -> str:

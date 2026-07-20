@@ -8,6 +8,13 @@ def normalize_code(symbol: str, source: str = "generic") -> str:
     upper = value.upper()
     lower = value.lower()
 
+    if re.fullmatch(r"(?i)jp:\d{4}", value):
+        return f"{value[3:]}.T"
+    if re.fullmatch(r"(?i)kr:\d{6}", value):
+        return f"{value[3:]}.KS"
+    if upper.endswith((".T", ".KS", ".KQ")):
+        return upper
+
     if lower.startswith("gb_"):
         return upper[3:]
     if lower.startswith("us"):

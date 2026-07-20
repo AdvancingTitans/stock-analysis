@@ -11,6 +11,15 @@ from typing import Any
 import requests
 
 from . import market_core
+from .global_markets import (
+    detect_jp_kr_market,
+    detect_public_global_market,
+    fetch_jp_kr_financials,
+    fetch_jp_kr_quote,
+    fetch_naver_history,
+    fetch_tdnet_disclosures,
+    fetch_yahoo_history,
+)
 from .models import QuoteData
 from .normalize import normalize_code
 from .time_series import build_price_series_pack
@@ -297,8 +306,10 @@ def adapt_quote(raw: Any) -> QuoteData | None:
 
 
 def fetch_single_quote(symbol: str, trade_date: str) -> QuoteData | None:
+    normalized = normalize_code(symbol)
+    if detect_jp_kr_market(normalized):
+        return fetch_jp_kr_quote(normalized, trade_date)
     if is_historical_date(trade_date):
-        normalized = normalize_code(symbol)
         if normalized.endswith(".HK"):
             raw = normalized.replace(".HK", "").lstrip("0") or "0"
             quote = _fetch_tencent_historical_quote(
@@ -325,6 +336,89 @@ def fetch_single_quote(symbol: str, trade_date: str) -> QuoteData | None:
         return _enrich_historical_quote(quote, normalized, trade_date)
     core = market_core
     return adapt_quote(core.get_single_stock_quote(symbol, trade_date))
+
+
+def fetch_jp_kr_financial_snapshot(symbol: str, trade_date: str) -> dict[str, Any]:
+    return fetch_jp_kr_financials(normalize_code(symbol), trade_date)
+
+
+def fetch_jp_kr_price_volume(symbol: str, trade_date: str) -> dict[str, Any]:
+    return fetch_global_price_volume(symbol, trade_date)
+
+
+def fetch_global_price_volume(symbol: str, trade_date: str) -> dict[str, Any]:
+    normalized = normalize_code(symbol)
+    market = detect_public_global_market(normalized)
+    if not market:
+        return {}
+    try:
+        history = (
+            fetch_yahoo_history(normalized, trade_date, days=180)
+            if market != "kr"
+            else fetch_naver_history(normalized, trade_date, days=180)
+        )
+    except Exception as exc:
+        return {"available": False, "symbol": normalized, "reason": str(exc), "rows": []}
+    rows = [row for row in history.get("rows") or [] if row["date"] <= trade_date]
+    payload = build_price_series_pack(
+        [
+            {
+                "date": row["date"],
+                "close": float(row["close"]),
+                "high": float(row["high"]),
+                "low": float(row["low"]),
+                "volume": float(row["volume"]),
+                "turnover_cny": None,
+                "turnover_local": float(row["close"]) * float(row["volume"]),
+            }
+            for row in rows
+            if None not in (row.get("close"), row.get("high"), row.get("low"), row.get("volume"))
+        ]
+    )
+    required = {"returns_5d", "returns_20d", "returns_60d", "volume_zscore", "atr_14_pct"}
+    metrics = payload.get("metrics") or {}
+    local_turnovers = [
+        float(row["turnover_local"])
+        for row in payload.get("rows") or []
+        if row.get("turnover_local") is not None
+    ][-20:]
+    liquidity = payload.get("liquidity") or {}
+    liquidity.update(
+        {
+            "average_turnover_20d_local": sum(local_turnovers) / len(local_turnovers) if local_turnovers else None,
+            "turnover_currency": history.get("currency"),
+            "turnover_sample_size": len(local_turnovers),
+        }
+    )
+    return {
+        "available": required <= set(metrics),
+        "symbol": normalized,
+        "source": history.get("source"),
+        "sample_size": payload.get("sample_size", 0),
+        "metrics": metrics,
+        "currency": history.get("currency"),
+        "market": market,
+        "liquidity": liquidity,
+        "rows": payload.get("rows") or [],
+        "available_fields": sorted(required & set(metrics)),
+        "missing": sorted(required - set(metrics)),
+        "conditions": [] if required <= set(metrics) else ["个股日 K 线需提供至少 61 个有效交易日"],
+    }
+
+
+def fetch_jp_kr_disclosures(symbol: str, trade_date: str, limit: int = 20) -> dict[str, Any]:
+    normalized = normalize_code(symbol)
+    if normalized.endswith(".T"):
+        try:
+            return fetch_tdnet_disclosures(normalized, trade_date, limit=limit)
+        except Exception as exc:
+            return {"available": False, "rows": [], "_source": "tdnet-public-html", "reason": str(exc)}
+    return {
+        "available": False,
+        "rows": [],
+        "_source": "kr-primary-disclosure-gap",
+        "reason": "DART/OpenDART structured API requires a key; Agent primary-evidence fallback may inspect public filings",
+    }
 
 
 def fetch_a_share_financial_snapshot(symbol: str, trade_date: str, limit: int = 8) -> dict[str, Any]:

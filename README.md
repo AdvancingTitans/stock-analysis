@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  A/HK/US stocks · Forward + reverse valuation · SOTP · ETFs / funds · Dynamic committee · Primary disclosures
+  A/HK/US/JP/KR stocks · Forward + reverse valuation · SOTP · ETFs / funds · Dynamic committee · Primary disclosures
 </p>
 
 <p align="center">
@@ -69,6 +69,8 @@ uv tool install stock-analysis
 
 stock-analysis --market daily
 stock-analysis --market stock --symbol 600519
+stock-analysis --market stock --symbol 7203.T
+stock-analysis --market stock --symbol 005930.KS
 stock-analysis --market screen --fiscal-year 2025 --universe-file official_universe.json --filter roe_weighted:gt:8% --sort roe_weighted:desc
 stock-analysis --market research --symbol 512480 --asset-type fund
 stock-analysis --market research --symbol 600519 --expectations-file examples/company-expectations.example.json
@@ -81,7 +83,7 @@ stock-analysis --market research --symbol 600519 --expectations-file examples/co
 - [English video](promo/demo-video/out/stock-analysis-demo-en.mp4)
 - [简体中文视频](promo/demo-video/out/stock-analysis-demo-zh-CN.mp4)
 
-Both demos are 1080p, 72 seconds, caption-led, and work without audio. The current cut shows premise checks, evidence boundaries, forward product-line/SOTP modelling, market-implied earnings, expectation-gap reconciliation, and the dynamic committee. Editable Remotion source lives in [`promo/demo-video`](promo/demo-video/).
+Both demos are 1080p, 72 seconds, caption-led, and work without audio. The v4.15 cut adds A/HK/US/JP/KR coverage, exchange-session semantics, SEC filing-date evidence, issuer-primary reach, local-currency liquidity, portfolio correlation, and FX attribution while retaining forward/reverse valuation and the dynamic committee. Editable Remotion source lives in [`promo/demo-video`](promo/demo-video/).
 
 ## Why It Exists
 
@@ -135,12 +137,14 @@ The animated overview follows the investor journey: ask a question, gather check
 flowchart TB
     U["Your investment question\nasset · date · decision tension"] --> I["Intent routing\nmarket · company · ETF/fund · portfolio · earnings · price move"]
     I --> P["Premise audit + evidence arbitration\nperiod · scope · source tier · conflicts"]
-    P --> C1["Market evidence\nquotes · flows · sectors · risk"]
-    P --> C2["Company disclosures\nannual reports · financials · governance"]
-    P --> C3["Fund and index\nholdings · weights · valuation · history"]
+    P --> C1["Market evidence\nA/HK/US/JP/KR quotes · sessions · calendars · breadth"]
+    P --> C2["Structured company evidence\nA-share disclosures · SEC filed XBRL · conditional global financials"]
+    P --> C3["Fund, index, and portfolio\nholdings · weights · valuation · liquidity · correlation · FX"]
+    P --> C4["Primary-evidence reach\nissuer IR · exchange · regulator · publication cutoff"]
     C1 --> V["Validated research base\nM1–M6 · C1–C8 · F1–F8 · Portfolio"]
     C2 --> V
     C3 --> V
+    C4 --> V
     V --> F["Forward model\nunits × ASP · margins · segment profit · SOTP"]
     V --> B["Reverse model\nmarket cap ÷ multiple · implied profit · residual option value"]
     F --> G["Expectation-gap bridge\nmodel vs price · feasibility · no double counting"]
@@ -264,8 +268,11 @@ Browse [reports/](reports/) for more reports, screenshots, and automation exampl
 | Investor-readable committee reports | Executive summary first, followed by business/index logic, financials or holdings, valuation, disagreements, risk, and conditional actions. |
 | Dynamic six-member committee | Selects the six best-matched frameworks from fifteen instead of sending every question to a fixed cast. |
 | Primary company disclosures | Extensible rules read official annual-report PDFs and route operating, governance, payout, and capital-allocation facts into every framework. |
+| Free global evidence routes | A/HK/US/JP/KR loginless quotes and daily history; SEC Company Facts for filed US XBRL; XTKS/XKRX calendars with explicit validation ranges. |
+| Session-aware market evidence | Premarket, call auction, intraday, and after-hours states distinguish not-yet-available, indicative, and completed evidence instead of treating every empty field as a source failure. |
+| Built-in primary-evidence reach | Missing segment, channel, governance, capital-allocation, risk, and catalyst facts produce targeted issuer/exchange/regulator requests; Agent Reach is optional, not a user prerequisite. |
 | Deep ETF research | Studies both fund and underlying index: complete constituents, weights, valuation, index history, tracking error, premium/discount, and execution scenarios. |
-| A/HK/US stocks, funds, and portfolios | One entry layer for recaps, stocks, funds, earnings, price moves, screens, portfolios, and investment theses. |
+| A/HK/US/JP/KR stocks, funds, and portfolios | One entry layer for recaps, stocks, funds, earnings, price moves, screens, portfolios, and investment theses. |
 | Multi-source and as-of discipline | Stable public sources first, validated fallback when needed, and no future disclosures in historical research. |
 | Recoverable research workspace | Saves the plan, research base, framework opinions, committee synthesis, and final report for later comparison. |
 | Human- and machine-readable output | Markdown for investors; JSON Evidence Packs for Agent verification, automation, and reuse. |
@@ -298,6 +305,10 @@ stock-analysis --market global --format full --emit-evidence
 
 # Deterministic single-stock snapshot, no LLM required
 stock-analysis --market stock --symbol 600519
+
+# Japan and Korea use the same normalized market path
+stock-analysis --market stock --symbol 7203.T
+stock-analysis --market stock --symbol 005930.KS
 
 # Use when you want a structured company fact check: it gives facts and gaps, not a buy score
 stock-analysis --market stock-review --symbol 600519 --emit-evidence
@@ -351,7 +362,9 @@ Think of this as a “facts to check before doing more research” list. It is n
 
 **Simplest choice:** run `stock-review` once, then read its available and missing modules. If you only want today’s price and recent movement, use `stock-snapshot`. If results have just been released, use `earnings-review`. If the price has moved sharply, use `price-move`. These are four different questions and should not substitute for one another.
 
-Company research has a different data boundary from daily market recap. `company_evidence_<symbol>_<date>.json` stores C1–C8 verified facts and gaps. The current structured financial adapter is A-share focused; HK/US primary-filing fields intentionally remain gaps until a verified adapter exists, so those results are not a complete fundamental-research conclusion.
+Company research has a different data boundary from daily market recap. `company_evidence_<symbol>_<date>.json` stores C1–C8 verified facts and gaps. US companies prefer loginless SEC Company Facts with filing-date cutoffs; HK uses loginless Yahoo statements as conditional secondary evidence. JP uses explicit `.T` symbols and Yahoo daily charts; KR uses `.KS`/`.KQ`, with Naver daily charts cross-checked against Yahoo. The bundled XTKS/XKRX calendar snapshot is verified for 2024–2027 and refuses out-of-range weekday guesses. When operating, segment, governance, capital-allocation, risk, or catalyst evidence is missing in any market, `_meta.primary_evidence_requests` drives the installed `primary-evidence-reach` Skill toward issuer, exchange, and regulator originals. The validated result can be imported with `--primary-evidence-file`; Agent Reach is used when available but is not a separate user prerequisite.
+
+A/HK/US/JP/KR daily histories now expose 20-day average local-currency turnover and 60-day volatility. Portfolio evidence computes pairwise return correlations and daily local-price/FX/CNY-return attribution when histories align. Live valuation FX never falls back to hard-coded rates. Historical order books, broker-specific commissions, and true fund creations/redemptions remain explicit gaps.
 
 ### Forward model + reverse price validation
 
@@ -453,7 +466,7 @@ Lenses change evidence priority and narrative structure. They do not override da
 
 ### Built-in Lens and Committee Boundaries
 
-Current CLI version: `4.14.0`.
+Current CLI version: `4.15.0`.
 
 `research` reports retain the denser Chinese committee narrative from the 4.5 series while keeping recoverable, traceable research state inside the Workspace. Company and fund reports preserve their institutional committee spines, but user-facing Markdown no longer exposes coverage flags, missing-module diagnostics, internal actions, snapshot IDs, or audit terminology.
 
@@ -493,7 +506,7 @@ Start with [CONTRIBUTING.md](CONTRIBUTING.md) and [ROADMAP.md](ROADMAP.md).
 
 Use this one-liner when submitting the project to curated lists:
 
-> [stock-analysis](https://github.com/AdvancingTitans/stock-analysis) - Evidence-driven market recap CLI for AI agents and quant researchers, supporting A/HK/US stocks, funds, portfolios, auditable JSON Evidence Packs, data-quality scoring, investor lenses, and multi-source fallback routing.
+> [stock-analysis](https://github.com/AdvancingTitans/stock-analysis) - Evidence-driven market recap CLI for AI agents and quant researchers, supporting A/HK/US/JP/KR stocks, funds, portfolios, auditable JSON Evidence Packs, data-quality scoring, investor lenses, and multi-source fallback routing.
 
 High-fit targets include `awesome-quant-ai`, `awesome-ai-in-finance`, `awesome-quant`, and `awesome-systematic-trading`.
 

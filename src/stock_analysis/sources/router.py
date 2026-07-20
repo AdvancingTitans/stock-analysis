@@ -46,4 +46,14 @@ def build_quote_route(
             browser_required=True,
             reason="美股主路径：腾讯美股接口，新浪为第一 fallback",
         )
+    if market == "jp":
+        return RouteDecision(
+            chain=["yahoo-chart", "last-success-cache"],
+            reason="日本免登录日线为 Yahoo 单源；缓存只作故障恢复，不作独立交叉验证",
+        )
+    if market == "kr":
+        return RouteDecision(
+            chain=["naver-chart", "yahoo-chart", "last-success-cache"],
+            reason="韩国日线优先 Naver，并用 Yahoo 做逐字段交叉验证",
+        )
     return RouteDecision(chain=["browser-fallback"], browser_required=True, reason="未知市场仅保留浏览器降级")

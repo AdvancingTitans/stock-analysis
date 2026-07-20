@@ -12,11 +12,24 @@
 | 行业/概念板块榜 | 东财 `clist` | 同花顺公开板块页 | Camofox | Hermes/Playwright |
 | 港股行情 | 腾讯 | 新浪 | 东财 `stock/get` | 页面接管 |
 | 美股行情 | 新浪 | 腾讯 | 东财 searchapi + `stock/get` | 页面接管 |
-| 港股历史 K | 腾讯 `fqkline` | 东财可用数据 | - | - |
-| 美股历史 K | 新浪日 K | 东财可用数据 | - | - |
+| 港股历史 K/量价 | Yahoo chart | 腾讯 `fqkline` | 东财可用数据 | - |
+| 美股历史 K/量价 | Yahoo chart | 新浪日 K | 东财可用数据 | - |
+| 港股财务 | Yahoo fundamentals（conditional） | HKEXnews/公司 IR 原文 | `primary-evidence-reach` | 宿主 Agent |
+| 美股财务 | SEC Company Facts（primary XBRL） | 公司 IR/EDGAR 原文 | `primary-evidence-reach` | 宿主 Agent |
+| 日股行情/历史 K | Yahoo chart `.T` | 最近成功缓存（仅故障恢复） | 保留单源缺口 | - |
+| 韩股行情/历史 K | Naver `.KS` / `.KQ` | Yahoo 逐字段交叉验证 | 最近成功缓存 | - |
+| 日韩财务摘要 | Naver/Yahoo 聚合数据（conditional） | issuer/JPX/TDnet/DART/KIND 原文 | `primary-evidence-reach` | 宿主 Agent |
 | 基金画像 | 天天基金 `pingzhongdata` 公开 JS | 东财基金估值/持仓 | 新浪基金 | 页面接管 |
 
-Yahoo 不进入推荐路径、报告、示例或当前技术分析实现。
+Yahoo 不进入 A股报价推荐路径；港美股仅用其日线计算 20 日平均本币成交额、60 日波动率和组合相关性，港股财务保持 conditional。Yahoo/Naver 聚合财务缺少公告日期时不得升级为历史 as-of 一手事实。美股 SEC Company Facts 必须用 `filed` 日期做截止，实体级标准 XBRL 不能冒充分部披露。
+
+## 日韩边界
+
+- 日本必须使用 `.T`，韩国必须使用 `.KS` / `.KQ`；裸 4 位/6 位数字不猜测日韩市场。
+- 日股 Yahoo 是已验证的单一免登录日线源；缓存不算独立来源，失败时保留 `single_source` 缺口。
+- 韩股 Naver 与 Yahoo 对共同交易日的 OHLCV 逐字段核对；冲突写入 `cross_source_conflict`。
+- XTKS/XKRX 日历为版本化快照，范围外不得用周一至周五猜测。
+- `primary-evidence-reach` 随 Codex Skills 安装；已有 Agent Reach 时使用其路由，否则使用宿主搜索/浏览器/PDF 能力。只有公司、交易所或监管机构原文可以导入 `--primary-evidence-file`。
 
 ## 腾讯字段
 

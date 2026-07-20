@@ -6,8 +6,17 @@ from stock_analysis.market_time import detect_market_session, resolve_trade_date
 def test_detect_market_session_for_a_share_morning():
     session = detect_market_session(datetime(2026, 6, 18, 9, 10), market="a")
     assert session.market == "a"
-    assert session.label == "早盘"
+    assert session.label == "盘前"
     assert session.depth == "light"
+
+
+def test_detect_market_session_for_a_share_call_auction():
+    session = detect_market_session(datetime(2026, 6, 18, 9, 20), market="a")
+    assert session.label == "集合竞价"
+
+
+def test_resolve_trade_date_keeps_current_trade_day_before_open():
+    assert resolve_trade_date(datetime(2026, 6, 18, 8, 30), market="a") == "20260618"
 
 
 def test_detect_market_session_for_a_share_aftermarket():
