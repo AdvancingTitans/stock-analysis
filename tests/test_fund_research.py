@@ -18,7 +18,10 @@ def _pack():
                     "evidence_id": f"F{index}:fixture",
                     "metric": f"metric_{index}",
                     "value": index,
+                    "period": "20260717",
                     "validation_status": "accepted",
+                    "source_type": "primary_disclosure",
+                    "source": f"fixture-filing-F{index}",
                 }
             ] if index != 5 else [],
             "gaps": ["缺少成分股估值"] if index == 5 else [],
@@ -85,6 +88,13 @@ def test_fund_workspace_uses_institutional_skeleton(tmp_path):
     assert "sha256:" not in report
     assert "审计与待核验事项" not in report
     assert json.loads((workspace / "02-frozen-fund-evidence.json").read_text(encoding="utf-8"))["snapshot_id"]
+    for filename in (
+        "evidence_manifest.json",
+        "claim_ledger.json",
+        "coverage_report.json",
+        "unpublished_claims.json",
+    ):
+        assert json.loads((workspace / filename).read_text(encoding="utf-8"))
 
 
 def test_research_cli_routes_fund_asset_type(monkeypatch, tmp_path, capsys):
@@ -151,11 +161,11 @@ def test_official_fund_contract_and_index_methodology_are_structured():
 def test_simons_reservation_reconciles_with_index_history_and_execution_cost_evidence(tmp_path):
     pack = _pack()
     pack["modules"]["F5"]["evidence"] = [
-        {"evidence_id": "F5:index-pe", "metric": "index_pe_calculation_share", "value": 108.15, "validation_status": "accepted"},
+        {"evidence_id": "F5:index-pe", "metric": "index_pe_calculation_share", "value": 108.15, "period": "20260717", "validation_status": "accepted", "source_type": "primary_disclosure", "source": "fixture-index-filing"},
     ]
     pack["modules"]["F6"]["evidence"] = [
-        {"evidence_id": "F6:index-sample", "metric": "index_history_sample_size", "value": 90, "validation_status": "accepted"},
-        {"evidence_id": "F6:index-vol", "metric": "index_annualized_volatility_60d_pct", "value": 60.0, "validation_status": "accepted"},
+        {"evidence_id": "F6:index-sample", "metric": "index_history_sample_size", "value": 90, "period": "20260717", "validation_status": "accepted", "source_type": "primary_disclosure", "source": "fixture-index-history"},
+        {"evidence_id": "F6:index-vol", "metric": "index_annualized_volatility_60d_pct", "value": 60.0, "period": "20260717", "validation_status": "accepted", "source_type": "primary_disclosure", "source": "fixture-index-history"},
     ]
     pack["modules"]["F7"]["evidence"] = [
         {"evidence_id": "F7:cost-status", "metric": "execution_cost_model_status", "value": "scenario_complete", "validation_status": "conditional"},
@@ -165,8 +175,35 @@ def test_simons_reservation_reconciles_with_index_history_and_execution_cost_evi
         pack, root=tmp_path, research_question="量化、指数趋势、交易成本和回撤"
     )
     report = (workspace / manifest["artifacts"]["institutional_report"]["path"]).read_text(encoding="utf-8")
-    simons_row = next(line for line in report.splitlines() if line.startswith("| 西蒙斯 |"))
+    ledger = json.loads((workspace / "claim_ledger.json").read_text(encoding="utf-8"))
+    published_ids = {
+        evidence_id
+        for claim in ledger["publishable_claims"]
+        for evidence_id in claim["evidence_ids"]
+    }
 
-    assert "缺少标的指数日线与完整交易成本模型" not in simons_row
-    assert "指数日线样本 90" in simons_row
-    assert "100万元往返成本 8.20bps" in simons_row
+    assert "缺少标的指数日线与完整交易成本模型" not in report
+    assert "index_history_sample_size为90" in report
+    assert {"F6:index-sample", "F6:index-vol"} <= published_ids
+    assert "F5:index-pe" not in published_ids
+    assert "F7:cost" not in published_ids
+
+
+def test_fund_question_with_only_unrelated_supported_claims_blocks_report():
+    pack = _pack()
+    for code, section in pack["modules"].items():
+        section["available"] = code == "F8"
+        section["evidence"] = section["evidence"] if code == "F8" else []
+        section["gaps"] = [] if code == "F8" else [f"{code} gap"]
+    snapshot = freeze_fund_evidence(pack)
+    committee, _ = synthesize_fund_committee(
+        snapshot,
+        research_question="产品契约如何约束复制方式？",
+    )
+
+    assert committee["publishable_claims"] == []
+    assert committee["publication_status"] == "block_report"
+    assert any(
+        issue["code"] == "NO_SUPPORTED_CLAIMS"
+        for issue in committee["safety_gate"]["issues"]
+    )

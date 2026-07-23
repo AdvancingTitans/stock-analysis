@@ -6,15 +6,23 @@
 </div>
 
 <p align="center">
+  <a href="https://github.com/AdvancingTitans/stock-analysis/releases/tag/v4.16.0"><img alt="Release v4.16.0" src="https://img.shields.io/badge/release-v4.16.0-65e6a5"></a>
+  <a href="https://pypi.org/project/stock-analysis/"><img alt="PyPI" src="https://img.shields.io/pypi/v/stock-analysis"></a>
+  <a href="https://github.com/AdvancingTitans/stock-analysis/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/AdvancingTitans/stock-analysis/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://www.python.org/"><img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-3776ab"></a>
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-f3c677"></a>
+</p>
+
+<p align="center">
   <img src="assets/social-preview.png" alt="stock-analysis social preview" width="860">
 </p>
 
 <p align="center">
-  <strong>Build the operating model. Reverse-engineer the price. Find the expectation gap.</strong>
+  <strong>Evidence-first investment research for agents and humans.</strong>
 </p>
 
 <p align="center">
-  A/HK/US/JP/KR stocks · Forward + reverse valuation · SOTP · ETFs / funds · Dynamic committee · Primary disclosures
+  Verify the premise · Model the business · Reverse the price · Publish only supported claims
 </p>
 
 <p align="center">
@@ -25,24 +33,14 @@
 </p>
 
 <p align="center">
-  Listed in <a href="https://github.com/thuquant/awesome-quant">thuquant/awesome-quant</a> via merged PR
-  <a href="https://github.com/thuquant/awesome-quant/pull/48">#48</a>.
+  A/HK/US/JP/KR stocks · ETFs and funds · Portfolios · Primary disclosures · Forward/reverse valuation · Dynamic committee
 </p>
 
 <p align="center">
-  Listed in <a href="https://github.com/leoncuhk/awesome-quant-ai">leoncuhk/awesome-quant-ai</a>
-  under <em>Tools and Platforms / Data Providers</em> via merged PR
-  <a href="https://github.com/leoncuhk/awesome-quant-ai/pull/39">#39</a>.
-</p>
-
-<p align="center">
-  Listed in <a href="https://github.com/wangzhe3224/awesome-systematic-trading">wangzhe3224/awesome-systematic-trading</a> via merged PR
-  <a href="https://github.com/wangzhe3224/awesome-systematic-trading/pull/124">#124</a>.
-</p>
-
-<p align="center">
-  Listed in <a href="https://github.com/0xNyk/awesome-hermes-agent">0xNyk/awesome-hermes-agent</a> via merged PR
-  <a href="https://github.com/0xNyk/awesome-hermes-agent/pull/232">#232</a>.
+  Recognition: <a href="https://github.com/thuquant/awesome-quant/pull/48">awesome-quant #48</a> ·
+  <a href="https://github.com/leoncuhk/awesome-quant-ai/pull/39">awesome-quant-ai #39</a> ·
+  <a href="https://github.com/wangzhe3224/awesome-systematic-trading/pull/124">awesome-systematic-trading #124</a> ·
+  <a href="https://github.com/0xNyk/awesome-hermes-agent/pull/232">awesome-hermes-agent #232</a>
 </p>
 
 Investors rarely struggle because they cannot generate another paragraph of commentary. The harder questions are more concrete:
@@ -52,7 +50,16 @@ Investors rarely struggle because they cannot generate another paragraph of comm
 - Did the latest filing improve earnings quality, cash conversion, and shareholder returns?
 - Does a ten-position portfolio actually contain ten independent risks?
 
-`stock-analysis` handles the hard middle of investment research: verify the premise, reconcile conflicting evidence, build the operating case, and reverse the current market cap into the earnings it already discounts. The output shows the gap between your model and the market's model—not a one-line Buy/Sell label.
+`stock-analysis` is an open-source, deterministic research operating system for global stocks, funds, and portfolios. It handles the hard middle of investment research: verify the premise, reconcile conflicting evidence, build the operating case, reverse the current market cap into the earnings it already discounts, and publish only claims that pass explicit evidence rules. The output shows the gap between your model and the market's model—not a one-line Buy/Sell label.
+
+### Choose your path
+
+| You are… | Start here | What you get |
+|---|---|---|
+| An investor using an Agent | [Install the Agent entrypoints](#agent-installation), then ask in plain language | The Agent selects the matching deterministic workflow and explains the resulting evidence |
+| A CLI user | `uv tool install stock-analysis` | Reproducible Markdown and JSON from stable commands, with no LLM required |
+| A researcher or reviewer | `stock-analysis --market research --symbol <symbol>` | A recoverable Workspace, frozen evidence, claim ledger, committee review, and final report |
+| A contributor | [Development](#development) | Tests, schemas, canonical Agent contracts, and extensible provider/lens boundaries |
 
 After installing the Skill, ask your Agent in plain language:
 
@@ -80,10 +87,23 @@ stock-analysis --market research --symbol 600519 --expectations-file examples/co
 
 ## 72-second demo
 
-- [English video](promo/demo-video/out/stock-analysis-demo-en.mp4)
-- [简体中文视频](promo/demo-video/out/stock-analysis-demo-zh-CN.mp4)
+<p align="center">
+  <a href="promo/demo-video/out/stock-analysis-demo-en.mp4"><img src="assets/demo-video-preview-en.png" alt="Play the English 72-second stock-analysis demo" width="48%"></a>
+  <a href="promo/demo-video/out/stock-analysis-demo-zh-CN.mp4"><img src="assets/demo-video-preview-zh-CN.png" alt="播放 stock-analysis 72 秒中文演示" width="48%"></a>
+</p>
 
-Both demos are 1080p, 72 seconds, caption-led, and work without audio. The v4.15 cut adds A/HK/US/JP/KR coverage, exchange-session semantics, SEC filing-date evidence, issuer-primary reach, local-currency liquidity, portfolio correlation, and FX attribution while retaining forward/reverse valuation and the dynamic committee. Editable Remotion source lives in [`promo/demo-video`](promo/demo-video/).
+Click either poster to play the [English video](promo/demo-video/out/stock-analysis-demo-en.mp4) or [简体中文视频](promo/demo-video/out/stock-analysis-demo-zh-CN.mp4).
+
+Both demos are 1080p, 72 seconds, caption-led, and work without audio. The v4.16 cut follows the full path from multi-market evidence through forward/reverse valuation, discrete claim validation, publication gating, audit artifacts, and the dynamic committee. Editable Remotion source lives in [`promo/demo-video`](promo/demo-video/).
+
+## Read this README by goal
+
+- [Choose the right research entrypoint](#start-with-the-investor-question)
+- [Understand the architecture](#how-the-system-works)
+- [Install for an Agent or the terminal](#agent-installation)
+- [Copy a working prompt](#prompt-cookbook-after-installation)
+- [Run the CLI](#quickstart)
+- [Audit the evidence and claim contracts](#evidence-modules)
 
 ## Why It Exists
 
@@ -136,11 +156,11 @@ The animated overview follows the investor journey: ask a question, gather check
 ```mermaid
 flowchart TB
     U["Your investment question\nasset · date · decision tension"] --> I["Intent routing\nmarket · company · ETF/fund · portfolio · earnings · price move"]
-    I --> P["Premise audit + evidence arbitration\nperiod · scope · source tier · conflicts"]
-    P --> C1["Market evidence\nA/HK/US/JP/KR quotes · sessions · calendars · breadth"]
-    P --> C2["Structured company evidence\nA-share disclosures · SEC filed XBRL · conditional global financials"]
-    P --> C3["Fund, index, and portfolio\nholdings · weights · valuation · liquidity · correlation · FX"]
-    P --> C4["Primary-evidence reach\nissuer IR · exchange · regulator · publication cutoff"]
+    I --> PA["Premise audit + evidence arbitration\nperiod · scope · source tier · conflicts"]
+    PA --> C1["Market evidence\nA/HK/US/JP/KR quotes · sessions · calendars · breadth"]
+    PA --> C2["Structured company evidence\nA-share disclosures · SEC filed XBRL · conditional global financials"]
+    PA --> C3["Fund, index, and portfolio\nholdings · weights · valuation · liquidity · correlation · FX"]
+    PA --> C4["Primary-evidence reach\nissuer IR · exchange · regulator · publication cutoff"]
     C1 --> V["Validated research base\nM1–M6 · C1–C8 · F1–F8 · Portfolio"]
     C2 --> V
     C3 --> V
@@ -149,10 +169,14 @@ flowchart TB
     V --> B["Reverse model\nmarket cap ÷ multiple · implied profit · residual option value"]
     F --> G["Expectation-gap bridge\nmodel vs price · feasibility · no double counting"]
     B --> G
-    G --> K["Dynamic committee\nsix relevant frameworks selected from fifteen"]
-    K --> S["Committee synthesis\nconsensus · disagreement · vetoes · conditional actions"]
+    G --> K["Framework analysis\nsix relevant lenses selected from fifteen"]
+    K --> X["Claim compiler\nextract · cite · validate · narrow scope"]
+    X --> PC["Publishable claims\nstrongly_supported · supported"]
+    X --> A["Audit-only claims\nunsupported · speculative · unresolved conflict"]
+    PC --> S["Committee synthesis\nconsensus · disagreement · vetoes · conditional actions"]
     S --> R["Investor report\nwhat is priced in · variant view · triggers · watchlist"]
     S --> W["Recoverable workspace\nstage outputs · compare the next review"]
+    A --> W
 ```
 
 For an investor, this reduces to four steps:
@@ -160,7 +184,7 @@ For an investor, this reduces to four steps:
 1. State the asset and the decision question in normal language.
 2. The system chooses the appropriate evidence path and blocks information published after the research date.
 3. Six relevant frameworks are selected from fifteen; the committee is not a fixed cast repeating generic views.
-4. For companies, the report reconciles the forward model with market-implied earnings before showing disagreements, invalidation conditions, and what to monitor next.
+4. For company and fund research, only supported claims reach committee synthesis; unpublished claims and coverage gaps remain in machine-readable audit artifacts.
 
 The essential boundary is deliberate: **the question selects the research path, code obtains and validates evidence, and an investment framework only interprets existing data.** M1–M6 describes markets and portfolios, C1–C8 describes companies, and F1–F8 describes fund contracts, index exposure, valuation, tracking, and implementation.
 
@@ -173,6 +197,39 @@ flowchart LR
     V2 -- Yes --> N
     V2 -- No --> G["Keep a visible research boundary\nnever fill zero or guess"]
 ```
+
+### Supported-Claim Publication for deep research
+
+The v4.16 publication layer is deliberately scoped: it is enabled by default only for company and fund `--market research`. Daily recaps, `stock-review`, `earnings`, `price-move`, snapshots, and portfolio reports keep their existing contracts, including visible missing-module explanations where those workflows require them.
+
+```mermaid
+flowchart TB
+    E["Frozen evidence\nsource · date · period · scope"] --> X["Extract structured claims\nstatement · evidence_ids · conditions · invalidators"]
+    X --> V{"Discrete support rules"}
+    V -->|strongly_supported / supported| P["Publishable claim"]
+    V -->|unsupported / speculative / conflicted_unresolved| U["Audit only"]
+    P --> M{"Missing-evidence effect"}
+    M -->|no_material_effect| R["Publish as written"]
+    M -->|narrows_scope| N["Publish the narrower supported claim"]
+    M -->|blocks_action| B["Publish research; block valuation or execution action"]
+    M -->|blocks_claim| U
+    R --> C["Committee + existing eight-section report"]
+    N --> C
+    B --> C
+    U --> A["claim_ledger.json\nunpublished_claims.json"]
+    C --> O["Investor-facing Markdown"]
+```
+
+There is no continuous confidence score. A claim uses exactly one of five states: `strongly_supported`, `supported`, `unsupported`, `speculative`, or `conflicted_unresolved`. Ordinary missing evidence filters or narrows the affected claim; it does not become bearish, neutral, conservative, or wait-and-see evidence.
+
+| Integrity condition | Publication result |
+|---|---|
+| Missing current price | Block current valuation and price-dependent action; keep supported business research |
+| Missing market cap | Block reverse valuation; keep supported fundamental research |
+| Missing liquidity | Block execution planning; keep supported research conclusions |
+| Unresolved identity, reporting-basis, primary-source conflict, look-ahead, or no relevant publishable claim | Block the research report |
+
+The public report keeps the existing company/fund eight-section skeleton and never derives automatic position sizes or unconditional buy/sell instructions.
 
 ## Agent installation
 
@@ -196,7 +253,7 @@ After that, ask “deeply research 600519”, “recap today's A-share market”
 ```bash
 git clone https://github.com/AdvancingTitans/stock-analysis.git
 cd stock-analysis
-uv tool install stock-analysis
+uv tool install --force .
 python3 scripts/sync_agent_entrypoints.py --check
 scripts/install-agent-entrypoints.sh codex
 scripts/install-agent-entrypoints.sh claude
@@ -208,11 +265,15 @@ For CLI-only use, `uv tool install stock-analysis` is enough. The Agent installe
 
 A useful prompt only needs four things: **asset, research date, core question, and the decision you are trying to make.**
 
+### 1. Daily market recap
+
 ```text
 Recap today's A-share close. Assess indices, breadth, sector rotation, and risk appetite,
 then explain which of my holdings beat or lagged their benchmarks and build tomorrow's watchlist.
 Do not turn missing data into zero and do not merely repeat headlines.
 ```
+
+### 2. Company deep research
 
 ```text
 Deeply research Kweichow Moutai 600519. Test whether the current valuation is supported by
@@ -220,17 +281,31 @@ three-year earnings, cash generation, shareholder returns, and capital allocatio
 Select the six most relevant frameworks and produce an investment-committee report.
 ```
 
+### 3. ETF / fund research
+
 ```text
 Research semiconductor ETF 512480. Go beyond past returns and top holdings: verify the full
 underlying index, weights, valuation, and daily history; recompute tracking error, drawdown,
 and volatility; estimate round-trip costs for CNY 100k, 1m, and 5m orders.
 ```
 
+### 4. Earnings review
+
+```text
+Review the latest 600519 results. Compare revenue, profit, gross margin, ROE, operating cash
+flow, free cash flow, dividends, and capital expenditure with the prior reporting period.
+Separate disclosed facts, reproducible inferences, and operating questions that remain unresolved.
+```
+
+### 5. Portfolio diagnosis
+
 ```text
 Review my holdings: 100 shares of 600519 bought on 2026-06-01 and 100,000 units of 512480
 bought on 2026-05-20. Diagnose sector, style, market, and currency concentration; compare
 benchmarks and state the conditions for holding, reducing risk, or waiting for more evidence.
 ```
+
+### 6. One framework or an adversarial comparison
 
 ```text
 Use Buffett mode to analyze Tencent, focusing on business quality, capital allocation,
@@ -245,7 +320,7 @@ Let the portfolio manager synthesize the decision.
 
 ## Report Showcase
 
-Start with the two current deep-research reports. They show the difference between this workflow and a generic AI write-up:
+These representative reports demonstrate the deterministic evidence and committee workflow. The v4.16 claim-publication contract is specified above and in the Workspace audit artifacts.
 
 | Scenario | Question answered in the report | Example |
 |---|---|---|
@@ -275,6 +350,7 @@ Browse [reports/](reports/) for more reports, screenshots, and automation exampl
 | A/HK/US/JP/KR stocks, funds, and portfolios | One entry layer for recaps, stocks, funds, earnings, price moves, screens, portfolios, and investment theses. |
 | Multi-source and as-of discipline | Stable public sources first, validated fallback when needed, and no future disclosures in historical research. |
 | Recoverable research workspace | Saves the plan, research base, framework opinions, committee synthesis, and final report for later comparison. |
+| Supported-claim publication | Company/fund research publishes only cited, condition-bearing claims; rejected claims and gaps remain in four fixed JSON audit artifacts. |
 | Human- and machine-readable output | Markdown for investors; JSON Evidence Packs for Agent verification, automation, and reuse. |
 
 ## Quickstart
@@ -366,6 +442,21 @@ Company research has a different data boundary from daily market recap. `company
 
 A/HK/US/JP/KR daily histories now expose 20-day average local-currency turnover and 60-day volatility. Portfolio evidence computes pairwise return correlations and daily local-price/FX/CNY-return attribution when histories align. Live valuation FX never falls back to hard-coded rates. Historical order books, broker-specific commissions, and true fund creations/redemptions remain explicit gaps.
 
+### Fund Evidence Pack (F1–F8)
+
+Fund research evaluates both the listed product and what it actually owns. The module names are stable across the Workspace and claim ledger.
+
+| Module | Investor question | Evidence focus |
+|---|---|---|
+| F1 Product and index contract | What must the fund track, and under what rules? | Fund profile, tracked index, replication method, constituent and rebalance rules |
+| F2 Exposure and concentration | What does the portfolio actually own? | Complete constituents or disclosed holdings, weights, top-5/top-10 concentration |
+| F3 Performance and trend | What has the product delivered? | Listed-price and profile returns with explicit periods |
+| F4 Tracking, premium, and implementation | Does the listed product follow NAV/index efficiently? | Premium/discount, daily-aligned tracking statistics, implementation evidence |
+| F5 Underlying valuation | What valuation does the index or covered holdings imply? | Official index valuation first; conditional holding-level proxies remain labelled |
+| F6 Risk budget and drawdown | How volatile and concentrated is the exposure? | Drawdown, volatility, beta, history sample size, concentration proxies |
+| F7 Governance, scale, and operations | Can it be held and traded as intended? | Fees, AUM, manager context, subscriptions/redemptions, liquidity and cost scenarios |
+| F8 Catalysts and monitoring | What observable event changes the case? | Rebalances, disclosure refreshes, metrics, dates, conditions, and invalidators |
+
 ### Forward model + reverse price validation
 
 Pass an explicit JSON assumption set when the research question requires product-line economics, SOTP, or option value:
@@ -383,7 +474,23 @@ The double-count guard is deliberate: a product line listed under `includes_prod
 
 `stock-analysis --market research --symbol <symbol>` materializes an institutional workflow under `~/.stock_analysis/research/<symbol>/<trade_date>/` (override it with `STOCK_ANALYSIS_RESEARCH_DIR` or `--workspace-dir`). Company research freezes C1–C8 Company Evidence; fund research (`--asset-type fund`, or common listed-fund prefixes in auto mode) freezes a separate F1–F8 Fund Evidence model covering mandate, holdings concentration, performance, tracking/premium, underlying valuation gaps, risk, governance, and monitoring triggers. Every lens and committee consumes the same content-addressed snapshot. Re-running the same date preserves manually edited artifacts and writes refreshed output to a `.generated` sibling.
 
-Company opinions are deterministic framework assessments, not simulated quotations: every supporting and counter-evidence reference is an `evidence_id` from the same frozen `snapshot_id`. Committee synthesis rejects mixed snapshots, preserves consensus/disagreement and risk vetoes, and returns only `observe` or `manual_review`—never an automatic position or trade. Connected inputs now include structured financial disclosures/forecasts/flashes, PE/PB/market-cap snapshots, financing cash flow, and governance/capital-allocation announcement indexes. Aggregator records remain secondary until their linked issuer/exchange originals are verified.
+```text
+~/.stock_analysis/research/<symbol>/<trade_date>/
+├── 01-research-plan.md
+├── 02-frozen-company-evidence.json  # or 02-frozen-fund-evidence.json
+├── 03-evidence-summary.md
+├── 04-*-lens-opinions.json
+├── 05-committee-synthesis.json
+├── 06-decision-memo.md
+├── 07-institutional-report.md
+├── evidence_manifest.json
+├── claim_ledger.json
+├── coverage_report.json
+├── unpublished_claims.json
+└── workspace.json
+```
+
+Company opinions are deterministic framework assessments, not simulated quotations: every supporting and counter-evidence reference is an `evidence_id` from the same frozen `snapshot_id`. Committee synthesis rejects mixed snapshots and consumes only publishable claims relevant to the research question. `publication_status` is `publish`, `block_action`, or `block_report`; the workflow action remains `manual_review` unless report integrity requires `block_report`, and it never derives an automatic position or trade. Connected inputs now include structured financial disclosures/forecasts/flashes, PE/PB/market-cap snapshots, financing cash flow, and governance/capital-allocation announcement indexes. Aggregator records remain secondary until their linked issuer/exchange originals are verified.
 
 Every financial fact records its period, currency, accounting scope, source type, source, and confidence so that you can trace a number back to its origin. The metric registry at [`config/metric_registry.json`](config/metric_registry.json) declares how a metric is validated and which framework can use it. It never produces a composite “buy score.”
 
@@ -451,10 +558,15 @@ See [examples/agent.md](examples/agent.md) for a daily agent workflow and [examp
 | Board rankings | Eastmoney `clist` | Tonghuashun public pages → browser fallback |
 | HK quotes | Tencent/Sina | Eastmoney `stock/get` |
 | US quotes | Sina/Tencent | Eastmoney `searchapi` → `stock/get` |
+| JP/KR quotes and daily history | Yahoo chart route; KR cross-check via Naver | Explicit missing state when symbol/calendar validation fails |
+| US filed financials | SEC Company Facts with filing-date cutoff | Conditional global statements when scope and as-of checks pass |
+| Company primary evidence | Issuer IR → exchange → regulator | Targeted primary-evidence requests; unresolved gaps remain explicit |
+| CSI index composition and valuation | Official CSI files | Disclosed fund holdings with conditional coverage labels |
+| FX for portfolio valuation | Live public FX route | No hard-coded live-rate fallback |
 | Funds | Eastmoney/Tiantian fund pages | Sina fund fallback |
 | Deep tick/order-book data | Optional `mootdx` | Basic Tencent/Sina quotes |
 
-Yahoo is intentionally not part of the recommended default path.
+Yahoo is not the default route for A/HK/US quotes. It is used conditionally for the documented JP/KR history and global-statement paths, with symbol, date, scope, and completeness checks.
 
 ## Investor Lenses
 
@@ -466,9 +578,11 @@ Lenses change evidence priority and narrative structure. They do not override da
 
 ### Built-in Lens and Committee Boundaries
 
-Current CLI version: `4.15.0`.
+Current CLI version: `4.16.0`.
 
-`research` reports retain the denser Chinese committee narrative from the 4.5 series while keeping recoverable, traceable research state inside the Workspace. Company and fund reports preserve their institutional committee spines, but user-facing Markdown no longer exposes coverage flags, missing-module diagnostics, internal actions, snapshot IDs, or audit terminology.
+`research` reports retain the denser Chinese committee narrative from the 4.5 series while keeping recoverable, traceable research state inside the Workspace. Company and fund reports preserve their institutional committee spines and use a deterministic claim-publication layer: each lens separates `publishable_claims` from `unpublished_questions`, and the committee consumes only the former. Ordinary missing evidence filters or narrows the affected claim; it is not treated as a bearish, neutral, conservative, or wait-and-see signal.
+
+Every published claim cites frozen `evidence_id` values and carries an applicable period, conditions, and invalidators. Unsupported, speculative, and unresolved-conflict claims stay outside the investor-facing Markdown and are retained in `evidence_manifest.json`, `claim_ledger.json`, `coverage_report.json`, and `unpublished_claims.json`. Missing price, market-cap, or liquidity inputs block valuation or execution actions without suppressing supported business conclusions; identity, basis-integrity, primary-source conflict, look-ahead, and no-supported-claim failures block the report.
 
 `LensEngine` is the report orchestration layer. For `research`, the user's question deterministically selects the six most relevant and complementary lenses from the 15 built-ins; an explicit expert selection overrides that choice. Every selected member consumes all structured metrics from the same research point before interpreting them through its own framework. Natural-language callers can still request single-lens or adversarial modes explicitly.
 
@@ -506,7 +620,7 @@ Start with [CONTRIBUTING.md](CONTRIBUTING.md) and [ROADMAP.md](ROADMAP.md).
 
 Use this one-liner when submitting the project to curated lists:
 
-> [stock-analysis](https://github.com/AdvancingTitans/stock-analysis) - Evidence-driven market recap CLI for AI agents and quant researchers, supporting A/HK/US/JP/KR stocks, funds, portfolios, auditable JSON Evidence Packs, data-quality scoring, investor lenses, and multi-source fallback routing.
+> [stock-analysis](https://github.com/AdvancingTitans/stock-analysis) - Evidence-first research CLI and Agent workflow for A/HK/US/JP/KR stocks, funds, and portfolios, with primary disclosures, forward/reverse valuation, recoverable Workspaces, supported-claim publication, and auditable JSON evidence contracts.
 
 High-fit targets include `awesome-quant-ai`, `awesome-ai-in-finance`, `awesome-quant`, and `awesome-systematic-trading`.
 

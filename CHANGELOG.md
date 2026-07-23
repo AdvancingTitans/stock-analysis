@@ -1,5 +1,12 @@
 # Changelog
 
+## v4.16.0 - 2026-07-23
+
+- `--market research` 的公司与基金路径新增确定性命题发布层。每位 lens 分离 `publishable_claims` 与 `unpublished_questions`，committee 只综合达到离散证据门槛的命题；普通缺口不再被解释为看空、中性、保守或观望信号。
+- 发布命题必须引用冻结快照内的 `evidence_id`，并记录适用期、条件和失效条件；Workspace 新增 `evidence_manifest.json`、`claim_ledger.json`、`coverage_report.json` 与 `unpublished_claims.json`。
+- 价格、总市值或流动性缺失改为只阻断估值/执行行动；身份、口径完整性、一手冲突、前视偏差或完全没有可发布命题时阻断整份 research 报告。其他报告入口保持原有缺口展示契约。
+- 全面更新中英文 README 的产品定位、入口说明、架构和命题发布流程；更新双语架构 GIF、视频封面与 72 秒 Remotion 演示。
+
 ## v4.15.0 - 2026-07-20
 
 相较 v4.14.0，本版本把原有 A/HK/US 市场与 A 股公司/基金研究框架扩展为可审计的 A/HK/US/JP/KR 全球证据架构，并集中修复盘前时段、跨市场财务、基金运营、组合风险和 Agent 一手证据回填中的真实缺口。

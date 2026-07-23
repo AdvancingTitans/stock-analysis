@@ -7,12 +7,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .committee_selection import DEFAULT_RESEARCH_QUESTION
 from .company_evidence import COMPANY_MODULES
 from .company_lens import (
     build_company_lens_opinions,
     freeze_company_evidence,
     synthesize_company_committee,
 )
+from .research_claims import build_claim_audit_artifacts
 from .workspace_store import (
     atomic_write as _atomic_write,
 )
@@ -396,220 +398,121 @@ def _institutional_report_v48(
     return "\n".join(lines)
 
 
+def _claim_lines(claims: list[dict[str, Any]]) -> list[str]:
+    lines: list[str] = []
+    for claim in claims:
+        lines.extend([f"### {claim['claim']}", ""])
+        period = str(claim.get("applicable_period") or "").strip()
+        if period:
+            lines.append(f"- 适用期：{period}")
+        lines.extend(f"- 适用条件：{condition}" for condition in claim.get("conditions") or [])
+        lines.extend(f"- 失效条件：{invalidator}" for invalidator in claim.get("invalidators") or [])
+        lines.append("")
+    return lines
+
+
+def _claims_by_section(claims: list[dict[str, Any]]) -> dict[int, list[dict[str, Any]]]:
+    section_by_scope = {
+        "C1": 2,
+        "C2": 3,
+        "C3": 3,
+        "C4": 2,
+        "C5": 4,
+        "C6": 5,
+        "C7": 7,
+        "C8": 7,
+        "business_quality": 2,
+        "financial_quality": 3,
+        "growth_quality": 3,
+        "governance": 4,
+        "capital_allocation": 4,
+        "valuation": 5,
+        "risk": 7,
+        "catalyst": 7,
+    }
+    grouped = {section: [] for section in range(2, 8)}
+    for claim in claims:
+        section = section_by_scope.get(str(claim.get("scope") or ""), 6)
+        grouped[section].append(claim)
+    return grouped
+
+
 def _institutional_report(
     pack: dict[str, Any],
     changes: list[str],
     opinions: dict[str, dict[str, Any]],
     committee: dict[str, Any],
 ) -> str:
-    """Render the frozen snapshot as the classic Chinese committee memo."""
+    """Render only committee-published claims as required by plan sections 3-5."""
 
-    price = _metric(pack, "C6", "market_quote")
-    pe = _metric(pack, "C6", "pe_static_proxy") or _metric(pack, "C6", "pe_ttm")
-    pb = _metric(pack, "C6", "pb_reported_proxy") or _metric(pack, "C6", "pb")
-    roe = _metric(pack, "C2", "roe_weighted")
-    margin = _metric(pack, "C2", "gross_margin")
-    debt = _metric(pack, "C2", "debt_asset_ratio")
-    ocf = _metric(pack, "C2", "operating_cash_flow")
-    fcf = _metric(pack, "C2", "free_cash_flow_lite")
-    net_margin = _metric(pack, "C1", "parent_net_margin_pct")
-    cash_conversion = _metric(pack, "C1", "operating_cash_conversion_pct")
-    moat_margin = _metric(pack, "C4", "annual_gross_margin_pct")
-    moat_range = _metric(pack, "C4", "annual_gross_margin_range_pct")
-    revenue_yoy = _metric(pack, "C3", "revenue_yoy_pct")
-    profit_yoy = _metric(pack, "C3", "parent_net_profit_yoy_pct")
-    return_5d = _metric(pack, "C7", "returns_5d")
-    return_20d = _metric(pack, "C7", "returns_20d")
-    return_60d = _metric(pack, "C7", "returns_60d")
-    atr = _metric(pack, "C7", "atr_14_pct")
-    net_invest = _metric(pack, "C5", "net_cash_invest")
-    net_finance = _metric(pack, "C5", "net_cash_finance")
-    direct_sales = _metric(pack, "C1", "direct_sales_revenue")
-    direct_sales_yoy = _metric(pack, "C1", "direct_sales_revenue_yoy_pct")
-    wholesale_yoy = _metric(pack, "C1", "wholesale_revenue_yoy_pct")
-    core_product_margin = _metric(pack, "C4", "core_product_gross_margin_pct")
-    dividend_total = _metric(pack, "C5", "annual_dividend_total")
-    payout_ratio = _metric(pack, "C5", "shareholder_payout_ratio_pct")
-    execution_cost_100w = _metric(pack, "C7", "execution_round_trip_cost_100w_bps")
-    series_revenue_yoy = _metric(pack, "C7", "series_revenue_yoy_pct")
-    inventory_yoy = _metric(pack, "C7", "finished_and_base_inventory_yoy_pct")
-    sales_expense_yoy = _metric(pack, "C7", "sales_expense_yoy_pct")
-    reinvestment = (float(ocf) - float(fcf)) if ocf is not None and fcf is not None else None
-    history = pack.get("financial_history") or []
-    events = []
-    for code in ("C7", "C8"):
-        for item in pack["modules"][code]["evidence"]:
-            title = item.get("title")
-            if title and title not in events:
-                events.append(str(title))
+    del changes
+    publication_status = str(committee.get("publication_status") or "publish")
+    title = f"# {pack['name']}（{pack['symbol']}）个股深度研究报告 · 投委会"
+    if publication_status == "block_report":
+        reasons = [
+            str(issue["reason"])
+            for issue in (committee.get("safety_gate") or {}).get("issues") or []
+            if issue.get("decision") == "block_report"
+        ]
+        return "\n".join(
+            [
+                title,
+                "",
+                f"**报告日期**：{pack['trade_date']}",
+                "",
+                "## 重大安全阻断",
+                "",
+                *(f"- {reason}" for reason in reasons),
+                "",
+                DISCLAIMER,
+                "股市有风险，投资需谨慎。",
+                "",
+            ]
+        )
 
-    action_label = "中性偏积极，等待更好赔率" if committee["action"] == "manual_review" else "审慎观察"
-    research_question = committee.get("research_question") or "长期商业质量、估值与风险"
-    committee_names = "、".join(opinion["lens_name"] for opinion in opinions.values())
+    claims = list(committee.get("publishable_claims") or [])
+    grouped = _claims_by_section(claims)
+    committee_names = "、".join(str(opinion["lens_name"]) for opinion in opinions.values())
     lines = [
-        f"# {pack['name']}（{pack['symbol']}）个股深度研究报告 · 投委会",
+        title,
         "",
         f"**报告日期**：{pack['trade_date']}  ",
-        f"**研究问题**：{research_question}  ",
-        f"**分析模式**：动态投委会（{committee_names}）  ",
-        "**研究原则**：商业质量 → 财务兑现 → 资本配置 → 估值赔率 → 风险触发；所有观点采用同一研究时点的数据",
+        f"**研究问题**：{committee.get('research_question') or DEFAULT_RESEARCH_QUESTION}  ",
+        f"**分析模式**：动态投委会（{committee_names}）",
         "",
         "## 一、执行摘要",
         "",
-        "| 项目 | 投委会判断 |",
-        "|---|---|",
-        f"| 商业经济性 | 毛利率 **{_fmt(margin, 2, '%')}**、归母净利率代理 **{_fmt(net_margin, 2, '%')}**，仍体现强定价与高盈利特征 |",
-        f"| 财务质量 | ROE **{_fmt(roe, 2, '%')}**、资产负债率 **{_fmt(debt, 2, '%')}**、FCF-lite **{_fmt(float(fcf) / 1e8 if fcf is not None else None, 1, '亿元')}** |",
-        f"| 增长状态 | 最新同口径营收 **{_fmt(revenue_yoy, 2, '%')}**、归母净利 **{_fmt(profit_yoy, 2, '%')}**；利润增速慢于收入，增长已从高增转向质量检验 |",
-        f"| 价格与估值 | 现价 **{_fmt(price, 2, '元')}**，静态 PE 代理 **{_fmt(pe, 2, 'x')}**、PB 代理 **{_fmt(pb, 2, 'x')}** |",
-        f"| 市场状态 | 5/20/60 日收益 **{_fmt(return_5d, 2, '%')} / {_fmt(return_20d, 2, '%')} / {_fmt(return_60d, 2, '%')}**，ATR14 **{_fmt(atr, 2, '%')}** |",
-        f"| 综合结论 | **{action_label}**：生意与现金流质量仍强，当前价格处于合理估值区间，但增长降速与护城河运营指标需要继续验证 |",
-        "",
-        "==关键判断==  ",
-        f"投委会不把 {_fmt(return_60d, 2, '%')} 的 60 日价格变化直接解释为生意恶化；更关键的矛盾是："
-        f"在收入增速 {_fmt(revenue_yoy, 2, '%')}、利润增速 {_fmt(profit_yoy, 2, '%')} 的阶段，约 {_fmt(pe, 2, 'x')} 静态估值是否已提供足够赔率。",
-        "",
-        "## 二、行情、商业质量与核心矛盾",
-        "",
-        f"- **行情位置**：现价 {_fmt(price, 2, '元')}；短中期价格并非单边趋势，20 日回升与 60 日回撤同时存在。",
-        f"- **盈利结构**：最新报告期毛利率 {_fmt(margin, 2, '%')}、归母净利率代理 {_fmt(net_margin, 2, '%')}。高毛利是定价权的可观测代理，但不等同于完整护城河证明。",
-        f"- **现金兑现**：经营现金流/归母净利代理 {_fmt(cash_conversion, 2, '%')}；FCF-lite 为 {_fmt(float(fcf) / 1e8 if fcf is not None else None, 1, '亿元')}。利润与现金流方向一致，未出现明显“有利润、无现金”信号。",
-        f"- **护城河代理**：最近可比年度毛利率 {_fmt(moat_margin, 2, '%')}，样本区间波动约 {_fmt(moat_range, 2, 'pct')}；这支持稳定盈利结构，但渠道批价、库存与市场份额仍是下一轮经营验证项。",
-        f"- **渠道结构**：2025 年直销收入 {_fmt(float(direct_sales) / 1e8 if direct_sales is not None else None, 1, '亿元')}、同比 {_fmt(direct_sales_yoy, 2, '%')}，批发代理同比 {_fmt(wholesale_yoy, 2, '%')}。直销增长部分对冲了传统批发渠道压力。",
-        f"- **核心产品**：茅台酒毛利率 {_fmt(core_product_margin, 2, '%')}；核心产品盈利能力明显高于公司整体，是质量判断的主要支点。",
-        "",
-        "## 三、财务质量、增长与现金流",
-        "",
     ]
-    if history:
-        lines.extend([
-            "| 期间 | ROE | 毛利率 | 负债率 | 营收 | 归母净利 | OCF | FCF-lite |",
-            "|---|---:|---:|---:|---:|---:|---:|---:|",
-        ])
-        for row in history[:6]:
-            lines.append(
-                f"| {row.get('period_label') or row.get('report_date')} | {_fmt(row.get('roe_weighted'), 2, '%')} | "
-                f"{_fmt(row.get('gross_margin'), 2, '%')} | {_fmt(row.get('debt_asset_ratio'), 2, '%')} | "
-                f"{_fmt(float(row['revenue']) / 1e8 if row.get('revenue') is not None else None, 1, '亿')} | "
-                f"{_fmt(float(row['parent_net_profit']) / 1e8 if row.get('parent_net_profit') is not None else None, 1, '亿')} | "
-                f"{_fmt(float(row['operating_cash_flow']) / 1e8 if row.get('operating_cash_flow') is not None else None, 1, '亿')} | "
-                f"{_fmt(float(row['free_cash_flow_lite']) / 1e8 if row.get('free_cash_flow_lite') is not None else None, 1, '亿')} |"
-            )
-    lines.extend([
-        "",
-        f"财务主线是“高盈利、低杠杆、增长换挡”：最新报告期 ROE {_fmt(roe, 2, '%')} 与低负债率仍提供防守性，"
-        f"但利润同比 {_fmt(profit_yoy, 2, '%')} 低于收入同比 {_fmt(revenue_yoy, 2, '%')}，需要观察费用、产品结构和渠道政策是否继续侵蚀经营杠杆。",
-        "",
-        "## 四、治理与资本配置",
-        "",
-        f"- 经营现金流 {_fmt(float(ocf) / 1e8 if ocf is not None else None, 1, '亿元')}，FCF-lite {_fmt(float(fcf) / 1e8 if fcf is not None else None, 1, '亿元')}，隐含资本开支代理约 {_fmt(float(reinvestment) / 1e8 if reinvestment is not None else None, 1, '亿元')}。",
-        f"- 年度投资现金流净额 {_fmt(float(net_invest) / 1e8 if net_invest is not None else None, 1, '亿元')}，融资现金流净额 {_fmt(float(net_finance) / 1e8 if net_finance is not None else None, 1, '亿元')}。",
-        f"- 2025 年拟现金分红 {_fmt(float(dividend_total) / 1e8 if dividend_total is not None else None, 1, '亿元')}，约占归母净利润 {_fmt(payout_ratio, 2, '%')}；分红与回购共同构成股东回报，但仍需与长期资本开支统筹评估。",
-        "- 这些净额说明现金流向，不直接等同于分红、回购或价值创造；投委会仍要求把分红、回购、重大投资与关联交易拆开审阅。",
-        "",
-        "## 五、估值与情景分析",
-        "",
-        "| 情景 | 估值锚 | 对应价格 | 相对现价 | 含义 |",
-        "|---|---:|---:|---:|---|",
-    ])
-    labels = {15: "盈利承压/估值收缩", 18: "增长平稳/质量溢价收敛", 22: "盈利韧性/质量溢价维持"}
-    for multiple in (15, 18, 22):
-        scenario = _metric(pack, "C6", f"scenario_price_{multiple}x_pe")
-        relation = ((scenario / price - 1) * 100) if scenario is not None and price else None
-        lines.append(f"| {labels[multiple]} | {multiple}x FY EPS | {_fmt(scenario, 2, '元')} | {_fmt(relation, 2, '%')} | 敏感性测试，不是目标价 |")
-    lines.extend(_expectation_valuation_lines(pack))
-    lines.extend([
-        "",
-        f"==估值判断== 现价约 {_fmt(pe, 2, 'x')} 静态 PE；静态倍数只描述历史盈利。"
-        "投资分歧应落到当前市值隐含的未来利润、正向经营模型能否覆盖该门槛，以及剩余价值是否有独立证据支持。",
-        f"交易实现采用 100 万元订单情景，估算往返成本 {_fmt(execution_cost_100w, 2, 'bps')}；已计价差、佣金、经手/过户费、卖出印花税和波动率冲击，仍需用用户真实费率与成交回报校准。",
-        "",
-        "## 六、投委会审议",
-        "",
-        "| 委员框架 | 基于当前数据的判断 | 主要保留意见 |",
-        "|---|---|---|",
-    ])
-    views = {
-        "buffett": ("高毛利、低杠杆和强 FCF 符合优质特许经营特征；价格已可讨论，但安全边际不算宽。", "需用批价、渠道库存和长期 owner earnings 验证护城河。"),
-        "munger": ("商业模式简单、现金创造强，错误风险主要来自把过去的品牌强度线性外推。", "机会成本与治理激励需和其他高质量资产比较。"),
-        "duan_yongping": ("好生意特征仍在，增长换挡不必然改变长期价值。", "合理价格取决于消费者心智和渠道秩序是否稳定。"),
-        "zhang_kun": ("长期现金流质量较高，利润率与资本回报仍具稀缺性。", "利润增速弱于收入，需确认竞争格局与自由现金流可持续性。"),
-        "graham": (f"{_fmt(pe, 2, 'x')} PE 并非传统深度价值区，15x 情景仍有下行空间。", "资产下行保护弱于盈利与品牌保护，不能只看 PB。"),
-        "dalio": (f"60 日收益 {_fmt(return_60d, 2, '%')}、ATR {_fmt(atr, 2, '%')}，组合层面仍需考虑消费风格和利率敏感性。", "单一优质资产也不能替代风险预算与分散化。"),
-        "klarman": (f"现价对应 {_fmt(pe, 2, 'x')} 静态 PE，绝对回报取决于盈利兑现与催化，而非相对排名。", "15x 情景的永久损失风险仍需显式计入。"),
-        "lynch": (f"营收/利润同比 {_fmt(revenue_yoy, 2, '%')} / {_fmt(profit_yoy, 2, '%')}，增长故事正进入兑现检验。", "需解释产品、渠道和费用为何造成利润慢于收入。"),
-        "o_neil": (f"增长尚未加速，5/20/60 日收益 {_fmt(return_5d, 2, '%')} / {_fmt(return_20d, 2, '%')} / {_fmt(return_60d, 2, '%')} 也未形成一致强势。", "缺少盈利加速与趋势共振，不宜只凭品牌质量追价。"),
-        "wood": ("品牌与渠道数字化能够支持长期创新，但现阶段核心仍是成熟业务现金流。", "研发、渗透率和新增量尚不足以支持非线性增长假设。"),
-        "soros": ("20 日回升与 60 日回撤并存，价格反馈尚未形成单向反身性。", "政策、批价与市场预期变化可能快速改变估值中枢。"),
-        "livermore": (f"短线趋势尚未确认，ATR {_fmt(atr, 2, '%')} 要求先定义风险点。", "基本面优质不能替代价格确认和止损纪律。"),
-        "minervini": (f"利润增速 {_fmt(profit_yoy, 2, '%')} 与 60 日收益 {_fmt(return_60d, 2, '%')} 尚不满足强势成长模板。", "等待盈利加速、相对强度和量价收缩后再评估入场质量。"),
-        "simons": ("5/20/60 日与 ATR 已形成可复核样本，但仍只是单标的短窗口统计。", "需要更长样本、因子基准和交易成本后才能声称概率优势。"),
-        "feng_liu": (f"市场已用 {_fmt(return_60d, 2, '%')} 的 60 日变化重定价增长预期，赔率有所改善。", "需要批价、渠道或利润率的边际改善验证认知差。"),
+    directional_claims = [claim for claim in claims if claim.get("direction") != "neutral"]
+    lines.extend(_claim_lines(directional_claims or claims[:3]))
+    sections = {
+        2: "## 二、行情、商业质量与核心矛盾",
+        3: "## 三、财务质量、增长与现金流",
+        4: "## 四、治理与资本配置",
+        5: "## 五、估值与情景分析",
+        6: "## 六、投委会审议",
+        7: "## 七、风险、催化剂与跟踪指标",
     }
-    for lens_id, opinion in opinions.items():
-        view, reservation = views.get(lens_id, ("质量与估值需要共同过关。", "等待下一期 Evidence 更新。"))
-        consumed = {item["metric"]: item.get("value") for item in opinion.get("metric_analyses") or []}
-        cross_cutting_metrics = []
-        if consumed.get("parent_net_margin_pct") is not None:
-            cross_cutting_metrics.append(f"净利率 {_fmt(consumed['parent_net_margin_pct'], 2, '%')}")
-        if consumed.get("operating_cash_conversion_pct") is not None:
-            cross_cutting_metrics.append(f"经营现金转化 {_fmt(consumed['operating_cash_conversion_pct'], 2, '%')}")
-        if consumed.get("shareholder_payout_ratio_pct") is not None:
-            cross_cutting_metrics.append(f"股东派现率 {_fmt(consumed['shareholder_payout_ratio_pct'], 2, '%')}")
-        if consumed.get("execution_round_trip_cost_100w_bps") is not None:
-            cross_cutting_metrics.append(f"100万元往返成本 {_fmt(consumed['execution_round_trip_cost_100w_bps'], 2, 'bps')}")
-        cross_cutting = "、".join(cross_cutting_metrics) + "；" if cross_cutting_metrics else ""
-        lines.append(f"| {opinion['lens_name']} | {cross_cutting}{view} | {reservation} |")
-    lines.extend([
-        "",
-        "**投委会共识**：质量和现金流可以支持继续研究，但估值并未给出无条件行动信号。  ",
-        "**核心分歧**：长期质量、保守估值、增长兑现与价格纪律的权重不同；最终动作取决于用户研究问题和本轮入选委员的共同约束。",
-        "",
-        "## 七、风险、催化剂与跟踪指标",
-        "",
-        "| 类型 | 需要跟踪的可证伪指标 |",
-        "|---|---|",
-        "| 经营风险 | 营收与利润增速继续背离、毛利率/ROE 同步下行、经营现金转化下降 |",
-        f"| 护城河风险 | 系列酒收入同比 {_fmt(series_revenue_yoy, 2, '%')}、库存量同比 {_fmt(inventory_yoy, 2, '%')}；继续跟踪批价、核心产品需求与份额变化 |",
-        f"| 费用风险 | 销售费用同比 {_fmt(sales_expense_yoy, 2, '%')}；若费用高增长未换来收入和渠道改善，将继续压制经营杠杆 |",
-        "| 估值风险 | 盈利预期下修叠加估值中枢向 15x–18x 收缩 |",
-        "| 治理风险 | 分红回购、重大资本开支、关联交易和管理层变动偏离股东利益 |",
-        f"| 市场风险 | 60 日趋势 {_fmt(return_60d, 2, '%')} 与 ATR {_fmt(atr, 2, '%')} 继续恶化，触发组合风险预算复核 |",
-    ])
-    if events:
-        lines.extend(["", "**当前事件线索**：" + "；".join(events[:3]) + "。事件只作为跟踪线索，不单独构成投资结论。"])
-    monitoring = (pack.get("expectation_model") or {}).get("monitoring") or []
-    if monitoring:
-        lines.extend(["", "**观点变化触发器**：", "", "| 指标 | 基准 | 下次检查 | 改变观点的条件 |", "|---|---:|---|---|"])
-        for item in monitoring:
-            lines.append(
-                f"| {item['metric']} | {_fmt(item.get('baseline'))} | {item.get('next_check_date') or '待定'} | "
-                f"{item['view_change_condition']} |"
-            )
-    lines.extend([
-        "",
-        "## 八、投委会结论与条件化动作",
-        "",
-        f"**结论：{action_label}。** 当前数据更支持“高质量、增长换挡、估值合理但安全边际一般”，而不是简单的买入/卖出标签。",
-        "",
-        "| 情形 | 条件化动作 |",
-        "|---|---|",
-        "| 已有长期仓位 | 继续持有并用季报、批价、渠道库存和现金流验证，不因短期风格跑输机械减仓 |",
-        "| 准备新增仓位 | 先设定组合上限；等待盈利韧性确认，或价格进入更有吸引力的 15x–18x 情景后分批复核 |",
-        "| 经营证伪 | 若毛利率、ROE、现金转化与批价同步恶化，重估护城河并收缩风险预算 |",
-        "| 估值上行 | 若价格接近或超过 22x 情景而盈利未上修，提高收益兑现与机会成本要求 |",
-        "",
-        "### 后续跟踪重点",
-        "",
-        "- 分红与回购是否持续覆盖自由现金流，并保持资本配置纪律。",
-        "- 直销与批发渠道收入、批价、库存及核心产品需求变化。",
-        "- 毛利率、ROE、净利率和经营现金转化是否同步企稳。",
-        "- 价格进入不同估值情景时，盈利预期是否发生相同方向变化。",
-        "",
-        DISCLAIMER,
-        "股市有风险，投资需谨慎。",
-        "",
-    ])
+    for section, heading in sections.items():
+        lines.extend([heading, ""])
+        lines.extend(_claim_lines(grouped[section]))
+    lines.extend(["## 八、投委会结论与条件化动作", ""])
+    if publication_status == "block_action":
+        action_reasons = [
+            str(issue["reason"])
+            for issue in (committee.get("safety_gate") or {}).get("issues") or []
+            if issue.get("decision") == "block_action"
+        ]
+        lines.extend(
+            [
+                "估值或交易执行行动被阻断；本报告不生成具体仓位、价格区间或买卖指令。",
+                *(f"- {reason}" for reason in action_reasons),
+                "",
+            ]
+        )
+    else:
+        lines.extend(["以上可发布命题构成本轮条件化研究结论，不生成无条件买卖指令。", ""])
+    lines.extend([DISCLAIMER, "股市有风险，投资需谨慎。", ""])
     return "\n".join(lines)
 
 
@@ -632,6 +535,7 @@ def build_research_workspace(
     snapshot = freeze_company_evidence(pack)
     opinions = build_company_lens_opinions(snapshot, lenses=lenses, research_question=research_question)
     committee = synthesize_company_committee(snapshot, opinions)
+    audit_artifacts = build_claim_audit_artifacts(snapshot, opinions, committee)
     evidence_json = json.dumps(snapshot, ensure_ascii=False, indent=2) + "\n"
     opinions_json = json.dumps(opinions, ensure_ascii=False, indent=2) + "\n"
     committee_json = json.dumps(committee, ensure_ascii=False, indent=2) + "\n"
@@ -645,6 +549,22 @@ def build_research_workspace(
         "committee_review": ("05-committee-review.md", _committee_review(pack, committee)),
         "decision_memo": ("06-decision-memo.md", _decision_memo(pack, committee)),
         "institutional_report": ("07-institutional-report.md", _institutional_report(pack, changes, opinions, committee)),
+        "evidence_manifest": (
+            "evidence_manifest.json",
+            json.dumps(audit_artifacts["evidence_manifest"], ensure_ascii=False, indent=2) + "\n",
+        ),
+        "claim_ledger": (
+            "claim_ledger.json",
+            json.dumps(audit_artifacts["claim_ledger"], ensure_ascii=False, indent=2) + "\n",
+        ),
+        "coverage_report": (
+            "coverage_report.json",
+            json.dumps(audit_artifacts["coverage_report"], ensure_ascii=False, indent=2) + "\n",
+        ),
+        "unpublished_claims": (
+            "unpublished_claims.json",
+            json.dumps(audit_artifacts["unpublished_claims"], ensure_ascii=False, indent=2) + "\n",
+        ),
     }
     previous_artifacts = previous_manifest.get("artifacts") or {}
     artifacts = {
@@ -662,7 +582,11 @@ def build_research_workspace(
         "committee_members": list(opinions),
         "created_at": previous_manifest.get("created_at") or now,
         "updated_at": now,
-        "status": "ready_for_analysis" if committee["action"] == "manual_review" else "evidence_insufficient",
+        "status": {
+            "block_report": "blocked_report",
+            "block_action": "action_blocked",
+        }.get(committee["publication_status"], "ready_for_analysis"),
+        "publication_status": committee["publication_status"],
         "stages": {
             "scope": "complete",
             "research_plan": "complete",

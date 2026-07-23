@@ -104,6 +104,8 @@ def test_company_evidence_has_c1_to_c8_and_explicit_gaps(monkeypatch):
     assert pack["modules"]["C4"]["available"] is True
     assert pack["modules"]["C5"]["available"] is True
     assert pack["_meta"]["coverage"] == 100.0
+    assert pack["_meta"]["identity_validation"]["status"] == "matched"
+    assert pack["_meta"]["publication_cutoff_audit"]["violations"] == []
     primary_metrics = {
         item["metric"]
         for code in ("C1", "C4", "C5", "C7", "C8")

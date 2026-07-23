@@ -36,6 +36,8 @@ If a public source is unavailable from your network, keep the failure visible. D
 - Prices less than or equal to zero must be filtered or marked invalid.
 - Every strong market conclusion should trace back to evidence: quote, turnover, breadth, sector rotation, flow, announcement, or risk event.
 - Source, URL, time, and fallback reason belong in evidence metadata, not hidden in prose.
+- In company/fund `research`, ordinary missing evidence filters or narrows the affected claim and is retained in audit artifacts; it must not become a bearish, neutral, conservative, or wait-and-see signal.
+- Daily, review, earnings, price-move, snapshot, and portfolio workflows keep their existing visible missing-module contracts.
 - Reports are research outputs, not investment advice.
 
 ## Pull Request Shape
@@ -69,9 +71,9 @@ Investor lenses are not roleplay prompts. A lens must define:
 
 - Evidence priority.
 - Risk vocabulary.
-- What counts as insufficient evidence.
+- What meets the discrete claim-publication rules.
 - How it changes the report structure.
-- Which data gaps must be called out.
+- Which data gaps narrow a research claim, block a claim, block an action, or block a report.
 
 Do not add a lens that mainly changes tone.
 

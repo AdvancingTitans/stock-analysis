@@ -7,7 +7,8 @@
     "schema_version": {"const": "1.0"},
     "symbol": {"type": "string"},
     "trade_date": {"type": "string", "pattern": "^[0-9]{8}$"},
-    "status": {"enum": ["evidence_insufficient", "ready_for_analysis"]},
+    "status": {"enum": ["evidence_insufficient", "ready_for_analysis", "action_blocked", "blocked_report"]},
+    "publication_status": {"enum": ["publish", "block_action", "block_report"]},
     "stages": {"type": "object"},
     "evidence_snapshot": {"type": "object", "required": ["coverage", "available_modules", "missing_modules", "sha256", "snapshot_id", "committee_id"]},
     "artifacts": {"type": "object"}

@@ -18,4 +18,4 @@ npm run render
 
 The demo intentionally uses no voiceover or music, so it works in muted social feeds and can be localized by editing the scene copy in `src/video.jsx`.
 
-The v4.15 cut covers A/HK/US/JP/KR routing, session-aware evidence, SEC filing-date XBRL, issuer-primary reach, local-currency liquidity, portfolio correlation and FX attribution, then carries the verified evidence into forward/reverse valuation and committee review.
+The v4.16 cut carries A/HK/US/JP/KR evidence through forward/reverse valuation, deterministic claim extraction, discrete publication rules, audit artifacts, and committee review. Ordinary missing evidence filters or narrows a research claim instead of becoming an investment direction.

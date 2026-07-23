@@ -10,5 +10,5 @@
   {"id":"data-diagnose","summary":"检查当前数据源、浏览器接管边界和缺失字段。","cli":"stock-analysis --market diagnose","output":"把不可用数据源、fallback 与下一步补数路径明确告知用户。"},
   {"id":"thesis-create","summary":"为一个标的创建本地、可审计的投资论文骨架。","cli":"stock-analysis --market thesis-create --symbol <symbol> --emit-evidence","output":"只写入可验证事实；假设、反证与失效条件保持为空直到用户或一手资料补充。"},
   {"id":"thesis-review","summary":"将当前 Company Evidence 与持久化论文快照比较。","cli":"stock-analysis --market thesis-review --symbol <symbol> --emit-evidence","output":"区分事实变化、证据覆盖变化和仍需人工判断的论文变化。"},
-  {"id":"research-workspace","summary":"为股票或基金生成可恢复、可审计的机构化研究工作区。","cli":"stock-analysis --market research --symbol <symbol> [--asset-type company|fund]","output":"股票冻结 C1–C8 Company Evidence，基金冻结 F1–F8 Fund Evidence；lens 与 committee 消费同一 snapshot_id，并输出证据驱动的机构报告。"}
+  {"id":"research-workspace","summary":"为股票或基金生成可恢复、可审计的机构化研究工作区。","cli":"stock-analysis --market research --symbol <symbol> [--asset-type company|fund]","output":"股票冻结 C1–C8 Company Evidence，基金冻结 F1–F8 Fund Evidence；lens 与 committee 消费同一 snapshot_id，最终报告只发布通过离散证据规则的 publishable_claims，普通缺口与未发布命题保留在四类审计 JSON。"}
 ]

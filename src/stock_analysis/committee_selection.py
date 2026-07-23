@@ -47,10 +47,47 @@ QUESTION_ALIASES = {
     "liquidity": "流动性",
     "macro": "宏观",
     "risk": "风险",
+    "business model": "商业模式",
+    "market share": "市场份额",
+    "pricing power": "定价权",
+    "management team": "管理层",
+    "buyback": "回购",
+    "dividend": "分红",
+    "earnings": "盈利",
+    "revenue": "收入增长",
+    "product mandate": "产品契约",
+    "index methodology": "指数契约",
+    "holdings": "持仓",
+    "performance": "业绩",
+    "tracking error": "跟踪",
+    "premium discount": "折溢价",
+    "management fee": "管理费",
+    "catalyst": "催化",
     "现金创造": "现金流",
     "估值保护": "安全边际",
     "公司治理": "治理",
     "成交确认": "量价",
+}
+
+COMPANY_RESEARCH_MODULE_TOPICS = {
+    "C1": ("商业模式", "生意", "客户", "产品定位", "怎么赚钱"),
+    "C2": ("财务", "现金流", "利润", "盈利", "资产负债", "自由现金流", "roe"),
+    "C3": ("增长", "景气", "盈利加速", "收入增长", "渗透率", "创新", "产业"),
+    "C4": ("护城河", "竞争", "品牌", "市场份额", "定价权", "渠道"),
+    "C5": ("管理层", "治理", "资本配置", "分红", "回购", "激励"),
+    "C6": ("估值", "安全边际", "低估", "赔率", "市值", "目标价"),
+    "C7": ("风险", "下行", "波动", "回撤", "流动性", "交易成本", "止损"),
+    "C8": ("催化", "预期差", "反身性", "政策", "跟踪", "拐点"),
+}
+FUND_RESEARCH_MODULE_TOPICS = {
+    "F1": ("产品契约", "产品定位", "指数契约", "复制", "基准"),
+    "F2": ("持仓", "成分", "暴露", "集中度", "行业", "组合"),
+    "F3": ("业绩", "收益", "趋势", "景气", "增长"),
+    "F4": ("跟踪", "折溢价", "交易", "流动性", "交易成本"),
+    "F5": ("估值", "安全边际", "低估", "底层"),
+    "F6": ("风险", "回撤", "波动", "beta", "压力"),
+    "F7": ("治理", "规模", "管理费", "基金经理", "申购", "赎回", "运营"),
+    "F8": ("催化", "调仓", "宏观", "周期", "政策", "跟踪条件"),
 }
 
 
@@ -58,6 +95,29 @@ def _normalize_question(question: str) -> str:
     normalized = question.lower()
     matched_topics = [topic for alias, topic in QUESTION_ALIASES.items() if alias in normalized]
     return " ".join((normalized, *matched_topics))
+
+
+def relevant_research_modules(
+    research_question: str | None,
+    *,
+    asset_type: str,
+) -> tuple[str, ...]:
+    """Map an explicit research question to modules before lens aggregation."""
+
+    topics = (
+        FUND_RESEARCH_MODULE_TOPICS
+        if asset_type == "fund"
+        else COMPANY_RESEARCH_MODULE_TOPICS
+    )
+    if not research_question:
+        return tuple(topics)
+    question = _normalize_question(research_question)
+    matched = tuple(
+        module
+        for module, keywords in topics.items()
+        if any(keyword in question for keyword in keywords)
+    )
+    return matched
 
 
 def select_committee(research_question: str | None, *, asset_type: str = "company") -> tuple[str, ...]:

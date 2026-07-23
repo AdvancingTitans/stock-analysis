@@ -28,6 +28,7 @@ from .integrations import (
 )
 from .normalize import normalize_code
 from .primary_disclosures import load_issuer_primary_facts
+from .research_claims import build_evidence_integrity_audit
 from .sec_filings import fetch_sec_financials
 from .source_outcome import capture_source
 
@@ -724,6 +725,25 @@ def build_company_evidence(
             "primary_evidence_requests": primary_requests,
         },
     }
+    result["_meta"].update(
+        build_evidence_integrity_audit(
+            sections,
+            requested_symbol=normalize_code(symbol),
+            resolved_symbol=(
+                quote.symbol
+                if quote
+                else financials.get("symbol")
+                or price_volume.get("symbol")
+                or disclosures.get("symbol")
+                or (
+                    normalized
+                    if any(section.get("evidence") for section in sections.values())
+                    else None
+                )
+            ),
+            trade_date=trade_date,
+        )
+    )
     from .company_lens import freeze_company_evidence
 
     result["_meta"]["evidence_snapshot_id"] = freeze_company_evidence(result)["snapshot_id"]

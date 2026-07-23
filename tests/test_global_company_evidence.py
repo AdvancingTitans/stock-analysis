@@ -97,3 +97,7 @@ def test_us_company_pack_prefers_sec_and_emits_primary_reach_requests(monkeypatc
     assert pack["modules"]["C2"]["available"] is True
     assert any(item.get("confidence") == "primary" for item in pack["modules"]["C2"]["evidence"])
     assert {row["module"] for row in pack["_meta"]["primary_evidence_requests"]} >= {"C1", "C4", "C5", "C7", "C8"}
+    assert pack["_meta"]["identity_validation"]["status"] == "matched"
+    assert pack["_meta"]["basis_conflicts"] == []
+    assert pack["_meta"]["primary_conflicts"] == []
+    assert pack["_meta"]["publication_cutoff_audit"]["violations"] == []
