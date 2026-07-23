@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "stock-analysis Research Claim",
+  "type": "object",
+  "required": [
+    "claim_id",
+    "claim",
+    "direction",
+    "scope",
+    "applicable_period",
+    "evidence_ids",
+    "claim_status",
+    "conditions",
+    "invalidators",
+    "missing_evidence",
+    "missing_evidence_effect",
+    "primary_source_ids",
+    "secondary_source_ids",
+    "has_reproducible_calculation",
+    "calculation_input_evidence_ids",
+    "report_blocking_reasons",
+    "publication_decision"
+  ],
+  "properties": {
+    "claim_id": {"type": "string"},
+    "claim": {"type": "string"},
+    "direction": {"enum": ["bullish", "bearish", "neutral"]},
+    "scope": {"type": "string"},
+    "applicable_period": {"type": "string"},
+    "evidence_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "claim_status": {
+      "enum": [
+        "strongly_supported",
+        "supported",
+        "unsupported",
+        "speculative",
+        "conflicted_unresolved"
+      ]
+    },
+    "conditions": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "invalidators": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "missing_evidence": {"type": "array", "items": {"type": "string"}},
+    "missing_evidence_effect": {
+      "enum": ["no_material_effect", "narrows_scope", "blocks_claim", "blocks_action"]
+    },
+    "primary_source_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9_]+@sha256:[0-9a-f]{64}$"
+      }
+    },
+    "secondary_source_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9_]+@sha256:[0-9a-f]{64}$"
+      }
+    },
+    "primary_source_count": {"type": "integer", "minimum": 0, "readOnly": true},
+    "secondary_source_count": {"type": "integer", "minimum": 0, "readOnly": true},
+    "has_reproducible_calculation": {"type": "boolean"},
+    "calculation_input_evidence_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "report_blocking_reasons": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "publication_decision": {
+      "enum": ["publish", "publish_narrowed", "audit_only", "block_action", "block_report"]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "claim_status": {"enum": ["strongly_supported", "supported"]}
+        },
+        "required": ["claim_status"]
+      },
+      "then": {
+        "properties": {
+          "evidence_ids": {"minItems": 1}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "has_reproducible_calculation": {"const": true}
+        },
+        "required": ["has_reproducible_calculation"]
+      },
+      "then": {
+        "properties": {
+          "calculation_input_evidence_ids": {"minItems": 1}
+        }
+      }
+    }
+  ]
+}

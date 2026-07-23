@@ -1,14 +1,14 @@
 # Roadmap
 
-`stock-analysis` is already useful as a CLI. The next milestone is making it easier for strangers, AI agents, and contributors to trust it quickly.
+`stock-analysis` is available as a CLI, Python package, and generated Agent entrypoints. The next milestone is broadening primary-evidence coverage without weakening its deterministic research contracts.
 
 ## Near Term
 
-- Harden the install path: PyPI package, console script, `--help`, and first-run examples must stay in sync.
+- Keep the PyPI package, console script, `--help`, Agent entrypoints, and first-run examples in sync.
 - Keep README screenshots current with real generated output.
 - Add more compact example reports under `reports/`.
 - Improve `diagnose` output so source failures are easy to attach to issues.
-- Add agent workflow examples for daily recap automation.
+- Add compact examples for auditing the Research Workspace claim ledger.
 
 ## Data Quality
 
@@ -20,22 +20,22 @@
 ## Market Coverage
 
 - Strengthen A-share board, fund-flow, risk-calendar, and financial snapshot coverage.
-- Improve HK/US quote fallback and historical K-line consistency.
+- Continue hardening HK/US/JP/KR quote fallback and historical K-line consistency.
 - Add more fund profile fields where public routes are stable.
 - Document region-specific limitations before expanding new markets.
 
 ## Agent Workflows
 
-- Add a GitHub Actions daily recap example.
+- Keep the GitHub Actions daily recap example aligned with the current Evidence Pack contract.
 - Add a cron example for local market notes.
-- Add a Codex/Hermes/Claude Code prompt recipe that verifies conclusions against evidence JSON.
+- Expand Codex/Hermes/Claude Code recipes that verify conclusions against evidence and claim JSON.
 - Consider MCP only after the CLI and evidence contract are stable.
 
 ## Community
 
 - Keep issue templates focused on data-source failures, feature requests, lens requests, and docs/examples.
 - Submit small, well-targeted PRs to finance and AI-agent Awesome Lists.
-- Publish share images for GitHub social preview, X/LinkedIn, and Chinese technical communities.
+- Keep social previews, architecture GIFs, and bilingual demo videos aligned with each feature release.
 
 ## Out of Scope
 

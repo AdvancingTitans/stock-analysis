@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "mode": "agent",
+  "template_type": "agent",
+  "style": 5,
+  "motion_scene": "agent-orchestration",
+  "quality_profile": "showcase",
+  "width": 960,
+  "height": 700,
+  "title": "从证据到可支持结论",
+  "subtitle": "冻结事实 · 校验命题 · 发布可靠结论 · 其余进入审计层",
+  "containers": [
+    { "id": "mission", "x": 40, "y": 110, "width": 880, "height": 110, "label": "你的投资问题", "stroke": "rgba(255,255,255,0.20)", "fill": "rgba(255,255,255,0.05)" },
+    { "id": "specialists", "x": 40, "y": 270, "width": 880, "height": 140, "label": "证据与命题编译器", "stroke": "rgba(255,255,255,0.20)", "fill": "rgba(255,255,255,0.05)" },
+    { "id": "delivery", "x": 40, "y": 450, "width": 880, "height": 140, "label": "发布输出", "stroke": "rgba(255,255,255,0.20)", "fill": "rgba(255,255,255,0.05)" }
+  ],
+  "nodes": [
+    { "id": "request", "kind": "speech", "x": 60, "y": 146, "width": 160, "height": 54, "label": "投资问题", "sublabel": "标的 · 日期 · 关注点", "fill": "rgba(255,255,255,0.12)", "stroke": "rgba(255,255,255,0.35)", "flat": true },
+    { "id": "coordinator", "kind": "double_rect", "x": 390, "y": 146, "width": 200, "height": 54, "type_label": "研究路由", "label": "选择证据路径", "fill": "rgba(255,255,255,0.12)", "stroke": "#c084fc" },
+    { "id": "research", "kind": "rect", "x": 80, "y": 330, "width": 180, "height": 60, "type_label": "冻结", "label": "校验证据", "fill": "rgba(255,255,255,0.12)", "stroke": "#60a5fa" },
+    { "id": "coding", "kind": "rect", "x": 390, "y": 330, "width": 200, "height": 60, "type_label": "模型", "label": "正向与逆向估值", "fill": "rgba(255,255,255,0.12)", "stroke": "#f59e0b" },
+    { "id": "review", "kind": "rect", "x": 700, "y": 330, "width": 180, "height": 60, "type_label": "命题", "label": "划分支持状态", "fill": "rgba(255,255,255,0.12)", "stroke": "#34d399" },
+    { "id": "memory", "kind": "cylinder", "x": 80, "y": 510, "width": 180, "height": 60, "label": "证据清单", "sublabel": "来源 · 日期 · 口径", "fill": "rgba(255,255,255,0.08)", "stroke": "#34d399" },
+    { "id": "synthesis", "kind": "double_rect", "x": 390, "y": 510, "width": 200, "height": 60, "type_label": "门控", "label": "发布受支持命题", "fill": "rgba(255,255,255,0.12)", "stroke": "#c084fc" },
+    { "id": "response", "kind": "speech", "x": 700, "y": 510, "width": 180, "height": 60, "label": "报告 + 审计", "sublabel": "条件 · 失效条件", "fill": "rgba(255,255,255,0.12)", "stroke": "#f59e0b", "flat": true }
+  ],
+  "arrows": [
+    { "id": "brief", "source": "request", "target": "coordinator", "source_port": "right", "target_port": "left", "flow": "read", "motion_role": "ingress", "motion_stage": 1, "motion_order": 0, "label": "明确问题" },
+    { "id": "a-delegate-research", "source": "coordinator", "target": "research", "source_port": "bottom", "target_port": "top", "flow": "control", "motion_role": "delegate", "motion_stage": 2, "motion_order": 0, "label": "查事实" },
+    { "id": "b-delegate-coding", "source": "coordinator", "target": "coding", "source_port": "bottom", "target_port": "top", "flow": "control", "motion_role": "delegate", "motion_stage": 2, "motion_order": 1, "label": "建模型" },
+    { "id": "c-delegate-review", "source": "coordinator", "target": "review", "source_port": "bottom", "target_port": "top", "flow": "control", "motion_role": "delegate", "motion_stage": 2, "motion_order": 2, "label": "编译命题" },
+    { "id": "research-write", "source": "research", "target": "memory", "source_port": "bottom", "target_port": "top", "flow": "write", "motion_role": "evidence", "motion_stage": 3, "motion_order": 0, "label": "保留证据" },
+    { "id": "memory-merge", "source": "memory", "target": "synthesis", "source_port": "right", "target_port": "left", "flow": "read", "motion_role": "context", "motion_stage": 4, "motion_order": 0, "label": "证据编号" },
+    { "id": "coding-merge", "source": "coding", "target": "synthesis", "source_port": "bottom", "target_port": "top", "flow": "write", "motion_role": "artifact", "motion_stage": 3, "motion_order": 1, "label": "模型命题" },
+    { "id": "review-output", "source": "review", "target": "response", "source_port": "bottom", "target_port": "top", "flow": "feedback", "motion_role": "approval", "motion_stage": 5, "motion_order": 1, "label": "仅审计" },
+    { "id": "deliver", "source": "synthesis", "target": "response", "source_port": "right", "target_port": "left", "flow": "feedback", "motion_role": "deliver", "motion_stage": 5, "motion_order": 0, "label": "发布正文" }
+  ],
+  "legend_orientation": "horizontal",
+  "legend_x": 48,
+  "legend_y": 625,
+  "legend_locked": true,
+  "legend": [
+    { "flow": "read", "label": "问题与事实" },
+    { "flow": "control", "label": "研究分工" },
+    { "flow": "write", "label": "证据与模型" },
+    { "flow": "feedback", "label": "复核后输出" }
+  ],
+  "footer": "普通缺口只过滤或缩窄命题 · 未支持命题仅进审计层 · 不自动交易",
+  "footer_x": 48,
+  "footer_y": 680
+}

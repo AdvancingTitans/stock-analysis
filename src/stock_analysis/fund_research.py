@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .committee_selection import relevant_research_modules
 from .company_lens import interpret_metric_for_lens, select_company_committee
 from .csi_index import FUND_INDEX_CODES, build_csi_index_snapshot
 from .execution_costs import build_execution_cost_model
@@ -24,6 +25,14 @@ from .integrations import (
     fetch_single_quote,
 )
 from .lens_engine import LensEngine
+from .research_claims import (
+    PublicationDecision,
+    build_claim_audit_artifacts,
+    build_evidence_integrity_audit,
+    compile_metric_claims,
+    evaluate_safety_gate,
+    partition_claims,
+)
 from .research_workspace import DISCLAIMER
 from .source_outcome import capture_source
 from .time_series import compare_price_series
@@ -382,7 +391,7 @@ def build_fund_evidence(code: str, trade_date: str) -> dict[str, Any]:
     }
     available = [code for code, section in modules.items() if section["available"]]
     missing = [code for code in FUND_MODULES if code not in available]
-    return {
+    result = {
         "schema_version": "1.0",
         "asset_type": "fund",
         "symbol": code,
@@ -432,6 +441,25 @@ def build_fund_evidence(code: str, trade_date: str) -> dict[str, Any]:
             ],
         },
     }
+    result["_meta"].update(
+        build_evidence_integrity_audit(
+            modules,
+            requested_symbol=code,
+            resolved_symbol=(
+                estimate.get("fundcode")
+                or profile.get("fundcode")
+                or price_volume.get("symbol")
+                or premium.get("fundcode")
+                or (
+                    code
+                    if any(section.get("evidence") for section in modules.values())
+                    else None
+                )
+            ),
+            trade_date=trade_date,
+        )
+    )
+    return result
 
 
 def freeze_fund_evidence(pack: dict[str, Any]) -> dict[str, Any]:
@@ -457,18 +485,34 @@ def synthesize_fund_committee(
     evidence = snapshot["evidence"]
     selected = tuple(lenses or select_company_committee(research_question, asset_type="fund"))
     engine = LensEngine(mode="committee", lenses=selected)
+    question_modules = set(
+        relevant_research_modules(research_question, asset_type="fund")
+    )
     metric_items = [
         (module, item)
         for module, section in evidence["modules"].items()
         for item in section.get("evidence") or []
         if item.get("metric") and item.get("evidence_id")
     ]
+    publishable_claims, unpublished_claims = compile_metric_claims(
+        evidence,
+        claim_prefix="fund-claim",
+    )
+    all_claims = [*publishable_claims, *unpublished_claims]
     opinions = {}
     for lens_id in engine.lenses:
         definition = engine.definitions[lens_id]
         name = definition.get("chinese_name") or definition.get("name") or lens_id
         required = FUND_LENS_MODULES[lens_id]
         available = [code for code in required if evidence["modules"][code]["available"]]
+        # Plan section 8: selected question modules define claim relevance.
+        claim_partition = partition_claims(
+            [
+                claim
+                for claim in all_claims
+                if claim.scope in required and claim.scope in question_modules
+            ]
+        )
         body = {
             "lens_id": lens_id,
             "lens_name": name,
@@ -490,14 +534,36 @@ def synthesize_fund_committee(
                 for module, item in metric_items
             ],
             "research_question": research_question or "指数、行业景气、估值、波动、组合风险与交易实现",
+            "question_modules": sorted(question_modules),
             "framework": definition.get("core_philosophy"),
             "risk_focus": definition.get("risk_focus"),
+            "publishable_claims": claim_partition["publishable_claims"],
+            "unpublished_questions": claim_partition["unpublished_claims"],
+            "report_blockers": claim_partition.get("report_blockers", []),
         }
         body["opinion_id"] = _content_id(f"fund-opinion:{lens_id}", body)
         opinions[lens_id] = body
-    core = {"F1", "F2", "F3", "F4", "F6", "F7"}
-    available = set(evidence["_meta"]["available_modules"])
-    action = "manual_review" if core <= available else "observe"
+    publishable_by_id: dict[str, dict[str, Any]] = {}
+    unpublished_by_id: dict[str, dict[str, Any]] = {}
+    report_blockers_by_id: dict[str, dict[str, Any]] = {}
+    for opinion in opinions.values():
+        for claim in opinion["publishable_claims"]:
+            publishable_by_id.setdefault(str(claim["claim_id"]), claim)
+        for claim in opinion["unpublished_questions"]:
+            unpublished_by_id.setdefault(str(claim["claim_id"]), claim)
+        for claim in opinion.get("report_blockers") or []:
+            report_blockers_by_id.setdefault(str(claim["claim_id"]), claim)
+    serialized_publishable = list(publishable_by_id.values())
+    serialized_unpublished = list(unpublished_by_id.values())
+    report_blockers = list(report_blockers_by_id.values())
+    safety_gate = evaluate_safety_gate(
+        evidence,
+        serialized_publishable,
+        asset_type="fund",
+        report_blockers=report_blockers,
+    )
+    publication_status = safety_gate["decision"]
+    action = "block_report" if publication_status == PublicationDecision.BLOCK_REPORT.value else "manual_review"
     committee = {
         "schema_version": "1.0",
         "evidence_snapshot_id": snapshot["snapshot_id"],
@@ -505,15 +571,21 @@ def synthesize_fund_committee(
         "members": list(opinions),
         "consensus": [
             "全部 Fund lens 使用同一冻结 Evidence 快照。",
-            "主题 ETF 的收益潜力必须与集中度、波动、折溢价和跟踪质量共同评估。",
+            "委员会只综合达到发布门槛的命题，未解决问题不计入多空方向。",
         ],
-        "disagreements": ["指数暴露价值与短期交易拥挤可能同时成立；底层估值缺口不由近期涨跌替代。"],
-        "risk_vetoes": [gap for code in evidence["_meta"]["missing_modules"] for gap in evidence["modules"][code]["gaps"]],
+        "disagreements": [],
+        "risk_vetoes": [],
         "action": action,
-        "action_conditions": [
-            "以组合风险预算而非单日涨跌决定是否进入人工配置复核。",
-            "底层估值、持仓更新或折溢价显著变化后重新冻结 Evidence。",
-        ],
+        "publication_status": publication_status,
+        "safety_gate": safety_gate,
+        "action_conditions": list(dict.fromkeys(
+            condition
+            for claim in serialized_publishable
+            for condition in claim["conditions"]
+        )),
+        "publishable_claims": serialized_publishable,
+        "report_blockers": report_blockers,
+        "unpublished_questions": serialized_unpublished,
         "research_question": next(iter(opinions.values()))["research_question"],
         "evidence_consumption_audit": {
             metric: [
@@ -657,234 +729,114 @@ def _fund_report_v48(pack: dict[str, Any], opinions: dict[str, dict[str, Any]], 
     return "\n".join(lines)
 
 
-def _fund_report(pack: dict[str, Any], opinions: dict[str, dict[str, Any]], committee: dict[str, Any], changes: list[str]) -> str:
-    """Render a fund committee memo while keeping pipeline diagnostics in the audit tail."""
+def _fund_claim_lines(claims: list[dict[str, Any]]) -> list[str]:
+    lines: list[str] = []
+    for claim in claims:
+        lines.extend([f"### {claim['claim']}", ""])
+        period = str(claim.get("applicable_period") or "").strip()
+        if period:
+            lines.append(f"- 适用期：{period}")
+        lines.extend(f"- 适用条件：{condition}" for condition in claim.get("conditions") or [])
+        lines.extend(f"- 失效条件：{invalidator}" for invalidator in claim.get("invalidators") or [])
+        lines.append("")
+    return lines
 
-    profile = pack.get("profile") or {}
-    returns = profile.get("returns") or {}
-    scale = profile.get("scale") or {}
-    managers = profile.get("managers") or []
-    metrics = (pack.get("price_volume") or {}).get("metrics") or {}
-    premium = pack.get("premium_discount") or {}
-    latest = premium.get("latest") or {}
-    metadata = premium.get("tracking_metadata") or {}
-    estimate = pack.get("estimate") or {}
-    holdings = (pack.get("holdings") or {}).get("holdings") or []
-    index_snapshot = pack.get("index_snapshot") or {}
-    index_constituents = index_snapshot.get("constituents") or []
-    display_holdings = index_constituents[:10] if index_constituents else holdings
-    holding_quotes = pack.get("holding_quotes") or {}
-    top5 = _metric(pack, "F2", "top5_weight_pct")
-    top10 = _metric(pack, "F2", "top10_weight_pct")
-    valuation_coverage = _metric(pack, "F5", "disclosed_holdings_valuation_coverage_pct")
-    harmonic_pe = _metric(pack, "F5", "positive_pe_harmonic_proxy")
-    loss_weight = _metric(pack, "F5", "loss_making_disclosed_weight_pct")
-    index_pe = _metric(pack, "F5", "index_pe_calculation_share")
-    index_pe_total = _metric(pack, "F5", "index_pe_total_share")
-    index_dividend_yield = _metric(pack, "F5", "index_dividend_yield_pct")
-    index_valuation_asof = _metric(pack, "F5", "index_valuation_asof")
-    index_history_sample = _metric(pack, "F6", "index_history_sample_size")
-    index_return_60d = _metric(pack, "F6", "index_returns_60d")
-    index_drawdown_60d = _metric(pack, "F6", "index_max_drawdown_60d_pct")
-    index_volatility_60d = _metric(pack, "F6", "index_annualized_volatility_60d_pct")
-    aligned_days = _metric(pack, "F4", "recomputed_aligned_days")
-    tracking_error = _metric(pack, "F4", "recomputed_annualized_tracking_error_pct")
-    correlation = _metric(pack, "F4", "recomputed_correlation")
-    execution_status = _metric(pack, "F7", "execution_cost_model_status")
-    execution_cost_100w = (
-        _metric(pack, "F7", "execution_round_trip_cost_100w_bps")
-        or _metric(pack, "F7", "execution_round_trip_cost_1m_bps")
-    )
-    index_count = int(_metric(pack, "F2", "index_constituent_count") or len(index_constituents))
-    index_cap = _metric(pack, "F1", "index_single_constituent_cap_pct")
-    minimum_index_nav = _metric(pack, "F1", "minimum_index_constituent_nav_pct")
-    replication_method = _metric(pack, "F1", "replication_method")
-    management_fee = _metric(pack, "F7", "management_fee_pct")
-    custodian_fee = _metric(pack, "F7", "custodian_fee_pct")
-    index_name = metadata.get("tracked_index") or metadata.get("benchmark") or "半导体主题指数"
-    action_label = "审慎配置，先约束主题仓风险" if committee["action"] == "manual_review" else "审慎观察"
-    research_question = committee.get("research_question") or "指数、行业景气、估值、波动、组合风险与交易实现"
-    committee_names = "、".join(opinion["lens_name"] for opinion in opinions.values())
+
+def _fund_claims_by_section(claims: list[dict[str, Any]]) -> dict[int, list[dict[str, Any]]]:
+    section_by_scope = {
+        "F1": 2,
+        "F2": 3,
+        "F3": 4,
+        "F4": 5,
+        "F5": 5,
+        "F6": 4,
+        "F7": 5,
+        "F8": 7,
+    }
+    grouped = {section: [] for section in range(2, 8)}
+    for claim in claims:
+        section = section_by_scope.get(str(claim.get("scope") or ""), 6)
+        grouped[section].append(claim)
+    return grouped
+
+
+def _fund_report(
+    pack: dict[str, Any],
+    opinions: dict[str, dict[str, Any]],
+    committee: dict[str, Any],
+    changes: list[str],
+) -> str:
+    """Render only committee-published claims as required by plan sections 3-5."""
+
+    del changes
+    publication_status = str(committee.get("publication_status") or PublicationDecision.PUBLISH.value)
+    title = f"# {pack['name']}（{pack['symbol']}）基金深度研究报告 · 投委会"
+    if publication_status == PublicationDecision.BLOCK_REPORT.value:
+        reasons = [
+            str(issue["reason"])
+            for issue in (committee.get("safety_gate") or {}).get("issues") or []
+            if issue.get("decision") == PublicationDecision.BLOCK_REPORT.value
+        ]
+        return "\n".join(
+            [
+                title,
+                "",
+                f"**报告日期**：{pack['trade_date']}",
+                "",
+                "## 重大安全阻断",
+                "",
+                *(f"- {reason}" for reason in reasons),
+                "",
+                DISCLAIMER,
+                "股市有风险，投资需谨慎。",
+                "",
+            ]
+        )
+
+    claims = list(committee.get("publishable_claims") or [])
+    grouped = _fund_claims_by_section(claims)
+    committee_names = "、".join(str(opinion["lens_name"]) for opinion in opinions.values())
     lines = [
-        f"# {pack['name']}（{pack['symbol']}）基金深度研究报告 · 投委会",
+        title,
         "",
         f"**报告日期**：{pack['trade_date']}  ",
-        f"**研究问题**：{research_question}  ",
-        f"**分析模式**：动态投委会（{committee_names}）  ",
-        "**研究原则**：先判断买到什么，再判断收益来自哪里、承担什么风险、如何低摩擦实现；所有观点采用同一研究时点的数据",
+        f"**研究问题**：{committee.get('research_question') or '基金研究'}  ",
+        f"**分析模式**：动态投委会（{committee_names}）",
         "",
         "## 一、执行摘要",
         "",
-        "| 项目 | 投委会判断 |",
-        "|---|---|",
-        f"| 产品定位 | 跟踪 **{index_name}** 的高 beta 行业 ETF，不是宽基或低波动核心资产替代 |",
-        f"| 收益状态 | 近 1 月 **{_fmt(returns.get('近1月'), 2, '%')}**、近 3 月 **{_fmt(returns.get('近3月'), 2, '%')}**、近 1 年 **{_fmt(returns.get('近1年'), 2, '%')}**，周期弹性与路径波动都很高 |",
-        f"| 风险状态 | 5/20/60 日场内收益 **{_fmt(metrics.get('returns_5d'), 2, '%')} / {_fmt(metrics.get('returns_20d'), 2, '%')} / {_fmt(metrics.get('returns_60d'), 2, '%')}**，ATR14 **{_fmt(metrics.get('atr_14_pct'), 2, '%')}** |",
-        f"| 集中度 | 官方指数共 **{index_count}** 只样本，前五大 **{_fmt(top5, 2, '%')}**、前十大 **{_fmt(top10, 2, '%')}**，收益由头部公司与产业 beta 共同驱动 |",
-        f"| 交易实现 | 最新折溢价 **{_fmt(latest.get('premium_discount_pct'), 2, '%')}**，20 日均值/波动 **{_fmt(premium.get('premium_discount_20d_mean_pct'), 2, '%')} / {_fmt(premium.get('premium_discount_20d_std_pct'), 2, '%')}** |",
-        f"| 综合结论 | **{action_label}**：长期产业暴露有价值，但短期回撤与波动要求先定义主题仓风险预算，再讨论入场节奏 |",
-        "",
-        "==关键判断==  ",
-        f"近 1 年 {_fmt(returns.get('近1年'), 2, '%')} 的高收益与近 5 日 {_fmt(metrics.get('returns_5d'), 2, '%')} 的快速回撤并不矛盾："
-        "它们共同说明 512480 是高弹性产业工具。投资结论不能从“半导体长期成长”直接跳到“任何价格都适合买入”。",
-        "",
-        "## 二、产品定位与指数契约",
-        "",
-        f"- **跟踪标的**：{index_name}。基金的主要任务是复制指数暴露，而不是由基金经理主动选股获取 alpha。",
-        f"- **指数方法**：剔除过去一年日均成交额后 10% 的证券，样本覆盖待选样本累计市值前 90%，单一成分权重上限 {_fmt(index_cap, 2, '%')}；每年 6 月与 12 月定期调整。",
-        f"- **复制约束**：成分股及备选成分股占基金净值不低于 {_fmt(minimum_index_nav, 2, '%')}；主要采用 {replication_method or '完全复制法'}。",
-        f"- **规模与运营**：最新公开规模 {_fmt(scale.get('latest_size_yi'), 2, '亿元')}（{scale.get('asof') or '最近披露期'}），环比 {scale.get('mom') or '需结合份额数据复核'}。较大规模通常有利于流动性，但也需关注申赎与跟踪摩擦。",
-        f"- **管理团队**：{', '.join(row.get('name') or '' for row in managers) or '公开档案未列示'}。ETF 评价重点仍是跟踪、申赎、流动性和运营稳定性，不以主动基金的选股叙事评价。",
-        f"- **显性费率**：管理费 {_fmt(management_fee, 2, '%')}/年、托管费 {_fmt(custodian_fee, 2, '%')}/年。场内买卖还需承担券商佣金和价差。",
-        f"- **跟踪质量**：ETF 与官方指数严格对齐 {int(aligned_days or 0)} 个交易日，重算年化 tracking error {_fmt(tracking_error, 2, '%')}、相关系数 {_fmt(correlation, 3)}；页面披露值 {_fmt(metadata.get('reported_annual_tracking_error_pct'), 2, '%')} 仅作交叉检查。",
-        "",
-        "## 三、持仓结构与产业暴露",
-        "",
-        f"中证指数样本日：{index_snapshot.get('constituent_asof') or '最近发布日'}；权重基准日：{index_snapshot.get('weight_asof') or '最近月末'}。完整样本 {index_count} 只，前十大合计 {_fmt(top10, 2, '%')}。下表展示官方权重最高的 10 只，而不是基金季报的部分重仓股。",
-        "",
-        "| # | 代码 | 名称 | 权重 | 最新价 | 涨跌 | PE 快照 |",
-        "|---:|---|---|---:|---:|---:|---:|",
     ]
-    for index, row in enumerate(display_holdings, start=1):
-        quote = holding_quotes.get(str(row.get("code") or "")) or {}
-        lines.append(
-            f"| {index} | {row.get('code') or ''} | {row.get('name') or ''} | {_fmt(row.get('weight_pct'), 2, '%')} | "
-            f"{_fmt(quote.get('price'), 2) if quote.get('price') is not None else '—'} | "
-            f"{_fmt(quote.get('change_pct'), 2, '%') if quote.get('change_pct') is not None else '—'} | "
-            f"{_fmt(quote.get('pe'), 2, 'x') if quote.get('pe') is not None else '—'} |"
-        )
-    lines.extend([
-        "",
-        "==暴露判断== 官方完整样本表解决了只看基金季报重仓股造成的偏差；指数仍会同时承受半导体资本开支周期、成长估值久期和科创风格拥挤。权重采用最近官方月末文件，不把月末权重误称为盘中实时权重。",
-        "",
-        "## 四、业绩、趋势与风险",
-        "",
-        "| 维度 | 数值 | 解读 |",
-        "|---|---:|---|",
-        f"| 近1月 | {_fmt(returns.get('近1月'), 2, '%')} | 短周期动量已明显降温 |",
-        f"| 近3月 | {_fmt(returns.get('近3月'), 2, '%')} | 中期产业 beta 仍有正贡献 |",
-        f"| 近6月 | {_fmt(returns.get('近6月'), 2, '%')} | 高收益来自趋势与估值共同扩张 |",
-        f"| 近1年 | {_fmt(returns.get('近1年'), 2, '%')} | 基数很高，不能线性外推 |",
-        f"| 5日/20日 | {_fmt(metrics.get('returns_5d'), 2, '%')} / {_fmt(metrics.get('returns_20d'), 2, '%')} | 短期处于急跌与去拥挤阶段 |",
-        f"| 60日 | {_fmt(metrics.get('returns_60d'), 2, '%')} | 中期趋势尚未被短期回撤完全抹去 |",
-        f"| ATR14 | {_fmt(metrics.get('atr_14_pct'), 2, '%')} | 单日正常波动区间已很高，仓位大小比方向判断更重要 |",
-        f"| 60日最大回撤 | {_fmt(metrics.get('max_drawdown_60d_pct'), 2, '%')} | 直接衡量近期持有路径中的峰谷损失 |",
-        f"| 60日年化波动 | {_fmt(metrics.get('annualized_volatility_60d_pct'), 2, '%')} | 用于把主题仓转换为组合风险预算 |",
-        f"| 标的指数日线 | {int(index_history_sample or 0)} 个样本 | 官方指数日线，不用 ETF 价格替代标的指数 |",
-        f"| 指数60日收益/回撤 | {_fmt(index_return_60d, 2, '%')} / {_fmt(index_drawdown_60d, 2, '%')} | 区分指数 beta 与基金交易实现 |",
-        f"| 指数60日年化波动 | {_fmt(index_volatility_60d, 2, '%')} | 与 ETF 波动交叉验证 |",
-        f"| 成交量 z-score | {_fmt(metrics.get('volume_zscore'), 2)} | 放量波动，表明分歧与换手同步上升 |",
-        "",
-        "## 五、估值、折溢价与交易实现",
-        "",
-        f"- **净值与盘中估算**：最近官方净值 {estimate.get('nav') or '—'}（{estimate.get('nav_date') or '最近披露日'}），盘中估算 {estimate.get('estimate_nav') or '—'}，估算变动 {_fmt(estimate.get('estimate_change_pct'), 2, '%')}。盘中估值只用于观察，不替代最终净值。",
-        f"- **折溢价**：最新 {_fmt(latest.get('premium_discount_pct'), 2, '%')}；20 日均值 {_fmt(premium.get('premium_discount_20d_mean_pct'), 2, '%')}、标准差 {_fmt(premium.get('premium_discount_20d_std_pct'), 2, '%')}。当前交易摩擦主要来自高波动，而非异常溢价。",
-        f"- **完整指数估值**：中证指数 {index_valuation_asof or '最近交易日'} 官方计算用股本口径 PE {_fmt(index_pe, 2, 'x')}、总股本口径 PE {_fmt(index_pe_total, 2, 'x')}、股息率 {_fmt(index_dividend_yield, 2, '%')}，覆盖完整指数而非部分重仓股。基金季报重仓调和 PE {_fmt(harmonic_pe, 2, 'x')} 仅保留为交叉检查，覆盖权重 {_fmt(valuation_coverage, 2, '%')}、亏损权重 {_fmt(loss_weight, 2, '%')}。",
-        f"- **交易成本情景**：模型状态 {execution_status or '输入不足'}；100 万元订单估算往返成本 {_fmt(execution_cost_100w, 2, 'bps')}。该值包含买卖价差、佣金假设和基于 20 日成交额/波动率的市场冲击，不冒充用户真实成交成本。",
-        "",
-        "| 情景 | 产业与盈利条件 | 价格/交易条件 | 投委会含义 |",
-        "|---|---|---|---|",
-        "| Bull | 资本开支与国产替代兑现，头部盈利持续上修 | 折溢价稳定、趋势重新确认 | 产业 beta 可继续释放，但仍按主题仓管理 |",
-        "| Base | 景气上行与高估值互相抵消 | 高波动震荡、折溢价围绕均值 | 收益更多来自再平衡与持有纪律 |",
-        "| Bear | 盈利预期下修、估值久期压缩 | 放量下跌、流动性与折溢价恶化 | ATR 放大回撤，应主动收缩风险预算 |",
-        "",
-        "## 六、投委会审议",
-        "",
-        "| 委员框架 | 基于当前数据的判断 | 主要保留意见 |",
-        "|---|---|---|",
-    ])
-    views = {
-        "buffett": "把 ETF 视作一篮子企业，要求底层盈利与估值共同提供长期回报。",
-        "munger": "先排除高估值、同质化暴露和追逐热门主题造成的组合错误。",
-        "duan_yongping": "只有理解主要成分股如何创造现金，行业长期故事才可转化为持有逻辑。",
-        "zhang_kun": "重视头部企业长期现金流、竞争格局以及主题仓的组合机会成本。",
-        "graham": "当前完整指数 PE 很高，价格保护弱于盈利增长保护。",
-        "klarman": "高波动与高估值并存，绝对回报依赖更好的买入赔率与明确催化。",
-        "lynch": "半导体增长故事清晰，但必须由头部成分股盈利兑现验证。",
-        "o_neil": "中期趋势仍强，短期量价急跌要求等待盈利与价格重新共振。",
-        "wood": "国产替代与技术迭代提供长期空间，但高估值放大技术路线和融资风险。",
-        "dalio": "该 ETF 是高 beta、强周期风险资产，仓位应服务于组合风险平衡。",
-        "soros": "产业预期、资金流和价格会互相强化，也可能在拥挤逆转时快速反身。",
-        "livermore": "短期趋势已受损，先等关键点和量价确认，再讨论方向。",
-        "minervini": "高增长预期尚未与低波动入场形态匹配，风险收益比优先。",
-        "simons": "收益窗口、ATR、成交量和折溢价可复核，但需要成本后统计优势。",
-        "feng_liu": "急跌改善赔率，但只有盈利或产业数据出现边际变化才构成认知差。",
+    directional_claims = [claim for claim in claims if claim.get("direction") != "neutral"]
+    lines.extend(_fund_claim_lines(directional_claims or claims[:3]))
+    sections = {
+        2: "## 二、产品定位与指数契约",
+        3: "## 三、持仓结构与产业暴露",
+        4: "## 四、业绩、趋势与风险",
+        5: "## 五、估值、折溢价与交易实现",
+        6: "## 六、投委会审议",
+        7: "## 七、风险、催化剂与跟踪指标",
     }
-    reservations = {
-        "buffett": "完整指数估值已有，但仍需拆解成分股盈利质量与现金创造。",
-        "munger": "需核对与现有科技持仓的重复暴露。",
-        "duan_yongping": "ETF 结构降低了逐家公司理解深度。",
-        "zhang_kun": "主题仓不能替代长期核心资产配置。",
-        "graham": "高 PE 成分的下行保护较弱。",
-        "klarman": "催化不兑现时回撤可能快于基本面变化。",
-        "lynch": "高增长基数不能线性外推。",
-        "o_neil": "短期趋势与成交尚未重新确认。",
-        "wood": "技术路线与估值久期风险较高。",
-        "dalio": "需结合全组合相关性和风险预算。",
-        "soros": "拥挤交易反转会放大净值波动。",
-        "livermore": "不在下降趋势中机械摊平。",
-        "minervini": "等待波动收缩和相对强度恢复。",
-        "simons": (
-            "指数日线与交易成本情景已覆盖；仍需用实际订单金额、券商佣金和成交回报校准。"
-            if index_history_sample is not None and float(index_history_sample) >= 61
-            and execution_status == "scenario_complete"
-            else "标的指数日线或交易成本情景输入仍不完整。"
-        ),
-        "feng_liu": "急跌本身不是反转催化。",
-    }
-    for lens_id, opinion in opinions.items():
-        consumed = {item["metric"]: item.get("value") for item in opinion.get("metric_analyses") or []}
-        data_summary = (
-            f"完整指数 PE {_fmt(consumed.get('index_pe_calculation_share') or consumed.get('positive_pe_harmonic_proxy'), 2, 'x')}、"
-            f"5 日收益 {_fmt(consumed.get('returns_5d'), 2, '%')}、"
-            f"ATR {_fmt(consumed.get('atr_14_pct'), 2, '%')}、"
-            f"60 日最大回撤 {_fmt(consumed.get('max_drawdown_60d_pct'), 2, '%')}、"
-            f"指数样本 {int(consumed.get('index_history_sample_size') or 0)}、"
-            f"重算跟踪误差 {_fmt(consumed.get('recomputed_annualized_tracking_error_pct'), 2, '%')}、"
-            f"100万元往返成本 {_fmt(consumed.get('execution_round_trip_cost_100w_bps') or consumed.get('execution_round_trip_cost_1m_bps'), 2, 'bps')}；"
+    for section, heading in sections.items():
+        lines.extend([heading, ""])
+        lines.extend(_fund_claim_lines(grouped[section]))
+    lines.extend(["## 八、投委会结论与条件化动作", ""])
+    if publication_status == PublicationDecision.BLOCK_ACTION.value:
+        action_reasons = [
+            str(issue["reason"])
+            for issue in (committee.get("safety_gate") or {}).get("issues") or []
+            if issue.get("decision") == PublicationDecision.BLOCK_ACTION.value
+        ]
+        lines.extend(
+            [
+                "估值或交易执行行动被阻断；本报告不生成具体仓位、价格区间或买卖指令。",
+                *(f"- {reason}" for reason in action_reasons),
+                "",
+            ]
         )
-        if lens_id == "simons":
-            data_summary = data_summary.replace("指数样本", "指数日线样本")
-        lines.append(f"| {opinion['lens_name']} | {data_summary}{views[lens_id]} | {reservations[lens_id]} |")
-    lines.extend([
-        "",
-        "**投委会共识**：长期产业逻辑、短期拥挤、底层估值和交易实现必须同时评估。  ",
-        "**核心分歧**：产业成长派更重视国产替代与盈利弹性，价值与风险派更重视高估值、近期回撤和组合中已有科技暴露。",
-        "",
-        "## 七、风险、催化剂与跟踪指标",
-        "",
-        "| 类型 | 可证伪指标 |",
-        "|---|---|",
-        "| 产业催化 | 晶圆厂/设备资本开支、国产替代订单、存储价格与下游需求上修 |",
-        "| 盈利验证 | 头部成分股收入、利润、研发投入和订单兑现是否跟上估值 |",
-        "| 组合风险 | 官方指数集中度、科创/成长风格相关性、现有组合重复暴露 |",
-        "| 交易风险 | 折溢价偏离 20 日区间、成交量异常、跟踪偏离与流动性下降 |",
-        "| 重跑触发 | 新定期报告、指数调样、折溢价显著偏离或 20 日风险指标跳变 |",
-        "",
-        "## 八、投委会结论与条件化动作",
-        "",
-        f"**结论：{action_label}。** 512480 更适合作为风险预算内的半导体卫星仓工具，而不是依据过去一年涨幅升级为核心仓。",
-        "",
-        "| 情形 | 条件化动作 |",
-        "|---|---|",
-        "| 已有主题仓 | 核对与其他科技/科创持仓的重复暴露；用组合总风险而非单基金涨跌决定去留 |",
-        "| 准备新增仓位 | 先定义可承受回撤和仓位上限；优先等待短期波动收敛、盈利验证或趋势重新确认 |",
-        "| 溢价异常 | 若折溢价显著高于 20 日区间，避免用市价单追高，等待交易摩擦回归 |",
-        "| 产业证伪 | 若资本开支、订单与头部盈利同步下修，降低主题风险预算而非仅等待价格反弹 |",
-        "",
-        "### 后续跟踪重点",
-        "",
-        "- 指数定期调样后，集中度和头部成分是否发生实质变化。",
-        "- 完整指数 PE、股息率及样本数量是否改善。",
-        "- 净值回撤、跟踪偏离和折溢价是否超出近期正常区间。",
-        "- 半导体资本开支、订单和主要成分股盈利是否继续上修。",
-        "",
-        DISCLAIMER,
-        "股市有风险，投资需谨慎。",
-        "",
-    ])
+    else:
+        lines.extend(["以上可发布命题构成本轮条件化研究结论，不生成无条件买卖指令。", ""])
+    lines.extend([DISCLAIMER, "股市有风险，投资需谨慎。", ""])
     return "\n".join(lines)
-
 
 def _simple_doc(title: str, pack: dict[str, Any], body: list[str]) -> str:
     return "\n".join([f"# {title}：{pack['name']}（{pack['symbol']}）", "", *body, ""])
@@ -905,6 +857,7 @@ def build_fund_research_workspace(
     changes = ["首次研究，无历史基线。"] if not baseline else ["已建立上一期基线；本期按冻结 Evidence 重新复核。"]
     snapshot = freeze_fund_evidence(pack)
     committee, opinions = synthesize_fund_committee(snapshot, research_question=research_question, lenses=lenses)
+    audit_artifacts = build_claim_audit_artifacts(snapshot, opinions, committee)
     now = datetime.now(timezone.utc).isoformat()
     evidence_json = json.dumps(snapshot, ensure_ascii=False, indent=2) + "\n"
     opinions_json = json.dumps(opinions, ensure_ascii=False, indent=2) + "\n"
@@ -919,6 +872,22 @@ def build_fund_research_workspace(
         "committee_review": ("05-committee-review.md", _simple_doc("Fund Committee Review", pack, [f"- action：{committee['action']}", *[f"- {item}" for item in committee["consensus"]]])),
         "decision_memo": ("06-decision-memo.md", _simple_doc("Fund Decision Memo", pack, [f"- action：{committee['action']}", *[f"- {item}" for item in committee["action_conditions"]], "", DISCLAIMER])),
         "institutional_report": ("07-institutional-report.md", _fund_report(pack, opinions, committee, changes)),
+        "evidence_manifest": (
+            "evidence_manifest.json",
+            json.dumps(audit_artifacts["evidence_manifest"], ensure_ascii=False, indent=2) + "\n",
+        ),
+        "claim_ledger": (
+            "claim_ledger.json",
+            json.dumps(audit_artifacts["claim_ledger"], ensure_ascii=False, indent=2) + "\n",
+        ),
+        "coverage_report": (
+            "coverage_report.json",
+            json.dumps(audit_artifacts["coverage_report"], ensure_ascii=False, indent=2) + "\n",
+        ),
+        "unpublished_claims": (
+            "unpublished_claims.json",
+            json.dumps(audit_artifacts["unpublished_claims"], ensure_ascii=False, indent=2) + "\n",
+        ),
     }
     previous_artifacts = previous_manifest.get("artifacts") or {}
     artifacts = {
@@ -935,7 +904,11 @@ def build_fund_research_workspace(
         "committee_members": list(opinions),
         "created_at": previous_manifest.get("created_at") or now,
         "updated_at": now,
-        "status": "ready_for_analysis" if committee["action"] == "manual_review" else "evidence_insufficient",
+        "status": {
+            "block_report": "blocked_report",
+            "block_action": "action_blocked",
+        }.get(committee["publication_status"], "ready_for_analysis"),
+        "publication_status": committee["publication_status"],
         "stages": {stage: "complete" for stage in ("scope", "research_plan", "evidence_collection", "evidence_validation", "expert_analysis", "committee_review", "report")},
         "baseline": {"trade_date": baseline.get("trade_date"), "path": baseline.get("workspace_path")} if baseline else None,
         "evidence_snapshot": {

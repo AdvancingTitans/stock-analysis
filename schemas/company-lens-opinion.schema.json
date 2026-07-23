@@ -2,12 +2,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "stock-analysis Company Lens Opinion",
   "type": "object",
-  "required": ["opinion_id", "lens_id", "evidence_snapshot_id", "status", "required_modules", "supporting_evidence_ids", "counter_evidence_ids", "metric_analyses", "research_question", "confidence", "conclusion"],
+  "required": ["opinion_id", "lens_id", "evidence_snapshot_id", "status", "required_modules", "supporting_evidence_ids", "counter_evidence_ids", "metric_analyses", "publishable_claims", "report_blockers", "unpublished_questions", "research_question", "question_modules", "confidence", "conclusion"],
   "properties": {
     "opinion_id": {"type": "string"},
     "lens_id": {"type": "string"},
     "evidence_snapshot_id": {"type": "string", "pattern": "^sha256:"},
-    "status": {"enum": ["review_ready", "evidence_insufficient"]},
+    "status": {"const": "review_ready"},
     "required_modules": {"type": "array", "items": {"type": "string"}},
     "supporting_evidence_ids": {"type": "array", "items": {"type": "string"}},
     "counter_evidence_ids": {"type": "array", "items": {"type": "string"}},
@@ -26,7 +26,17 @@
         }
       }
     },
+    "publishable_claims": {
+      "type": "array",
+      "items": {"$ref": "research-claim.schema.json"}
+    },
+    "report_blockers": {
+      "type": "array",
+      "items": {"$ref": "research-claim.schema.json"}
+    },
+    "unpublished_questions": {"type": "array", "items": {"type": "object"}},
     "research_question": {"type": "string"},
+    "question_modules": {"type": "array", "items": {"type": "string"}},
     "confidence": {"enum": ["low", "medium", "high"]},
     "conclusion": {"type": "string"}
   }

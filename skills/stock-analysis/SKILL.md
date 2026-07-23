@@ -2,7 +2,7 @@
 name: stock-analysis
 description: 全球股市深度复盘技能。用于 A股、港股、美股、日股、韩股和基金的当前行情、盘前/盘中/盘后复盘、证据驱动分析与公司研究；日韩使用免费免登录行情、独立交易日历，并在缺少一手财务时触发自包含的 primary-evidence-reach 能力。
 metadata:
-  version: "4.15.0"
+  version: "4.16.0"
   author: "Hermes Agent + yjw"
   platforms: "linux, macos, windows"
 ---
@@ -44,10 +44,11 @@ uv run python -m stock_analysis --market research --symbol 512480 --asset-type f
 - `--market stock --symbol <代码>` 与 `--market fund --symbol <代码>` 是确定性速览入口，不触发 LLM；A股单股速览会补充东财 datacenter 已披露财务快照和 Sina 盘口价差快照，基金速览会补充公开长期业绩、前端费率、规模和基金经理画像，缺字段保留空值并提示缺口。
 - `stock-review`、`earnings`、`price-move` 与 `thesis-*` 是公司场景入口：先生成独立的 C1–C8 Company Evidence Pack，绝不把 M1–M6 市场证据当作公司事实。`stock-review` 只能给出已验证事实、明确缺口和观察条件；`earnings` 只复核已披露结构化财务事实；`price-move` 区分价格/量价/新闻样本与未解释部分，不能把相关性断言为主因。
 - `thesis-create` 和 `thesis-review` 只在用户明确请求时读写 `~/.stock_analysis/theses`（可由 `STOCK_ANALYSIS_THESIS_DIR` 覆盖）。论文保存支持事实、反证和失效条件的结构，自动 diff 只比较结构化 Evidence，不能替代一手披露复核。
-- `research` 在用户明确请求深度股票或基金研究时创建或恢复 Research Workspace。默认路径为 `~/.stock_analysis/research/<symbol>/<trade_date>/`，可由 `STOCK_ANALYSIS_RESEARCH_DIR` 或 `--workspace-dir` 覆盖；股票冻结 C1–C8 Company Evidence，基金冻结 F1–F8 Fund Evidence。各自 lens opinions 与 committee synthesis 必须消费同一个 `snapshot_id`，并保存研究计划、证据摘要、决策 memo 和机构报告。人工修改过的阶段文件不得被静默覆盖。
+- `research` 在用户明确请求深度股票或基金研究时创建或恢复 Research Workspace。默认路径为 `~/.stock_analysis/research/<symbol>/<trade_date>/`，可由 `STOCK_ANALYSIS_RESEARCH_DIR` 或 `--workspace-dir` 覆盖；股票冻结 C1–C8 Company Evidence，基金冻结 F1–F8 Fund Evidence。各自 lens opinions 与 committee synthesis 必须消费同一个 `snapshot_id`，并保存研究计划、证据摘要、决策 memo 和机构报告。人工修改过的阶段文件不得被静默覆盖。每位 lens 将命题隔离为 `publishable_claims` 与 `unpublished_questions`，committee 只能综合前者。
 - `--asset-type auto|company|fund` 控制 `research` 路由；`auto` 识别常见 A股场内基金前缀。Fund Research 独立评估产品契约、指数暴露、集中度、业绩、折溢价、tracking quality、风险和运营，不把 Company C1–C8 套到 ETF，也不以 ETF 单价替代底层成分估值。
 - Research 机构报告沿用中文投委会骨架：执行摘要 → 核心矛盾/产品契约 → 财务或持仓 → 资本配置或业绩风险 → 估值与交易实现 → 投委会审议 → 风险催化 → 条件化动作。`Coverage`、`Missing`、`manual_review`、快照 ID 与内部审计结果只进入 JSON/Workspace，不得出现在用户报告或替代投资分析。
-- 机构报告不得把模块覆盖率直接写成“证据不足，维持观察”。执行摘要必须综合已验证的质量、增长、估值和风险事实；尚未覆盖的内容只在确实影响结论时改写为用户可理解的研究边界或后续跟踪重点。Company 估值可以用已披露年度 EPS/BPS 生成静态 PE/PB proxy 与敏感性情景，但必须明确不是目标价。
+- `research` 机构报告采用离散命题发布规则：`strongly_supported` 与 `supported` 可以进入正文，`unsupported`、`speculative`、`conflicted_unresolved` 只进入审计产物。缺失证据只影响命题发布范围，不得被解释为 bearish、neutral、保守、观望或等待信号；范围可缩窄时使用 `missing_evidence_effect=narrows_scope`。Company 估值可以用已披露年度 EPS/BPS 生成静态 PE/PB proxy 与敏感性情景，但必须明确不是目标价。
+- `research` Workspace 固定保留 `evidence_manifest.json`、`claim_ledger.json`、`coverage_report.json`、`unpublished_claims.json`。价格、总市值或流动性缺失只阻断估值/执行行动；身份、口径完整性、一手冲突、前视偏差或完全没有可发布命题才阻断整份报告。
 - Company Evidence 可从财务历史派生净利率、经营现金转化和年度毛利稳定性，作为商业经济性与护城河代理；一手年报事实通过 PDF 文本抽取与 JSON 规则目录进入 C1–C8，新增发行人不得在 Python 报告逻辑中硬编码数值。所有派生项必须保留公式和状态。
 - Company C6 必须先用总市值除以明确估值倍数反推市场隐含净利润；提供 `--expectations-file` 时，再按“出货量×ASP→收入→净利润→分部价值”生成正向产品线/SOTP 模型，并输出预期差、市值剩余价值和期权业务所需收入利润。用户假设不得升级为公司事实；内部配套产品只能归入一个分部，负剩余价值不得归零。
 - Company 研究先审计用户前提，再处理证据冲突：只有报告期、会计口径和范围可比时才按来源层级与新鲜度仲裁。C8 的关键假设应绑定指标、基准、下次检查日期和观点变化条件，而不是只列宽泛风险。
@@ -55,7 +56,7 @@ uv run python -m stock_analysis --market research --symbol 512480 --asset-type f
 - 股票、基金与持仓场景统一调用交易成本情景模型：至少包含实时买卖价差、20 日平均成交额、波动率冲击、订单参与率、券商佣金假设、交易所经手费、适用的过户费/卖出印花税，以及基金管理费/托管费和折溢价观察。默认给出 10 万、100 万、500 万元三档；这是可校准情景，不得冒充用户真实成本。
 - 问题驱动的 6 人投委会适用于 Research 与市场/持仓报告的所有 committee 入口。市场持仓中的发行人一手披露、结构化财务、基金标的指数和交易成本也要进入公共证据契约；每位入选委员必须消费所有公共指标，再按框架区分核心证据与背景证据。
 - Company Evidence 对已接入源补充财报/业绩预告/快报、PE/PB/市值、融资现金流，以及公告索引中的治理和资本配置事件。东财/Futu 聚合内容仍标为 secondary；未回查交易所或公司原文时不得写成已验证的一手原文。
-- 每条 Company evidence 必须有稳定 `evidence_id` 和 `validation_status`；Company lens 只能引用冻结快照中的 ID。committee 必须拒绝混用不同 `snapshot_id` 的 opinions，只输出 `observe` 或 `manual_review`，不得自动推导仓位或买卖动作。
+- 每条 Company evidence 必须有稳定 `evidence_id` 和 `validation_status`；Company lens 只能引用冻结快照中的 ID。committee 必须拒绝混用不同 `snapshot_id` 的 opinions，只能从可发布命题形成条件化研究结论，不得自动推导仓位或买卖动作。
 - `mootdx` 默认关闭；只有明确需要五档、逐笔或深度分钟 K 时才使用 `--enable-mootdx`。
 - 专用能力由 `sources/mootdx_adapter.py` 执行；依赖缺失、TCP 失败或返回空数据时自动回普通腾讯/新浪报价并记录原因。
 
@@ -296,7 +297,7 @@ A股个股或 A股持仓若有 `STOCK.financial_snapshot` / `_meta.stock_financi
 - 识别到单个专家时，单专家视角不输出机构化综合判断，也不输出“交易计划草案”“风险管理意见”“组合经理最终意见”等委员会小节。
 - 单专家报告最后章节标题必须按中文名写成 `## {专家中文名}持仓建议与风险提示`；若没有完整持仓信息，可写成 `## {专家中文名}市场建议与风险提示`，但不得伪造持仓。
 - 不得模仿身份声明或虚构专家发言：不要写“我是巴菲特本人”“芒格会说”，也不要编造历史人物未说过的话；可以写“按巴菲特框架看”“以芒格式反向检查”。
-- 专家框架不能覆盖数据纪律：所有结论仍必须回到 evidence、行情、成交、资金流、财务或公开信息；证据不足时明确写“证据不足，维持观察”。
+- 专家框架不能覆盖数据纪律：所有结论仍必须回到 evidence、行情、成交、资金流、财务或公开信息。`research` 中没有达到发布门槛的问题进入 `unpublished_questions`，不得生成“证据不足，维持观察”等替代结论；其他入口继续遵守各自的缺口展示契约。
 - 若用户同时指定多个专家，除非明确要求 `all` 或“多专家综合”，否则只执行用户最后明确指定的一个专家；明确要求 `all`、`committee` 或“多专家综合”时，使用 `scripts/lens_registry.py` 的默认 committee 成员和各 JSON 的 `committee_role`、`committee_synthesis_rules` 做压缩综合，不输出逐轮辩论过程。
 
 ## Trading 入口与持仓完整性
@@ -394,7 +395,7 @@ A股个股或 A股持仓若有 `STOCK.financial_snapshot` / `_meta.stock_financi
 - 每个模块使用 `==关键判断==`，并包含判断、证据、风险或确认条件。
 - 指数、持仓、连板梯队使用 Markdown 表格。
 - 精选资讯和补充数据只能作为证据、风险或观察清单，不能直接写成买入、卖出、申购、赎回或仓位信号。
-- 缺失指标不得被静默吞掉；若已尝试稳定公开源和精选资讯仍缺失，必须在对应模块自然说明“相关指标当日未披露”。
+- 非 `research` 报告中的缺失指标不得被静默吞掉；若已尝试稳定公开源和精选资讯仍缺失，必须在对应模块自然说明“相关指标当日未披露”。`research` 的普通缺口只进入四类审计 JSON，不进入投资者正文。
 - 结尾必须原样包含：
 
 `以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。`

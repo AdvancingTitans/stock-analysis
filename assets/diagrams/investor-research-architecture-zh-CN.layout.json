@@ -1,0 +1,351 @@
+{
+  "canvas": {
+    "height": 700.0,
+    "width": 960.0
+  },
+  "composition": {
+    "limits": {
+      "max_bends_per_edge": 2,
+      "max_bridged_crossings": 0,
+      "max_route_stretch": 1.35,
+      "max_total_bends": 8,
+      "min_container_gutter": 20.0,
+      "min_label_clearance": 4.0,
+      "min_node_gap": 40.0,
+      "min_segment_length": 16.0,
+      "profile": "showcase"
+    },
+    "metrics": {
+      "bridged_crossings": 0,
+      "max_route_stretch": 1.0,
+      "minimum_container_gutter": 20.0,
+      "minimum_node_gap": 110.0,
+      "shortest_segment": 20.4,
+      "total_bends": 4
+    },
+    "ok": true,
+    "profile": "showcase",
+    "score": 100,
+    "violations": []
+  },
+  "edges": [
+    {
+      "bends": 0,
+      "bridges": [],
+      "crossings": [],
+      "id": "brief",
+      "length": 170.0,
+      "route": [
+        [
+          220.0,
+          173.0
+        ],
+        [
+          390.0,
+          173.0
+        ]
+      ],
+      "route_stretch": 1.0,
+      "source": "request",
+      "source_port": [
+        220.0,
+        173.0
+      ],
+      "target": "coordinator",
+      "target_port": [
+        390.0,
+        173.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 2,
+      "bridges": [],
+      "crossings": [],
+      "id": "a-delegate-research",
+      "length": 432.0,
+      "route": [
+        [
+          472.0,
+          200.0
+        ],
+        [
+          472.0,
+          306.0
+        ],
+        [
+          170.0,
+          306.0
+        ],
+        [
+          170.0,
+          330.0
+        ]
+      ],
+      "route_stretch": 1.0,
+      "source": "coordinator",
+      "source_port": [
+        472.0,
+        200.0
+      ],
+      "target": "research",
+      "target_port": [
+        170.0,
+        330.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 0,
+      "bridges": [],
+      "crossings": [],
+      "id": "b-delegate-coding",
+      "length": 130.0,
+      "route": [
+        [
+          490.0,
+          200.0
+        ],
+        [
+          490.0,
+          330.0
+        ]
+      ],
+      "route_stretch": 1.0,
+      "source": "coordinator",
+      "source_port": [
+        490.0,
+        200.0
+      ],
+      "target": "coding",
+      "target_port": [
+        490.0,
+        330.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 2,
+      "bridges": [],
+      "crossings": [],
+      "id": "c-delegate-review",
+      "length": 412.0,
+      "route": [
+        [
+          508.0,
+          200.0
+        ],
+        [
+          508.0,
+          220.4
+        ],
+        [
+          790.0,
+          220.4
+        ],
+        [
+          790.0,
+          330.0
+        ]
+      ],
+      "route_stretch": 1.0,
+      "source": "coordinator",
+      "source_port": [
+        508.0,
+        200.0
+      ],
+      "target": "review",
+      "target_port": [
+        790.0,
+        330.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 0,
+      "bridges": [],
+      "crossings": [],
+      "id": "research-write",
+      "length": 120.0,
+      "route": [
+        [
+          170.0,
+          390.0
+        ],
+        [
+          170.0,
+          510.0
+        ]
+      ],
+      "route_stretch": 1.0,
+      "source": "research",
+      "source_port": [
+        170.0,
+        390.0
+      ],
+      "target": "memory",
+      "target_port": [
+        170.0,
+        510.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 0,
+      "bridges": [],
+      "crossings": [],
+      "id": "memory-merge",
+      "length": 130.0,
+      "route": [
+        [
+          260.0,
+          540.0
+        ],
+        [
+          390.0,
+          540.0
+        ]
+      ],
+      "route_stretch": 1.0,
+      "source": "memory",
+      "source_port": [
+        260.0,
+        540.0
+      ],
+      "target": "synthesis",
+      "target_port": [
+        390.0,
+        540.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 0,
+      "bridges": [],
+      "crossings": [],
+      "id": "coding-merge",
+      "length": 120.0,
+      "route": [
+        [
+          490.0,
+          390.0
+        ],
+        [
+          490.0,
+          510.0
+        ]
+      ],
+      "route_stretch": 1.0,
+      "source": "coding",
+      "source_port": [
+        490.0,
+        390.0
+      ],
+      "target": "synthesis",
+      "target_port": [
+        490.0,
+        510.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 0,
+      "bridges": [],
+      "crossings": [],
+      "id": "review-output",
+      "length": 120.0,
+      "route": [
+        [
+          790.0,
+          390.0
+        ],
+        [
+          790.0,
+          510.0
+        ]
+      ],
+      "route_stretch": 1.0,
+      "source": "review",
+      "source_port": [
+        790.0,
+        390.0
+      ],
+      "target": "response",
+      "target_port": [
+        790.0,
+        510.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 0,
+      "bridges": [],
+      "crossings": [],
+      "id": "deliver",
+      "length": 110.0,
+      "route": [
+        [
+          590.0,
+          540.0
+        ],
+        [
+          700.0,
+          540.0
+        ]
+      ],
+      "route_stretch": 1.0,
+      "source": "synthesis",
+      "source_port": [
+        590.0,
+        540.0
+      ],
+      "target": "response",
+      "target_port": [
+        700.0,
+        540.0
+      ],
+      "waypoints": []
+    }
+  ],
+  "input_schema": "v1",
+  "issues": [],
+  "mode": "agent",
+  "ok": true,
+  "placements": {
+    "legend": {
+      "actual": [
+        48.0,
+        625.0
+      ],
+      "bounds": [
+        38.0,
+        611.0,
+        540.0,
+        657.0
+      ],
+      "moved": false,
+      "requested": [
+        48.0,
+        625.0
+      ]
+    }
+  },
+  "schema_version": 1,
+  "semantics": {
+    "details": {},
+    "ok": true,
+    "profile": "generic",
+    "style": 5,
+    "visual_theme": "Glassmorphism"
+  },
+  "style": {
+    "id": 5,
+    "name": "Glassmorphism"
+  },
+  "summary": {
+    "bridged_crossings": 0,
+    "edges": 9,
+    "nodes": 8
+  },
+  "text_metrics": "heuristic-v1"
+}

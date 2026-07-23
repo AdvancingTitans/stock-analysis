@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "stock-analysis Company Committee Synthesis",
   "type": "object",
-  "required": ["committee_id", "evidence_snapshot_id", "opinion_ids", "members", "consensus", "disagreements", "risk_vetoes", "action", "action_conditions", "research_question", "evidence_consumption_audit"],
+  "required": ["committee_id", "evidence_snapshot_id", "opinion_ids", "members", "publishable_claims", "report_blockers", "unpublished_questions", "consensus", "disagreements", "risk_vetoes", "action", "publication_status", "safety_gate", "action_conditions", "research_question", "evidence_consumption_audit"],
   "properties": {
     "committee_id": {"type": "string"},
     "evidence_snapshot_id": {"type": "string", "pattern": "^sha256:"},
@@ -11,7 +11,25 @@
     "consensus": {"type": "array", "items": {"type": "string"}},
     "disagreements": {"type": "array", "items": {"type": "string"}},
     "risk_vetoes": {"type": "array", "items": {"type": "string"}},
-    "action": {"enum": ["observe", "manual_review"]},
+    "action": {"enum": ["manual_review", "block_report"]},
+    "publication_status": {"enum": ["publish", "block_action", "block_report"]},
+    "publishable_claims": {
+      "type": "array",
+      "items": {"$ref": "research-claim.schema.json"}
+    },
+    "report_blockers": {
+      "type": "array",
+      "items": {"$ref": "research-claim.schema.json"}
+    },
+    "unpublished_questions": {"type": "array", "items": {"type": "object"}},
+    "safety_gate": {
+      "type": "object",
+      "required": ["decision", "issues"],
+      "properties": {
+        "decision": {"enum": ["publish", "block_action", "block_report"]},
+        "issues": {"type": "array", "items": {"type": "object"}}
+      }
+    },
     "action_conditions": {"type": "array", "items": {"type": "string"}},
     "research_question": {"type": "string"},
     "evidence_consumption_audit": {

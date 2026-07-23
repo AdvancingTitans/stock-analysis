@@ -13,6 +13,14 @@ CATALOG = ROOT / "agent-workflows" / "commands.json"
 
 def rendered(command: dict[str, str], target: str) -> str:
     title = command["id"]
+    evidence_policy = (
+        "For research-workspace investor reports, use only publishable_claims. Keep ordinary missing "
+        "evidence and unpublished questions in evidence_manifest.json, claim_ledger.json, "
+        "coverage_report.json, and unpublished_claims.json; never turn absence of evidence into a "
+        "bearish, neutral, conservative, or wait-and-see conclusion."
+        if title == "research-workspace"
+        else "Always preserve Evidence Pack source events and state missing evidence explicitly."
+    )
     body = f"""---
 name: {title}
 description: {command['summary']}
@@ -30,7 +38,7 @@ Run:
 
 {command['output']}
 
-Always preserve Evidence Pack source events and state missing evidence explicitly.
+{evidence_policy}
 If Company Evidence marks agent_primary_evidence_reach as recommended, invoke the bundled
 stock-analysis-primary-evidence-reach Skill, follow primary_evidence_requests, and rerun with
 --primary-evidence-file. Agent Reach is optional because the bundled fallback can use host web/PDF tools.
